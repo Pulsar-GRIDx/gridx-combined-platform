@@ -1,18 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo } from "react";
 import {
   Box,
-  Card,
-  CardContent,
   Typography,
   Chip,
-  Tabs,
-  Tab,
-  List,
-  ListItem,
   Button,
-  IconButton,
   Divider,
-} from '@mui/material';
+  useTheme,
+} from "@mui/material";
 import {
   ErrorOutlined,
   WarningAmberOutlined,
@@ -20,66 +14,66 @@ import {
   InfoOutlined,
   FiberManualRecord,
   MarkEmailReadOutlined,
-} from '@mui/icons-material';
-import Header from '../components/Header';
-import { notifications } from '../services/mockData';
+} from "@mui/icons-material";
+import Header from "../components/Header";
+import { tokens } from "../theme";
+import { notifications } from "../services/mockData";
 
-// ---- Shared card styling ----
-const darkCard = {
-  background: '#152238',
-  border: '1px solid rgba(30, 58, 95, 0.5)',
-  borderRadius: 2,
-};
-
-// ---- Notification type configuration ----
+/* ---- notification type config ---- */
 const typeConfig = {
-  Critical: { color: '#db4f4a', icon: ErrorOutlined,          bg: 'rgba(219, 79, 74, 0.15)' },
-  Warning:  { color: '#f2b705', icon: WarningAmberOutlined,   bg: 'rgba(242, 183, 5, 0.15)' },
-  Success:  { color: '#4cceac', icon: CheckCircleOutlined,    bg: 'rgba(76, 206, 172, 0.15)' },
-  Info:     { color: '#6870fa', icon: InfoOutlined,            bg: 'rgba(104, 112, 250, 0.15)' },
+  Critical: { color: "#db4f4a", icon: ErrorOutlined, bg: "rgba(219,79,74,0.15)" },
+  Warning: { color: "#f2b705", icon: WarningAmberOutlined, bg: "rgba(242,183,5,0.15)" },
+  Success: { color: "#4cceac", icon: CheckCircleOutlined, bg: "rgba(76,206,172,0.15)" },
+  Info: { color: "#6870fa", icon: InfoOutlined, bg: "rgba(104,112,250,0.15)" },
 };
 
-const filterTabs = ['All', 'Critical', 'Warning', 'Success', 'Info'];
-
-// ---- Helpers ----
+/* ---- helpers ---- */
 function formatRelativeTime(iso) {
-  const now = new Date('2026-03-12T09:00:00');
+  const now = new Date("2026-03-12T09:00:00");
   const d = new Date(iso);
   const diffMs = now - d;
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
 
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-  return d.toLocaleDateString('en-NA', { year: 'numeric', month: 'short', day: 'numeric' });
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
+  return d.toLocaleDateString("en-NA", { year: "numeric", month: "short", day: "numeric" });
 }
 
-// ===========================================================================
-// Notifications Page
-// ===========================================================================
+/* ==================================================================== */
+/* Notifications Page                                                   */
+/* ==================================================================== */
 export default function Notifications() {
-  const [activeFilter, setActiveFilter] = useState('All');
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
+
+  const [activeFilter, setActiveFilter] = useState("All");
   const [readState, setReadState] = useState(() => {
     const map = {};
-    notifications.forEach((n) => { map[n.id] = n.read; });
+    notifications.forEach((n) => {
+      map[n.id] = n.read;
+    });
     return map;
   });
 
-  // ---- Counts by type ----
+  /* ---- counts by type ---- */
   const counts = useMemo(() => {
     const c = { Critical: 0, Warning: 0, Success: 0, Info: 0 };
-    notifications.forEach((n) => { if (c[n.type] !== undefined) c[n.type]++; });
+    notifications.forEach((n) => {
+      if (c[n.type] !== undefined) c[n.type]++;
+    });
     return c;
   }, []);
 
-  // ---- Filtered + sorted notifications ----
+  /* ---- filtered + sorted ---- */
   const filteredNotifications = useMemo(() => {
-    const list = activeFilter === 'All'
-      ? [...notifications]
-      : notifications.filter((n) => n.type === activeFilter);
+    const list =
+      activeFilter === "All"
+        ? [...notifications]
+        : notifications.filter((n) => n.type === activeFilter);
     return list.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }, [activeFilter]);
 
@@ -87,60 +81,116 @@ export default function Notifications() {
     setReadState((prev) => ({ ...prev, [id]: true }));
   };
 
+  const filterTabs = ["All", "Critical", "Warning", "Success", "Info"];
+
   return (
-    <Box>
+    <Box m="20px">
       <Header
-        title="Notifications"
+        title="NOTIFICATIONS"
         subtitle="System alerts and meter events"
       />
 
-      {/* ---- Summary Chips ---- */}
-      <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ---- Count Cards (span 3 each) ---- */}
         {Object.entries(counts).map(([type, count]) => {
           const cfg = typeConfig[type];
+          const IconComp = cfg.icon;
           return (
-            <Chip
+            <Box
               key={type}
-              icon={<cfg.icon sx={{ color: `${cfg.color} !important`, fontSize: 18 }} />}
-              label={`${type}: ${count}`}
-              sx={{
-                bgcolor: cfg.bg,
-                color: cfg.color,
-                fontWeight: 600,
-                fontSize: '0.78rem',
-                height: 32,
-                '& .MuiChip-icon': { ml: 0.5 },
-              }}
-            />
+              gridColumn="span 3"
+              gridRow="span 1"
+              backgroundColor={colors.primary[400]}
+              borderRadius="4px"
+              p="20px"
+              display="flex"
+              alignItems="center"
+              gap={2}
+              sx={{ cursor: "pointer" }}
+              onClick={() => setActiveFilter(type)}
+            >
+              <Box
+                sx={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: "50%",
+                  bgcolor: cfg.bg,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <IconComp sx={{ color: cfg.color, fontSize: 26 }} />
+              </Box>
+              <Box>
+                <Typography variant="h4" color={cfg.color} fontWeight={700}>
+                  {count}
+                </Typography>
+                <Typography variant="body2" color={colors.grey[100]} fontWeight={600}>
+                  {type}
+                </Typography>
+              </Box>
+            </Box>
           );
         })}
-      </Box>
 
-      {/* ---- Filter Tabs ---- */}
-      <Tabs
-        value={activeFilter}
-        onChange={(_, v) => setActiveFilter(v)}
-        sx={{
-          mb: 2,
-          '& .MuiTab-root': {
-            color: 'rgba(255,255,255,0.5)',
-            fontWeight: 600,
-            textTransform: 'none',
-            fontSize: '0.82rem',
-            minWidth: 80,
-          },
-          '& .Mui-selected': { color: '#00b4d8' },
-          '& .MuiTabs-indicator': { backgroundColor: '#00b4d8' },
-        }}
-      >
-        {filterTabs.map((tab) => (
-          <Tab key={tab} label={tab} value={tab} />
-        ))}
-      </Tabs>
+        {/* ---- Filter tabs row ---- */}
+        <Box
+          gridColumn="span 12"
+          gridRow="span 1"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          display="flex"
+          alignItems="center"
+          px="15px"
+          gap={1}
+          flexWrap="wrap"
+        >
+          {filterTabs.map((tab) => (
+            <Chip
+              key={tab}
+              label={tab}
+              onClick={() => setActiveFilter(tab)}
+              sx={{
+                bgcolor:
+                  activeFilter === tab
+                    ? colors.greenAccent[700]
+                    : "rgba(255,255,255,0.06)",
+                color:
+                  activeFilter === tab ? "#fff" : colors.grey[100],
+                fontWeight: 600,
+                fontSize: "0.8rem",
+                height: 32,
+                cursor: "pointer",
+                "&:hover": {
+                  bgcolor:
+                    activeFilter === tab
+                      ? colors.greenAccent[600]
+                      : "rgba(255,255,255,0.1)",
+                },
+              }}
+            />
+          ))}
+          <Typography variant="body2" color={colors.grey[400]} ml="auto" fontSize="0.78rem">
+            {filteredNotifications.length} notification{filteredNotifications.length !== 1 ? "s" : ""}
+          </Typography>
+        </Box>
 
-      {/* ---- Notification List ---- */}
-      <Card sx={darkCard}>
-        <List disablePadding>
+        {/* ---- Notification Timeline (span 12, span 5) ---- */}
+        <Box
+          gridColumn="span 12"
+          gridRow="span 5"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+          p="10px"
+        >
           {filteredNotifications.map((ntf, idx) => {
             const cfg = typeConfig[ntf.type] || typeConfig.Info;
             const IconComp = cfg.icon;
@@ -148,28 +198,29 @@ export default function Notifications() {
 
             return (
               <Box key={ntf.id}>
-                <ListItem
-                  disablePadding
+                <Box
+                  display="flex"
+                  alignItems="flex-start"
+                  gap={2}
+                  px={2}
+                  py={1.5}
                   sx={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 2,
-                    px: 2.5,
-                    py: 2,
-                    bgcolor: isRead ? 'transparent' : 'rgba(0, 180, 216, 0.04)',
-                    '&:hover': { bgcolor: isRead ? 'rgba(0,180,216,0.03)' : 'rgba(0, 180, 216, 0.07)' },
+                    bgcolor: isRead ? "transparent" : "rgba(0,180,216,0.04)",
+                    "&:hover": {
+                      bgcolor: isRead ? "rgba(0,180,216,0.03)" : "rgba(0,180,216,0.07)",
+                    },
                   }}
                 >
-                  {/* ---- Left: Icon Circle ---- */}
+                  {/* ---- Icon ---- */}
                   <Box
                     sx={{
                       width: 40,
                       height: 40,
-                      borderRadius: '50%',
+                      borderRadius: "50%",
                       bgcolor: cfg.bg,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                       flexShrink: 0,
                       mt: 0.3,
                     }}
@@ -177,35 +228,25 @@ export default function Notifications() {
                     <IconComp sx={{ color: cfg.color, fontSize: 22 }} />
                   </Box>
 
-                  {/* ---- Center: Content ---- */}
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.3 }}>
-                      <Typography
-                        variant="body2"
-                        sx={{ color: '#fff', fontWeight: 600, fontSize: '0.85rem' }}
-                      >
+                  {/* ---- Content ---- */}
+                  <Box flex={1} minWidth={0}>
+                    <Box display="flex" alignItems="center" gap={1} mb={0.3}>
+                      <Typography variant="body2" color={colors.grey[100]} fontWeight={600} fontSize="0.85rem">
                         {ntf.title}
                       </Typography>
-                      {!isRead && (
-                        <FiberManualRecord sx={{ fontSize: 8, color: '#00b4d8' }} />
-                      )}
+                      {!isRead && <FiberManualRecord sx={{ fontSize: 8, color: colors.greenAccent[500] }} />}
                     </Box>
                     <Typography
                       variant="body2"
-                      sx={{
-                        color: 'rgba(255,255,255,0.6)',
-                        fontSize: '0.78rem',
-                        lineHeight: 1.5,
-                        mb: 0.5,
-                      }}
+                      color={colors.grey[400]}
+                      fontSize="0.78rem"
+                      lineHeight={1.5}
+                      mb={0.5}
                     >
                       {ntf.message}
                     </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <Typography
-                        variant="caption"
-                        sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.7rem' }}
-                      >
+                    <Box display="flex" alignItems="center" gap={1.5}>
+                      <Typography variant="caption" color="rgba(255,255,255,0.35)" fontSize="0.7rem">
                         {formatRelativeTime(ntf.timestamp)}
                       </Typography>
                       {ntf.meterNo && (
@@ -213,10 +254,10 @@ export default function Notifications() {
                           label={ntf.meterNo}
                           size="small"
                           sx={{
-                            bgcolor: 'rgba(255,255,255,0.06)',
-                            color: 'rgba(255,255,255,0.5)',
-                            fontFamily: 'monospace',
-                            fontSize: '0.68rem',
+                            bgcolor: "rgba(255,255,255,0.06)",
+                            color: colors.grey[400],
+                            fontFamily: "monospace",
+                            fontSize: "0.68rem",
                             height: 20,
                           }}
                         />
@@ -224,8 +265,8 @@ export default function Notifications() {
                     </Box>
                   </Box>
 
-                  {/* ---- Right: Read Indicator / Mark as Read ---- */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                  {/* ---- Read / Mark as Read ---- */}
+                  <Box display="flex" alignItems="center" flexShrink={0}>
                     {!isRead ? (
                       <Button
                         variant="outlined"
@@ -233,38 +274,37 @@ export default function Notifications() {
                         startIcon={<MarkEmailReadOutlined sx={{ fontSize: 16 }} />}
                         onClick={() => handleMarkRead(ntf.id)}
                         sx={{
-                          fontSize: '0.7rem',
-                          textTransform: 'none',
-                          whiteSpace: 'nowrap',
+                          fontSize: "0.7rem",
+                          textTransform: "none",
+                          whiteSpace: "nowrap",
+                          color: colors.greenAccent[500],
+                          borderColor: colors.greenAccent[500],
                         }}
                       >
                         Mark as Read
                       </Button>
                     ) : (
-                      <Typography
-                        variant="caption"
-                        sx={{ color: 'rgba(255,255,255,0.25)', fontSize: '0.68rem' }}
-                      >
+                      <Typography variant="caption" color="rgba(255,255,255,0.25)" fontSize="0.68rem">
                         Read
                       </Typography>
                     )}
                   </Box>
-                </ListItem>
+                </Box>
                 {idx < filteredNotifications.length - 1 && (
-                  <Divider sx={{ borderColor: 'rgba(30,58,95,0.3)' }} />
+                  <Divider sx={{ borderColor: "rgba(255,255,255,0.05)" }} />
                 )}
               </Box>
             );
           })}
           {filteredNotifications.length === 0 && (
-            <Box sx={{ textAlign: 'center', py: 6 }}>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.35)' }}>
+            <Box textAlign="center" py={6}>
+              <Typography variant="body2" color={colors.grey[400]}>
                 No notifications match the selected filter.
               </Typography>
             </Box>
           )}
-        </List>
-      </Card>
+        </Box>
+      </Box>
     </Box>
   );
 }

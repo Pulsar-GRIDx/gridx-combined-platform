@@ -1,15 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo } from "react";
 import {
   Box,
-  Card,
-  CardContent,
   Typography,
-  Grid,
   Chip,
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -20,10 +16,11 @@ import {
   InputAdornment,
   Button,
   Divider,
-} from '@mui/material';
+  useTheme,
+} from "@mui/material";
 import {
   SearchOutlined,
-  PersonAddOutlined,
+  PersonOutlined,
   ConfirmationNumberOutlined,
   EditOutlined,
   ReceiptLongOutlined,
@@ -31,64 +28,100 @@ import {
   BlockOutlined,
   CheckCircleOutlined,
   PeopleOutlined,
-  WarningAmberOutlined,
-  DoNotDisturbOutlined,
-  LocationOnOutlined,
   PhoneOutlined,
   EmailOutlined,
+  LocationOnOutlined,
   GpsFixedOutlined,
   SpeedOutlined,
-} from '@mui/icons-material';
-import Header from '../components/Header';
-import { customers } from '../services/mockData';
+} from "@mui/icons-material";
+import { tokens } from "../theme";
+import Header from "../components/Header";
+import { customers } from "../services/mockData";
 
-// ---- Shared card styling ----
-const darkCard = {
-  background: '#152238',
-  border: '1px solid rgba(30, 58, 95, 0.5)',
-  borderRadius: 2,
-};
+// ---- Helpers ----------------------------------------------------------------
 
-// ---- Helpers ----
-const fmtCurrency = (n) => `N$ ${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const statusColor = {
-  Active:    { bg: 'rgba(76, 206, 172, 0.15)', text: '#4cceac' },
-  Arrears:   { bg: 'rgba(242, 183, 5, 0.15)',  text: '#f2b705' },
-  Suspended: { bg: 'rgba(219, 79, 74, 0.15)',  text: '#db4f4a' },
-};
-
-const areas = [
-  'All Areas',
-  'Grunau',
-  'Noordoewer',
-  'Groot Aub',
-  'Dordabis',
-  'Seeis',
-  'Stampriet',
-  'Windhoek West',
-  'Khomasdal',
-  'Katutura',
-];
+const fmtCurrency = (n) =>
+  `N$ ${Number(n).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 function formatDateTime(iso) {
-  if (!iso) return '-';
+  if (!iso) return "-";
   const d = new Date(iso);
-  return d.toLocaleDateString('en-NA', { year: 'numeric', month: 'short', day: 'numeric' }) +
-    ' ' +
-    d.toLocaleTimeString('en-NA', { hour: '2-digit', minute: '2-digit' });
+  return (
+    d.toLocaleDateString("en-NA", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }) +
+    " " +
+    d.toLocaleTimeString("en-NA", { hour: "2-digit", minute: "2-digit" })
+  );
 }
 
+const areas = [
+  "All Areas",
+  "Grunau",
+  "Noordoewer",
+  "Groot Aub",
+  "Dordabis",
+  "Seeis",
+  "Stampriet",
+  "Windhoek West",
+  "Khomasdal",
+  "Katutura",
+];
+
+// ---- Detail Row helper ------------------------------------------------------
+
+function DetailRow({ label, value, mono, icon, colors }) {
+  return (
+    <Box
+      display="flex"
+      justifyContent="space-between"
+      alignItems="center"
+      mb="6px"
+    >
+      <Box display="flex" alignItems="center" gap="4px">
+        {icon && (
+          <Box sx={{ color: colors.grey[300], display: "flex" }}>{icon}</Box>
+        )}
+        <Typography variant="caption" color={colors.grey[300]}>
+          {label}
+        </Typography>
+      </Box>
+      <Typography
+        variant="body2"
+        sx={{
+          color: colors.grey[100],
+          fontWeight: 500,
+          fontSize: "0.8rem",
+          ...(mono ? { fontFamily: "monospace" } : {}),
+          textAlign: "right",
+          maxWidth: "60%",
+          wordBreak: "break-word",
+        }}
+      >
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
+// ---- Main Component ---------------------------------------------------------
+
 export default function Customers() {
-  const [search, setSearch] = useState('');
-  const [areaFilter, setAreaFilter] = useState('All Areas');
-  const [statusFilter, setStatusFilter] = useState('All');
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
+
+  const [search, setSearch] = useState("");
+  const [areaFilter, setAreaFilter] = useState("All Areas");
   const [selectedId, setSelectedId] = useState(null);
 
-  // ---- Filtered list ----
+  // Filtered list
   const filtered = useMemo(() => {
     return customers.filter((c) => {
-      // Search
       if (search) {
         const q = search.toLowerCase();
         const match =
@@ -97,366 +130,536 @@ export default function Customers() {
           c.meterNo.toLowerCase().includes(q);
         if (!match) return false;
       }
-      // Area
-      if (areaFilter !== 'All Areas' && c.area !== areaFilter) return false;
-      // Status
-      if (statusFilter !== 'All' && c.status !== statusFilter) return false;
+      if (areaFilter !== "All Areas" && c.area !== areaFilter) return false;
       return true;
     });
-  }, [search, areaFilter, statusFilter]);
+  }, [search, areaFilter]);
 
   const selected = customers.find((c) => c.id === selectedId) || null;
 
-  // ---- Summary stats ----
-  const totalCustomers = customers.length;
-  const activeCount = customers.filter((c) => c.status === 'Active').length;
-  const arrearsCustomers = customers.filter((c) => c.status === 'Arrears');
-  const arrearsCount = arrearsCustomers.length;
-  const totalArrears = arrearsCustomers.reduce((s, c) => s + c.arrears, 0);
-  const suspendedCount = customers.filter((c) => c.status === 'Suspended').length;
+  // Area stats -- top 4 areas by meter count
+  const areaCounts = {};
+  customers.forEach((c) => {
+    areaCounts[c.area] = (areaCounts[c.area] || 0) + 1;
+  });
+  const topAreas = Object.entries(areaCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
+
+  const areaColors = [
+    colors.greenAccent[500],
+    colors.blueAccent[500],
+    colors.yellowAccent[500],
+    colors.redAccent[500],
+  ];
+
+  const statusColor = {
+    Active: {
+      bg: colors.greenAccent[900],
+      text: colors.greenAccent[500],
+    },
+    Arrears: {
+      bg: colors.yellowAccent[900],
+      text: colors.yellowAccent[500],
+    },
+    Suspended: {
+      bg: colors.redAccent[900],
+      text: colors.redAccent[500],
+    },
+  };
+
+  const headerCellSx = {
+    color: colors.grey[300],
+    fontWeight: 600,
+    fontSize: "0.75rem",
+    textTransform: "uppercase",
+    borderBottom: `1px solid ${colors.primary[300]}`,
+  };
+
+  const bodyCellSx = {
+    color: colors.grey[100],
+    borderBottom: `1px solid ${colors.primary[300]}`,
+    fontSize: "0.85rem",
+  };
+
+  const textFieldSx = {
+    "& .MuiOutlinedInput-root": {
+      color: colors.grey[100],
+      backgroundColor: "rgba(0,0,0,0.2)",
+      "& fieldset": { borderColor: colors.primary[300] },
+      "&:hover fieldset": { borderColor: colors.greenAccent[700] },
+      "&.Mui-focused fieldset": { borderColor: colors.greenAccent[500] },
+    },
+    "& .MuiInputLabel-root": { color: colors.grey[300] },
+    "& .MuiInputLabel-root.Mui-focused": { color: colors.greenAccent[500] },
+  };
 
   return (
-    <Box>
-      {/* ---- Page Header ---- */}
+    <Box m="20px">
       <Header
-        title="Customer Registry"
-        subtitle="3,247 registered meters across all areas"
-        action={
-          <Button variant="contained" color="primary" startIcon={<PersonAddOutlined />}>
-            Add Customer
-          </Button>
-        }
+        title="CUSTOMER REGISTRY"
+        subtitle="Registered Meters Across All Areas"
       />
 
-      {/* ---- Filters Row ---- */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
-        <TextField
-          size="small"
-          placeholder="Search by name, account ID, or meter number..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          sx={{ flex: 1, minWidth: 280 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchOutlined sx={{ color: 'rgba(255,255,255,0.4)' }} />
-              </InputAdornment>
-            ),
-          }}
-        />
-
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Area</InputLabel>
-          <Select
-            value={areaFilter}
-            label="Area"
-            onChange={(e) => setAreaFilter(e.target.value)}
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ---- Area stat boxes: span 3 each ---- */}
+        {topAreas.map(([area, count], i) => (
+          <Box
+            key={area}
+            gridColumn="span 3"
+            backgroundColor={colors.primary[400]}
+            borderRadius="4px"
+            display="flex"
+            alignItems="center"
+            justifyContent="center"
+            flexDirection="column"
+            p="15px"
           >
-            {areas.map((a) => (
-              <MenuItem key={a} value={a}>{a}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+            <LocationOnOutlined
+              sx={{ color: areaColors[i], fontSize: 28, mb: "6px" }}
+            />
+            <Typography variant="h4" fontWeight="700" color={colors.grey[100]}>
+              {count}
+            </Typography>
+            <Typography variant="body2" color={areaColors[i]}>
+              {area}
+            </Typography>
+          </Box>
+        ))}
 
-        <FormControl size="small" sx={{ minWidth: 150 }}>
-          <InputLabel>Status</InputLabel>
-          <Select
-            value={statusFilter}
-            label="Status"
-            onChange={(e) => setStatusFilter(e.target.value)}
+        {/* ---- Customer Table (span 8, span 5) ---- */}
+        <Box
+          gridColumn="span 8"
+          gridRow="span 5"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+        >
+          {/* Search & filter bar */}
+          <Box
+            display="flex"
+            gap="10px"
+            p="15px"
+            borderBottom={`1px solid ${colors.primary[300]}`}
+            flexWrap="wrap"
           >
-            <MenuItem value="All">All</MenuItem>
-            <MenuItem value="Active">Active</MenuItem>
-            <MenuItem value="Arrears">Arrears</MenuItem>
-            <MenuItem value="Suspended">Suspended</MenuItem>
-          </Select>
-        </FormControl>
-      </Box>
+            <TextField
+              size="small"
+              placeholder="Search name, account, meter..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              sx={{ ...textFieldSx, flex: 1, minWidth: 200 }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchOutlined sx={{ color: colors.grey[300] }} />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel
+                sx={{
+                  color: colors.grey[300],
+                  "&.Mui-focused": { color: colors.greenAccent[500] },
+                }}
+              >
+                Area
+              </InputLabel>
+              <Select
+                value={areaFilter}
+                label="Area"
+                onChange={(e) => setAreaFilter(e.target.value)}
+                sx={{
+                  color: colors.grey[100],
+                  "& fieldset": { borderColor: colors.primary[300] },
+                  "&:hover fieldset": {
+                    borderColor: colors.greenAccent[700],
+                  },
+                  "&.Mui-focused fieldset": {
+                    borderColor: colors.greenAccent[500],
+                  },
+                  "& .MuiSelect-icon": { color: colors.grey[300] },
+                }}
+                MenuProps={{
+                  PaperProps: {
+                    sx: {
+                      backgroundColor: colors.primary[400],
+                      color: colors.grey[100],
+                    },
+                  },
+                }}
+              >
+                {areas.map((a) => (
+                  <MenuItem key={a} value={a}>
+                    {a}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
 
-      {/* ---- Main Content: Table + Detail Panel ---- */}
-      <Grid container spacing={3}>
-        {/* ---- Left: Customer Table ---- */}
-        <Grid item xs={12} md={8}>
-          <Card sx={darkCard}>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>Account No</TableCell>
-                    <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>Customer Name</TableCell>
-                    <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>Meter No</TableCell>
-                    <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>Area</TableCell>
-                    <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>Tariff Group</TableCell>
-                    <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }} align="right">Arrears</TableCell>
-                    <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>Status</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {filtered.map((c) => (
-                    <TableRow
-                      key={c.id}
-                      hover
-                      selected={selectedId === c.id}
-                      onClick={() => setSelectedId(c.id)}
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={headerCellSx}>Account No</TableCell>
+                <TableCell sx={headerCellSx}>Customer Name</TableCell>
+                <TableCell sx={headerCellSx}>Meter No</TableCell>
+                <TableCell sx={headerCellSx}>Area</TableCell>
+                <TableCell sx={headerCellSx}>Tariff</TableCell>
+                <TableCell sx={headerCellSx} align="right">
+                  Arrears
+                </TableCell>
+                <TableCell sx={headerCellSx}>Status</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filtered.map((c) => (
+                <TableRow
+                  key={c.id}
+                  hover
+                  selected={selectedId === c.id}
+                  onClick={() => setSelectedId(c.id)}
+                  sx={{
+                    cursor: "pointer",
+                    "&.Mui-selected": {
+                      backgroundColor: `${colors.blueAccent[900]}`,
+                    },
+                    "&.Mui-selected:hover": {
+                      backgroundColor: `${colors.blueAccent[800]}`,
+                    },
+                    "&:hover": {
+                      backgroundColor: `${colors.primary[300]}44`,
+                    },
+                  }}
+                >
+                  <TableCell
+                    sx={{
+                      ...bodyCellSx,
+                      fontFamily: "monospace",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    {c.accountNo}
+                  </TableCell>
+                  <TableCell
+                    sx={{ ...bodyCellSx, fontWeight: 500 }}
+                  >
+                    {c.name}
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      ...bodyCellSx,
+                      fontFamily: "monospace",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    {c.meterNo}
+                  </TableCell>
+                  <TableCell sx={bodyCellSx}>{c.area}</TableCell>
+                  <TableCell sx={bodyCellSx}>{c.tariffGroup}</TableCell>
+                  <TableCell sx={bodyCellSx} align="right">
+                    <Typography
+                      variant="body2"
                       sx={{
-                        cursor: 'pointer',
-                        '&.Mui-selected': {
-                          backgroundColor: 'rgba(104, 112, 250, 0.12)',
-                        },
-                        '&.Mui-selected:hover': {
-                          backgroundColor: 'rgba(104, 112, 250, 0.18)',
-                        },
+                        color:
+                          c.arrears > 0
+                            ? colors.redAccent[500]
+                            : colors.greenAccent[500],
+                        fontWeight: 600,
+                        fontSize: "0.8rem",
                       }}
                     >
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                        {c.accountNo}
-                      </TableCell>
-                      <TableCell sx={{ color: '#fff', fontWeight: 500 }}>{c.name}</TableCell>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                        {c.meterNo}
-                      </TableCell>
-                      <TableCell>{c.area}</TableCell>
-                      <TableCell>{c.tariffGroup}</TableCell>
-                      <TableCell align="right">
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            color: c.arrears > 0 ? '#db4f4a' : '#4cceac',
-                            fontWeight: 600,
-                            fontSize: '0.8rem',
-                          }}
-                        >
-                          {fmtCurrency(c.arrears)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={c.status}
-                          size="small"
-                          sx={{
-                            backgroundColor: statusColor[c.status]?.bg || 'rgba(255,255,255,0.1)',
-                            color: statusColor[c.status]?.text || '#fff',
-                            fontWeight: 600,
-                            fontSize: '0.7rem',
-                          }}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {filtered.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'rgba(255,255,255,0.35)' }}>
-                        No customers match the current filters.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Card>
-        </Grid>
-
-        {/* ---- Right: Customer Detail Panel ---- */}
-        <Grid item xs={12} md={4}>
-          <Card sx={{ ...darkCard, position: 'sticky', top: 16 }}>
-            <CardContent>
-              {selected ? (
-                <>
-                  {/* Name + status */}
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                    <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.15rem', lineHeight: 1.3 }}>
-                      {selected.name}
+                      {fmtCurrency(c.arrears)}
                     </Typography>
+                  </TableCell>
+                  <TableCell sx={bodyCellSx}>
                     <Chip
-                      label={selected.status}
+                      label={c.status}
                       size="small"
                       sx={{
-                        backgroundColor: statusColor[selected.status]?.bg,
-                        color: statusColor[selected.status]?.text,
+                        backgroundColor:
+                          statusColor[c.status]?.bg || colors.primary[300],
+                        color: statusColor[c.status]?.text || colors.grey[100],
                         fontWeight: 600,
-                        fontSize: '0.7rem',
+                        fontSize: "0.7rem",
                       }}
                     />
-                  </Box>
-
-                  {/* Account / Meter */}
-                  <DetailRow label="Account No" value={selected.accountNo} mono />
-                  <DetailRow label="Meter No" value={selected.meterNo} mono />
-
-                  <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', my: 1.5 }} />
-
-                  {/* Contact */}
-                  <DetailRow label="Phone" value={selected.phone} icon={<PhoneOutlined sx={{ fontSize: 15 }} />} />
-                  <DetailRow label="Email" value={selected.email} icon={<EmailOutlined sx={{ fontSize: 15 }} />} />
-
-                  <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', my: 1.5 }} />
-
-                  {/* Location */}
-                  <DetailRow label="Area" value={selected.area} icon={<LocationOnOutlined sx={{ fontSize: 15 }} />} />
-                  <DetailRow label="Address" value={selected.address} />
-                  <DetailRow
-                    label="GPS"
-                    value={`${selected.gpsLat}, ${selected.gpsLng}`}
-                    icon={<GpsFixedOutlined sx={{ fontSize: 15 }} />}
-                    mono
-                  />
-
-                  <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', my: 1.5 }} />
-
-                  {/* Meter info */}
-                  <DetailRow label="Tariff Group" value={selected.tariffGroup} icon={<SpeedOutlined sx={{ fontSize: 15 }} />} />
-                  <DetailRow label="Meter Make" value={selected.meterMake} />
-
-                  <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', my: 1.5 }} />
-
-                  {/* Arrears */}
-                  <Box sx={{ textAlign: 'center', my: 2 }}>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)' }}>
-                      Outstanding Arrears
-                    </Typography>
-                    <Typography
-                      variant="h5"
-                      sx={{
-                        fontWeight: 700,
-                        color: selected.arrears > 0 ? '#db4f4a' : '#4cceac',
-                        mt: 0.5,
-                      }}
-                    >
-                      {fmtCurrency(selected.arrears)}
-                    </Typography>
-                  </Box>
-
-                  {/* Last purchase */}
-                  <DetailRow label="Last Purchase" value={formatDateTime(selected.lastPurchaseDate)} />
-                  <DetailRow label="Last Amount" value={fmtCurrency(selected.lastPurchaseAmount)} />
-
-                  <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', my: 1.5 }} />
-
-                  {/* Action buttons */}
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      size="small"
-                      startIcon={<ConfirmationNumberOutlined />}
-                    >
-                      Vend Token
-                    </Button>
-                    <Button variant="outlined" size="small" startIcon={<EditOutlined />}>
-                      Edit
-                    </Button>
-                    <Button variant="outlined" size="small" startIcon={<ReceiptLongOutlined />}>
-                      View Transactions
-                    </Button>
-                    <Button variant="outlined" size="small" startIcon={<SmsOutlined />}>
-                      Send SMS
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      color={selected.status === 'Suspended' ? 'success' : 'error'}
-                      startIcon={selected.status === 'Suspended' ? <CheckCircleOutlined /> : <BlockOutlined />}
-                    >
-                      {selected.status === 'Suspended' ? 'Activate' : 'Suspend'}
-                    </Button>
-                  </Box>
-                </>
-              ) : (
-                <Box sx={{ textAlign: 'center', py: 6 }}>
-                  <PeopleOutlined sx={{ fontSize: 48, color: 'rgba(255,255,255,0.15)', mb: 1 }} />
-                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.35)' }}>
-                    Select a customer from the table to view details.
-                  </Typography>
-                </Box>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {filtered.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    align="center"
+                    sx={{ py: 4, color: colors.grey[400] }}
+                  >
+                    No customers match the current filters.
+                  </TableCell>
+                </TableRow>
               )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+            </TableBody>
+          </Table>
+        </Box>
 
-      {/* ---- Bottom: Summary Stats ---- */}
-      <Grid container spacing={2} sx={{ mt: 3 }}>
-        <Grid item xs={6} sm={3}>
-          <Card sx={darkCard}>
-            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
-              <PeopleOutlined sx={{ color: '#6870fa', fontSize: 28, mb: 0.5 }} />
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', display: 'block' }}>
-                Total Customers
-              </Typography>
-              <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700 }}>
-                {totalCustomers.toLocaleString()}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Card sx={darkCard}>
-            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
-              <CheckCircleOutlined sx={{ color: '#4cceac', fontSize: 28, mb: 0.5 }} />
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', display: 'block' }}>
-                Active
-              </Typography>
-              <Typography variant="h6" sx={{ color: '#4cceac', fontWeight: 700 }}>
-                {activeCount.toLocaleString()}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Card sx={darkCard}>
-            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
-              <WarningAmberOutlined sx={{ color: '#f2b705', fontSize: 28, mb: 0.5 }} />
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', display: 'block' }}>
-                In Arrears
-              </Typography>
-              <Typography variant="h6" sx={{ color: '#f2b705', fontWeight: 700 }}>
-                {arrearsCount} ({fmtCurrency(totalArrears)})
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Card sx={darkCard}>
-            <CardContent sx={{ textAlign: 'center', py: 2, '&:last-child': { pb: 2 } }}>
-              <DoNotDisturbOutlined sx={{ color: '#db4f4a', fontSize: 28, mb: 0.5 }} />
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', display: 'block' }}>
-                Suspended
-              </Typography>
-              <Typography variant="h6" sx={{ color: '#db4f4a', fontWeight: 700 }}>
-                {suspendedCount}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-    </Box>
-  );
-}
+        {/* ---- Customer Detail Panel (span 4, span 5) ---- */}
+        <Box
+          gridColumn="span 4"
+          gridRow="span 5"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          p="20px"
+          overflow="auto"
+        >
+          {selected ? (
+            <>
+              {/* Name + status */}
+              <Box
+                display="flex"
+                justifyContent="space-between"
+                alignItems="flex-start"
+                mb="15px"
+              >
+                <Typography
+                  variant="h5"
+                  color={colors.grey[100]}
+                  fontWeight="700"
+                  sx={{ lineHeight: 1.3 }}
+                >
+                  {selected.name}
+                </Typography>
+                <Chip
+                  label={selected.status}
+                  size="small"
+                  sx={{
+                    backgroundColor: statusColor[selected.status]?.bg,
+                    color: statusColor[selected.status]?.text,
+                    fontWeight: 600,
+                    fontSize: "0.7rem",
+                  }}
+                />
+              </Box>
 
-// ---- Small helper component for detail rows ----
-function DetailRow({ label, value, mono, icon }) {
-  return (
-    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.8 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        {icon && <Box sx={{ color: 'rgba(255,255,255,0.35)', display: 'flex' }}>{icon}</Box>}
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)' }}>
-          {label}
-        </Typography>
+              {/* Account / Meter */}
+              <DetailRow
+                label="Account No"
+                value={selected.accountNo}
+                mono
+                colors={colors}
+              />
+              <DetailRow
+                label="Meter No"
+                value={selected.meterNo}
+                mono
+                colors={colors}
+              />
+
+              <Divider
+                sx={{
+                  borderColor: colors.primary[300],
+                  my: "12px",
+                }}
+              />
+
+              {/* Contact */}
+              <DetailRow
+                label="Phone"
+                value={selected.phone}
+                icon={<PhoneOutlined sx={{ fontSize: 15 }} />}
+                colors={colors}
+              />
+              <DetailRow
+                label="Email"
+                value={selected.email}
+                icon={<EmailOutlined sx={{ fontSize: 15 }} />}
+                colors={colors}
+              />
+
+              <Divider
+                sx={{
+                  borderColor: colors.primary[300],
+                  my: "12px",
+                }}
+              />
+
+              {/* Location */}
+              <DetailRow
+                label="Area"
+                value={selected.area}
+                icon={<LocationOnOutlined sx={{ fontSize: 15 }} />}
+                colors={colors}
+              />
+              <DetailRow
+                label="Address"
+                value={selected.address}
+                colors={colors}
+              />
+              <DetailRow
+                label="GPS"
+                value={`${selected.gpsLat}, ${selected.gpsLng}`}
+                icon={<GpsFixedOutlined sx={{ fontSize: 15 }} />}
+                mono
+                colors={colors}
+              />
+
+              <Divider
+                sx={{
+                  borderColor: colors.primary[300],
+                  my: "12px",
+                }}
+              />
+
+              {/* Tariff */}
+              <DetailRow
+                label="Tariff Group"
+                value={selected.tariffGroup}
+                icon={<SpeedOutlined sx={{ fontSize: 15 }} />}
+                colors={colors}
+              />
+              <DetailRow
+                label="Meter Make"
+                value={selected.meterMake}
+                colors={colors}
+              />
+
+              <Divider
+                sx={{
+                  borderColor: colors.primary[300],
+                  my: "12px",
+                }}
+              />
+
+              {/* Arrears */}
+              <Box textAlign="center" my="15px">
+                <Typography variant="caption" color={colors.grey[300]}>
+                  Outstanding Arrears
+                </Typography>
+                <Typography
+                  variant="h4"
+                  sx={{
+                    fontWeight: 700,
+                    color:
+                      selected.arrears > 0
+                        ? colors.redAccent[500]
+                        : colors.greenAccent[500],
+                    mt: "4px",
+                  }}
+                >
+                  {fmtCurrency(selected.arrears)}
+                </Typography>
+              </Box>
+
+              {/* Last purchase */}
+              <DetailRow
+                label="Last Purchase"
+                value={formatDateTime(selected.lastPurchaseDate)}
+                colors={colors}
+              />
+              <DetailRow
+                label="Last Amount"
+                value={fmtCurrency(selected.lastPurchaseAmount)}
+                colors={colors}
+              />
+
+              <Divider
+                sx={{
+                  borderColor: colors.primary[300],
+                  my: "12px",
+                }}
+              />
+
+              {/* Action buttons */}
+              <Box display="flex" flexWrap="wrap" gap="8px" mt="8px">
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<ConfirmationNumberOutlined />}
+                  sx={{
+                    backgroundColor: colors.greenAccent[600],
+                    color: colors.primary[500],
+                    "&:hover": {
+                      backgroundColor: colors.greenAccent[700],
+                    },
+                  }}
+                >
+                  Vend Token
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<EditOutlined />}
+                  sx={{
+                    color: colors.grey[100],
+                    borderColor: colors.primary[300],
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<ReceiptLongOutlined />}
+                  sx={{
+                    color: colors.grey[100],
+                    borderColor: colors.primary[300],
+                  }}
+                >
+                  Transactions
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<SmsOutlined />}
+                  sx={{
+                    color: colors.grey[100],
+                    borderColor: colors.primary[300],
+                  }}
+                >
+                  SMS
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={
+                    selected.status === "Suspended" ? (
+                      <CheckCircleOutlined />
+                    ) : (
+                      <BlockOutlined />
+                    )
+                  }
+                  sx={{
+                    color:
+                      selected.status === "Suspended"
+                        ? colors.greenAccent[500]
+                        : colors.redAccent[500],
+                    borderColor:
+                      selected.status === "Suspended"
+                        ? colors.greenAccent[700]
+                        : colors.redAccent[700],
+                  }}
+                >
+                  {selected.status === "Suspended" ? "Activate" : "Suspend"}
+                </Button>
+              </Box>
+            </>
+          ) : (
+            <Box textAlign="center" py="80px">
+              <PersonOutlined
+                sx={{ fontSize: 48, color: colors.grey[400], mb: "8px" }}
+              />
+              <Typography variant="body2" color={colors.grey[400]}>
+                Select a customer from the table to view details.
+              </Typography>
+            </Box>
+          )}
+        </Box>
       </Box>
-      <Typography
-        variant="body2"
-        sx={{
-          color: '#fff',
-          fontWeight: 500,
-          fontSize: '0.8rem',
-          ...(mono ? { fontFamily: 'monospace' } : {}),
-          textAlign: 'right',
-          maxWidth: '60%',
-          wordBreak: 'break-word',
-        }}
-      >
-        {value}
-      </Typography>
     </Box>
   );
 }

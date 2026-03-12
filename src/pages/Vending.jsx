@@ -1,65 +1,43 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo } from "react";
 import {
   Box,
-  Grid,
-  Card,
-  CardContent,
   Typography,
   TextField,
   Button,
   Chip,
-  Alert,
-  Divider,
   InputAdornment,
   Table,
   TableBody,
   TableRow,
   TableCell,
-} from '@mui/material';
-import {
-  SearchOutlined,
-  BoltOutlined,
-  ContentCopyOutlined,
-  PrintOutlined,
-  SmsOutlined,
-  AddOutlined,
-  PersonOutlined,
-  ElectricMeterOutlined,
-} from '@mui/icons-material';
-import Header from '../components/Header';
-import { customers, tariffGroups, tariffConfig } from '../services/mockData';
+  Divider,
+  useTheme,
+} from "@mui/material";
+import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
+import BoltIcon from "@mui/icons-material/Bolt";
+import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
+import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
+import SmsOutlinedIcon from "@mui/icons-material/SmsOutlined";
+import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
+import { tokens } from "../theme";
+import Header from "../components/Header";
+import { customers, tariffGroups, tariffConfig } from "../services/mockData";
 
-// ---- Helpers ----------------------------------------------------------------
-
-const cardSx = {
-  background: '#152238',
-  border: '1px solid rgba(30, 58, 95, 0.5)',
-  borderRadius: 2,
-};
-
+// ---- Helpers ----
 const fmtN$ = (v) => `N$ ${Number(v).toFixed(2)}`;
-
 const presetAmounts = [10, 25, 50, 100, 200, 500];
-
 const sampleCustomers = customers.slice(0, 4);
 
 function generateToken() {
-  let t = '';
+  let t = "";
   for (let i = 0; i < 20; i++) t += Math.floor(Math.random() * 10);
   return t;
 }
 
 function formatToken(t) {
-  return t.replace(/(.{4})/g, '$1 ').trim();
+  return t.replace(/(.{4})/g, "$1 ").trim();
 }
 
-/**
- * Calculate kWh from a gross amount using the Namibian STS vending formula:
- *  1. Remove VAT
- *  2. Subtract fixed charge + REL levy
- *  3. Deduct arrears (25% of original amount, capped at balance)
- *  4. Apply remaining to tariff blocks
- */
 function calculateBreakdown(amount, arrears, tariffBlocks) {
   const vatAmount = amount - amount / (1 + tariffConfig.vatRate / 100);
   const afterVat = amount - vatAmount;
@@ -68,30 +46,23 @@ function calculateBreakdown(amount, arrears, tariffBlocks) {
 
   let arrearsDeduction = 0;
   if (arrears > 0) {
-    arrearsDeduction = Math.min(amount * (tariffConfig.arrearsPercentage / 100), arrears);
+    arrearsDeduction = Math.min(
+      amount * (tariffConfig.arrearsPercentage / 100),
+      arrears
+    );
   }
 
   const netEnergy = Math.max(afterLevy - arrearsDeduction, 0);
 
-  // Apply tariff blocks
   let remaining = netEnergy;
   let totalKwh = 0;
-  const blocksUsed = [];
 
   for (const block of tariffBlocks) {
     if (remaining <= 0) break;
-    const blockCapacity = block.max === Infinity ? Infinity : block.max - (block.min > 0 ? block.min - 1 : 0);
+    const blockCapacity =
+      block.max === Infinity ? Infinity : block.max - (block.min > 0 ? block.min - 1 : 0);
     const kwhInBlock = Math.min(remaining / block.rate, blockCapacity);
     const costInBlock = kwhInBlock * block.rate;
-
-    blocksUsed.push({
-      name: block.name,
-      range: block.range,
-      rate: block.rate,
-      kWh: kwhInBlock,
-      cost: costInBlock,
-    });
-
     totalKwh += kwhInBlock;
     remaining -= costInBlock;
   }
@@ -104,37 +75,33 @@ function calculateBreakdown(amount, arrears, tariffBlocks) {
     arrearsDeduction,
     netEnergy,
     totalKwh,
-    blocksUsed,
   };
 }
 
-// ---- Component --------------------------------------------------------------
-
 export default function Vending() {
-  const [searchQuery, setSearchQuery] = useState('');
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
+
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [selectedAmount, setSelectedAmount] = useState(null);
-  const [customAmount, setCustomAmount] = useState('');
+  const [customAmount, setCustomAmount] = useState("");
   const [generatedToken, setGeneratedToken] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  // Effective amount
   const amount = selectedAmount || (customAmount ? parseFloat(customAmount) : 0);
 
-  // Tariff blocks for selected customer
   const tariffBlocks = useMemo(() => {
     if (!selectedCustomer) return [];
     const group = tariffGroups.find((g) => g.name === selectedCustomer.tariffGroup);
     return group ? group.blocks : tariffGroups[0].blocks;
   }, [selectedCustomer]);
 
-  // Breakdown calculation
   const breakdown = useMemo(() => {
     if (!selectedCustomer || !amount || amount <= 0) return null;
     return calculateBreakdown(amount, selectedCustomer.arrears, tariffBlocks);
   }, [amount, selectedCustomer, tariffBlocks]);
 
-  // Search handler
   const handleSearch = () => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return;
@@ -147,7 +114,7 @@ export default function Vending() {
     if (found) {
       setSelectedCustomer(found);
       setSelectedAmount(null);
-      setCustomAmount('');
+      setCustomAmount("");
       setGeneratedToken(null);
     }
   };
@@ -156,13 +123,13 @@ export default function Vending() {
     setSelectedCustomer(c);
     setSearchQuery(c.meterNo);
     setSelectedAmount(null);
-    setCustomAmount('');
+    setCustomAmount("");
     setGeneratedToken(null);
   };
 
   const handlePresetClick = (val) => {
     setSelectedAmount(val);
-    setCustomAmount('');
+    setCustomAmount("");
     setGeneratedToken(null);
   };
 
@@ -184,569 +151,420 @@ export default function Vending() {
     }
   };
 
-  const handleNewTransaction = () => {
-    setSelectedCustomer(null);
-    setSearchQuery('');
-    setSelectedAmount(null);
-    setCustomAmount('');
-    setGeneratedToken(null);
-  };
-
   return (
-    <Box>
-      <Header
-        title="Token Vending"
-        subtitle="STS prepaid electricity token generation and sales"
-      />
+    <Box m="20px">
+      <Header title="TOKEN VENDING" subtitle="STS Prepaid Electricity Token Generation" />
 
-      <Grid container spacing={3}>
-        {/* ---- LEFT COLUMN ---- */}
-        <Grid item xs={12} md={8}>
-          {/* Section 1: Customer Lookup */}
-          <Card sx={{ ...cardSx, mb: 3 }}>
-            <CardContent>
-              <Typography variant="h6" sx={{ color: '#fff', fontWeight: 600, mb: 2 }}>
-                Customer Lookup
-              </Typography>
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ================================================================= */}
+        {/* Customer Lookup (span 7, span 3)                                 */}
+        {/* ================================================================= */}
+        <Box
+          gridColumn="span 7"
+          gridRow="span 3"
+          backgroundColor={colors.primary[400]}
+          p="20px"
+          overflow="auto"
+        >
+          <Typography
+            variant="h5"
+            fontWeight="600"
+            color={colors.grey[100]}
+            mb="15px"
+          >
+            Customer Lookup
+          </Typography>
 
-              <TextField
-                fullWidth
-                placeholder="Search by meter number or account ID..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchOutlined sx={{ color: 'rgba(255,255,255,0.4)' }} />
-                    </InputAdornment>
-                  ),
-                }}
+          <TextField
+            fullWidth
+            placeholder="Search by meter number, account ID, or name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchOutlinedIcon sx={{ color: colors.grey[300] }} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ mb: 2 }}
+          />
+
+          <Typography
+            variant="caption"
+            color={colors.greenAccent[400]}
+            sx={{ display: "block", mb: 1 }}
+          >
+            Quick load:
+          </Typography>
+          <Box display="flex" flexWrap="wrap" gap="8px" mb="10px">
+            {sampleCustomers.map((c) => (
+              <Chip
+                key={c.id}
+                icon={<PersonOutlinedIcon sx={{ fontSize: 16 }} />}
+                label={`${c.name} (${c.meterNo})`}
+                onClick={() => handleSelectCustomer(c)}
+                variant={selectedCustomer?.id === c.id ? "filled" : "outlined"}
                 sx={{
-                  mb: 2,
-                  '& .MuiOutlinedInput-root': {
-                    color: '#fff',
-                    backgroundColor: 'rgba(0,0,0,0.2)',
-                    '& fieldset': { borderColor: 'rgba(30,58,95,0.5)' },
-                    '&:hover fieldset': { borderColor: 'rgba(0,188,212,0.4)' },
-                    '&.Mui-focused fieldset': { borderColor: '#00bcd4' },
+                  color: colors.grey[100],
+                  borderColor: colors.greenAccent[700],
+                  "&:hover": {
+                    backgroundColor: `${colors.greenAccent[700]}40`,
                   },
+                  ...(selectedCustomer?.id === c.id && {
+                    backgroundColor: colors.greenAccent[700],
+                    borderColor: colors.greenAccent[500],
+                  }),
                 }}
               />
+            ))}
+          </Box>
+        </Box>
 
-              <Typography
-                variant="caption"
-                sx={{ color: 'rgba(255,255,255,0.4)', mb: 1, display: 'block' }}
-              >
-                Quick load:
+        {/* ================================================================= */}
+        {/* Customer Info (span 5, span 3)                                   */}
+        {/* ================================================================= */}
+        <Box
+          gridColumn="span 5"
+          gridRow="span 3"
+          backgroundColor={colors.primary[400]}
+          p="20px"
+          overflow="auto"
+        >
+          <Typography
+            variant="h5"
+            fontWeight="600"
+            color={colors.grey[100]}
+            mb="15px"
+          >
+            Customer Information
+          </Typography>
+
+          {selectedCustomer ? (
+            <Box>
+              <Typography variant="h4" fontWeight="700" color={colors.grey[100]} mb="15px">
+                {selectedCustomer.name}
               </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {sampleCustomers.map((c) => (
-                  <Chip
-                    key={c.id}
-                    icon={<PersonOutlined sx={{ fontSize: 16 }} />}
-                    label={`${c.name} (${c.meterNo})`}
-                    onClick={() => handleSelectCustomer(c)}
-                    variant={selectedCustomer?.id === c.id ? 'filled' : 'outlined'}
+              {[
+                { label: "Account No", value: selectedCustomer.accountNo, mono: true },
+                { label: "Meter No", value: selectedCustomer.meterNo, mono: true },
+                { label: "Area", value: selectedCustomer.area },
+                { label: "Tariff Group", value: selectedCustomer.tariffGroup },
+                {
+                  label: "Arrears",
+                  value: fmtN$(selectedCustomer.arrears),
+                  color:
+                    selectedCustomer.arrears > 0
+                      ? colors.redAccent[500]
+                      : colors.greenAccent[500],
+                },
+                { label: "Status", value: selectedCustomer.status },
+              ].map((item) => (
+                <Box key={item.label} mb="8px">
+                  <Typography variant="caption" color={colors.greenAccent[500]}>
+                    {item.label}
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    color={item.color || colors.grey[100]}
+                    fontWeight="500"
+                    fontFamily={item.mono ? "monospace" : "inherit"}
+                  >
+                    {item.value}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          ) : (
+            <Box
+              display="flex"
+              alignItems="center"
+              justifyContent="center"
+              height="calc(100% - 40px)"
+            >
+              <Typography variant="body2" color={colors.grey[400]} textAlign="center">
+                Search for a customer or select from quick-load to begin.
+              </Typography>
+            </Box>
+          )}
+        </Box>
+
+        {/* ================================================================= */}
+        {/* Vending Form (span 7, span 3)                                    */}
+        {/* ================================================================= */}
+        <Box
+          gridColumn="span 7"
+          gridRow="span 3"
+          backgroundColor={colors.primary[400]}
+          p="20px"
+          overflow="auto"
+        >
+          <Typography
+            variant="h5"
+            fontWeight="600"
+            color={colors.grey[100]}
+            mb="15px"
+          >
+            Purchase Token
+          </Typography>
+
+          {selectedCustomer ? (
+            <>
+              {/* Preset amounts */}
+              <Box display="flex" flexWrap="wrap" gap="8px" mb="15px">
+                {presetAmounts.map((v) => (
+                  <Button
+                    key={v}
+                    variant={selectedAmount === v ? "contained" : "outlined"}
+                    onClick={() => handlePresetClick(v)}
                     sx={{
-                      color: '#fff',
-                      borderColor: 'rgba(0,188,212,0.4)',
-                      '&:hover': { backgroundColor: 'rgba(0,188,212,0.15)' },
-                      ...(selectedCustomer?.id === c.id && {
-                        backgroundColor: 'rgba(0,188,212,0.25)',
-                        borderColor: '#00bcd4',
-                      }),
+                      minWidth: 80,
+                      color:
+                        selectedAmount === v
+                          ? colors.primary[500]
+                          : colors.greenAccent[500],
+                      borderColor: colors.greenAccent[700],
+                      backgroundColor:
+                        selectedAmount === v
+                          ? colors.greenAccent[500]
+                          : "transparent",
+                      "&:hover": {
+                        backgroundColor:
+                          selectedAmount === v
+                            ? colors.greenAccent[400]
+                            : `${colors.greenAccent[700]}30`,
+                        borderColor: colors.greenAccent[500],
+                      },
                     }}
-                  />
+                  >
+                    N${v}
+                  </Button>
                 ))}
               </Box>
 
-              {selectedCustomer && (
-                <Box
-                  sx={{
-                    mt: 2,
-                    p: 2,
-                    borderRadius: 1,
-                    backgroundColor: 'rgba(0,188,212,0.06)',
-                    border: '1px solid rgba(0,188,212,0.2)',
-                  }}
-                >
-                  <Grid container spacing={1}>
-                    {[
-                      ['Name', selectedCustomer.name],
-                      ['Account No', selectedCustomer.accountNo],
-                      ['Meter No', selectedCustomer.meterNo],
-                      ['Area', selectedCustomer.area],
-                      ['Tariff Group', selectedCustomer.tariffGroup],
-                      ['Status', selectedCustomer.status],
-                      ['Arrears', fmtN$(selectedCustomer.arrears)],
-                    ].map(([label, val]) => (
-                      <Grid item xs={6} sm={4} key={label}>
-                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)' }}>
-                          {label}
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            color:
-                              label === 'Arrears' && selectedCustomer.arrears > 0
-                                ? '#f44336'
-                                : '#fff',
-                            fontWeight: 500,
-                            fontFamily:
-                              label === 'Account No' || label === 'Meter No'
-                                ? 'monospace'
-                                : 'inherit',
-                          }}
-                        >
-                          {val}
-                        </Typography>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
+              {/* Custom amount */}
+              <TextField
+                label="Custom Amount (N$)"
+                type="number"
+                value={customAmount}
+                onChange={handleCustomAmountChange}
+                sx={{ mb: 2, width: 240 }}
+              />
 
-          {/* Section 2: Purchase Token */}
-          {selectedCustomer && (
-            <Card sx={{ ...cardSx, mb: 3 }}>
-              <CardContent>
-                <Typography variant="h6" sx={{ color: '#fff', fontWeight: 600, mb: 2 }}>
-                  Purchase Token
-                </Typography>
-
-                {/* Preset amounts */}
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                  {presetAmounts.map((v) => (
-                    <Button
-                      key={v}
-                      variant={selectedAmount === v ? 'contained' : 'outlined'}
-                      onClick={() => handlePresetClick(v)}
-                      sx={{
-                        minWidth: 80,
-                        color: selectedAmount === v ? '#0a1628' : '#00bcd4',
-                        borderColor: 'rgba(0,188,212,0.4)',
-                        backgroundColor: selectedAmount === v ? '#00bcd4' : 'transparent',
-                        '&:hover': {
-                          backgroundColor:
-                            selectedAmount === v ? '#00acc1' : 'rgba(0,188,212,0.1)',
-                          borderColor: '#00bcd4',
-                        },
-                      }}
-                    >
-                      N${v}
-                    </Button>
-                  ))}
-                </Box>
-
-                {/* Custom amount */}
-                <TextField
-                  label="Custom Amount (N$)"
-                  type="number"
-                  value={customAmount}
-                  onChange={handleCustomAmountChange}
-                  sx={{
-                    mb: 3,
-                    width: 240,
-                    '& .MuiOutlinedInput-root': {
-                      color: '#fff',
-                      backgroundColor: 'rgba(0,0,0,0.2)',
-                      '& fieldset': { borderColor: 'rgba(30,58,95,0.5)' },
-                      '&:hover fieldset': { borderColor: 'rgba(0,188,212,0.4)' },
-                      '&.Mui-focused fieldset': { borderColor: '#00bcd4' },
-                    },
-                    '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.45)' },
-                    '& .MuiInputLabel-root.Mui-focused': { color: '#00bcd4' },
-                  }}
-                />
-
-                {/* Transaction Breakdown */}
-                {breakdown && (
-                  <Card
-                    sx={{
-                      background: 'rgba(0,0,0,0.2)',
-                      border: '1px solid rgba(30,58,95,0.4)',
-                      borderRadius: 1,
-                      mb: 3,
-                    }}
-                  >
-                    <CardContent>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ color: 'rgba(255,255,255,0.6)', mb: 1, fontWeight: 600 }}
-                      >
-                        Transaction Breakdown
-                      </Typography>
-
-                      <Table size="small">
-                        <TableBody>
-                          <TableRow>
-                            <TableCell sx={{ color: 'rgba(255,255,255,0.7)', borderBottom: '1px solid rgba(30,58,95,0.3)', pl: 0 }}>
-                              Amount Tendered
-                            </TableCell>
-                            <TableCell align="right" sx={{ color: '#fff', borderBottom: '1px solid rgba(30,58,95,0.3)', pr: 0 }}>
-                              {fmtN$(breakdown.amountTendered)}
-                            </TableCell>
-                          </TableRow>
-                          <TableRow>
-                            <TableCell sx={{ color: 'rgba(255,255,255,0.7)', borderBottom: '1px solid rgba(30,58,95,0.3)', pl: 0 }}>
-                              VAT ({tariffConfig.vatRate}%)
-                            </TableCell>
-                            <TableCell align="right" sx={{ color: '#f44336', borderBottom: '1px solid rgba(30,58,95,0.3)', pr: 0 }}>
-                              -{fmtN$(breakdown.vatAmount)}
-                            </TableCell>
-                          </TableRow>
-                          <TableRow>
-                            <TableCell sx={{ color: 'rgba(255,255,255,0.7)', borderBottom: '1px solid rgba(30,58,95,0.3)', pl: 0 }}>
-                              Fixed Charge
-                            </TableCell>
-                            <TableCell align="right" sx={{ color: '#f44336', borderBottom: '1px solid rgba(30,58,95,0.3)', pr: 0 }}>
-                              -{fmtN$(breakdown.fixedCharge)}
-                            </TableCell>
-                          </TableRow>
-                          <TableRow>
-                            <TableCell sx={{ color: 'rgba(255,255,255,0.7)', borderBottom: '1px solid rgba(30,58,95,0.3)', pl: 0 }}>
-                              REL Levy
-                            </TableCell>
-                            <TableCell align="right" sx={{ color: '#f44336', borderBottom: '1px solid rgba(30,58,95,0.3)', pr: 0 }}>
-                              -{fmtN$(breakdown.relLevy)}
-                            </TableCell>
-                          </TableRow>
-                          {breakdown.arrearsDeduction > 0 && (
-                            <TableRow>
-                              <TableCell sx={{ color: 'rgba(255,255,255,0.7)', borderBottom: '1px solid rgba(30,58,95,0.3)', pl: 0 }}>
-                                Arrears Deduction ({tariffConfig.arrearsPercentage}%)
-                              </TableCell>
-                              <TableCell align="right" sx={{ color: '#ff9800', borderBottom: '1px solid rgba(30,58,95,0.3)', pr: 0 }}>
-                                -{fmtN$(breakdown.arrearsDeduction)}
-                              </TableCell>
-                            </TableRow>
-                          )}
-                          <TableRow>
-                            <TableCell sx={{ color: 'rgba(255,255,255,0.7)', borderBottom: '1px solid rgba(30,58,95,0.3)', pl: 0 }}>
-                              Net Energy Amount
-                            </TableCell>
-                            <TableCell align="right" sx={{ color: '#4caf50', fontWeight: 600, borderBottom: '1px solid rgba(30,58,95,0.3)', pr: 0 }}>
-                              {fmtN$(breakdown.netEnergy)}
-                            </TableCell>
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-
-                      <Divider sx={{ borderColor: 'rgba(0,188,212,0.3)', my: 1.5 }} />
-
-                      {/* kWh result */}
-                      <Box sx={{ textAlign: 'center', py: 1 }}>
-                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)' }}>
-                          kWh Calculated
-                        </Typography>
-                        <Typography
-                          variant="h4"
-                          sx={{
-                            color: '#00bcd4',
-                            fontWeight: 700,
-                            fontFamily: 'monospace',
-                          }}
-                        >
-                          {breakdown.totalKwh.toFixed(2)} kWh
-                        </Typography>
-                      </Box>
-
-                      {/* Tariff blocks consumed */}
-                      {breakdown.blocksUsed.length > 0 && (
-                        <Box sx={{ mt: 1 }}>
-                          <Typography
-                            variant="caption"
-                            sx={{ color: 'rgba(255,255,255,0.4)', display: 'block', mb: 0.5 }}
-                          >
-                            Tariff blocks consumed:
-                          </Typography>
-                          {breakdown.blocksUsed.map((b, i) => (
-                            <Box
-                              key={i}
-                              sx={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                px: 1,
-                                py: 0.3,
-                              }}
-                            >
-                              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
-                                {b.name} ({b.range}) @ N${b.rate}/kWh
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                sx={{ color: '#00bcd4', fontFamily: 'monospace' }}
-                              >
-                                {b.kWh.toFixed(2)} kWh
-                              </Typography>
-                            </Box>
-                          ))}
-                        </Box>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Generate button */}
+              {/* Generate button */}
+              <Box>
                 <Button
                   variant="contained"
                   fullWidth
                   size="large"
-                  startIcon={<BoltOutlined />}
+                  startIcon={<BoltIcon />}
                   disabled={!breakdown || breakdown.netEnergy <= 0}
                   onClick={handleGenerate}
                   sx={{
                     py: 1.5,
-                    fontSize: '1.1rem',
+                    fontSize: "1rem",
                     fontWeight: 700,
-                    background: 'linear-gradient(135deg, #00bcd4, #0097a7)',
-                    color: '#0a1628',
-                    '&:hover': { background: 'linear-gradient(135deg, #00acc1, #00838f)' },
-                    '&.Mui-disabled': {
-                      background: 'rgba(255,255,255,0.08)',
-                      color: 'rgba(255,255,255,0.3)',
+                    backgroundColor: colors.greenAccent[500],
+                    color: colors.primary[500],
+                    "&:hover": {
+                      backgroundColor: colors.greenAccent[400],
+                    },
+                    "&.Mui-disabled": {
+                      backgroundColor: colors.grey[700],
+                      color: colors.grey[500],
                     },
                   }}
                 >
                   Generate Token
                 </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Section 3: Generated Token */}
-          {generatedToken && (
-            <Card sx={{ ...cardSx }}>
-              <CardContent>
-                <Alert
-                  severity="success"
-                  sx={{
-                    mb: 2,
-                    backgroundColor: 'rgba(76,175,80,0.1)',
-                    color: '#4caf50',
-                    border: '1px solid rgba(76,175,80,0.3)',
-                    '& .MuiAlert-icon': { color: '#4caf50' },
-                  }}
-                >
-                  Token generated successfully for {selectedCustomer?.name}. {breakdown?.totalKwh.toFixed(2)} kWh purchased.
-                </Alert>
-
-                <Typography variant="h6" sx={{ color: '#fff', fontWeight: 600, mb: 2 }}>
-                  Generated Token
-                </Typography>
-
-                <Box
-                  sx={{
-                    textAlign: 'center',
-                    py: 3,
-                    px: 2,
-                    borderRadius: 2,
-                    background: 'rgba(0,188,212,0.06)',
-                    border: '1px solid rgba(0,188,212,0.25)',
-                    mb: 2,
-                  }}
-                >
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', mb: 1, display: 'block' }}>
-                    20-Digit STS Token
-                  </Typography>
-                  <Typography
-                    variant="h3"
-                    sx={{
-                      fontFamily: '"Courier New", monospace',
-                      fontWeight: 700,
-                      color: '#00bcd4',
-                      letterSpacing: 3,
-                    }}
-                  >
-                    {formatToken(generatedToken)}
-                  </Typography>
-                </Box>
-
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  <Button
-                    variant="outlined"
-                    startIcon={<ContentCopyOutlined />}
-                    onClick={handleCopy}
-                    sx={{
-                      color: copied ? '#4caf50' : '#00bcd4',
-                      borderColor: copied ? '#4caf50' : 'rgba(0,188,212,0.4)',
-                      '&:hover': { borderColor: '#00bcd4', backgroundColor: 'rgba(0,188,212,0.1)' },
-                    }}
-                  >
-                    {copied ? 'Copied!' : 'Copy'}
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<PrintOutlined />}
-                    sx={{
-                      color: '#00bcd4',
-                      borderColor: 'rgba(0,188,212,0.4)',
-                      '&:hover': { borderColor: '#00bcd4', backgroundColor: 'rgba(0,188,212,0.1)' },
-                    }}
-                  >
-                    Print Receipt
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<SmsOutlined />}
-                    sx={{
-                      color: '#00bcd4',
-                      borderColor: 'rgba(0,188,212,0.4)',
-                      '&:hover': { borderColor: '#00bcd4', backgroundColor: 'rgba(0,188,212,0.1)' },
-                    }}
-                  >
-                    Send SMS
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<AddOutlined />}
-                    onClick={handleNewTransaction}
-                    sx={{
-                      color: '#00bcd4',
-                      borderColor: 'rgba(0,188,212,0.4)',
-                      '&:hover': { borderColor: '#00bcd4', backgroundColor: 'rgba(0,188,212,0.1)' },
-                    }}
-                  >
-                    New Transaction
-                  </Button>
-                </Box>
-              </CardContent>
-            </Card>
-          )}
-        </Grid>
-
-        {/* ---- RIGHT COLUMN ---- */}
-        <Grid item xs={12} md={4}>
-          <Card sx={{ ...cardSx, position: 'sticky', top: 24 }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <ElectricMeterOutlined sx={{ color: '#00bcd4' }} />
-                <Typography variant="h6" sx={{ color: '#fff', fontWeight: 600 }}>
-                  Customer Information
-                </Typography>
               </Box>
+            </>
+          ) : (
+            <Box
+              display="flex"
+              alignItems="center"
+              justifyContent="center"
+              height="calc(100% - 50px)"
+            >
+              <Typography variant="body2" color={colors.grey[400]} textAlign="center">
+                Select a customer first to begin token vending.
+              </Typography>
+            </Box>
+          )}
+        </Box>
 
-              {selectedCustomer ? (
-                <Box>
-                  <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-                    {selectedCustomer.name}
-                  </Typography>
+        {/* ================================================================= */}
+        {/* Transaction Breakdown (span 5, span 3)                           */}
+        {/* ================================================================= */}
+        <Box
+          gridColumn="span 5"
+          gridRow="span 3"
+          backgroundColor={colors.primary[400]}
+          p="20px"
+          overflow="auto"
+        >
+          <Typography
+            variant="h5"
+            fontWeight="600"
+            color={colors.grey[100]}
+            mb="15px"
+          >
+            Transaction Breakdown
+          </Typography>
 
+          {breakdown ? (
+            <>
+              <Table size="small">
+                <TableBody>
                   {[
-                    { label: 'Account No', value: selectedCustomer.accountNo, mono: true },
-                    { label: 'Meter No', value: selectedCustomer.meterNo, mono: true },
-                    { label: 'Area', value: selectedCustomer.area },
-                    { label: 'Address', value: selectedCustomer.address },
-                    { label: 'Tariff', value: selectedCustomer.tariffGroup },
-                    { label: 'Meter Make', value: selectedCustomer.meterMake },
-                  ].map((item) => (
-                    <Box key={item.label} sx={{ mb: 1.5 }}>
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)' }}>
-                        {item.label}
-                      </Typography>
-                      <Typography
-                        variant="body2"
+                    { label: "Amount Tendered", value: fmtN$(breakdown.amountTendered), color: colors.grey[100] },
+                    { label: `VAT (${tariffConfig.vatRate}%)`, value: `-${fmtN$(breakdown.vatAmount)}`, color: colors.redAccent[500] },
+                    { label: "Fixed Charge", value: `-${fmtN$(breakdown.fixedCharge)}`, color: colors.redAccent[500] },
+                    { label: "REL Levy", value: `-${fmtN$(breakdown.relLevy)}`, color: colors.redAccent[500] },
+                    ...(breakdown.arrearsDeduction > 0
+                      ? [{ label: `Arrears (${tariffConfig.arrearsPercentage}%)`, value: `-${fmtN$(breakdown.arrearsDeduction)}`, color: colors.yellowAccent[500] }]
+                      : []),
+                    { label: "Net Energy Amount", value: fmtN$(breakdown.netEnergy), color: colors.greenAccent[500] },
+                  ].map((row) => (
+                    <TableRow key={row.label}>
+                      <TableCell
                         sx={{
-                          color: '#fff',
-                          fontFamily: item.mono ? 'monospace' : 'inherit',
-                          fontWeight: 500,
+                          color: colors.grey[300],
+                          borderBottom: `1px solid ${colors.grey[700]}`,
+                          pl: 0,
+                          fontSize: "12px",
                         }}
                       >
-                        {item.value}
-                      </Typography>
-                    </Box>
+                        {row.label}
+                      </TableCell>
+                      <TableCell
+                        align="right"
+                        sx={{
+                          color: row.color,
+                          fontWeight: 600,
+                          borderBottom: `1px solid ${colors.grey[700]}`,
+                          pr: 0,
+                          fontSize: "12px",
+                        }}
+                      >
+                        {row.value}
+                      </TableCell>
+                    </TableRow>
                   ))}
+                </TableBody>
+              </Table>
 
-                  <Divider sx={{ borderColor: 'rgba(30,58,95,0.4)', my: 2 }} />
+              <Divider sx={{ borderColor: colors.greenAccent[700], my: 1.5 }} />
 
-                  {/* Arrears */}
-                  <Box sx={{ mb: 1.5 }}>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)' }}>
-                      Outstanding Arrears
-                    </Typography>
-                    <Typography
-                      variant="body1"
-                      sx={{
-                        color: selectedCustomer.arrears > 0 ? '#f44336' : '#4caf50',
-                        fontWeight: 700,
-                      }}
-                    >
-                      {fmtN$(selectedCustomer.arrears)}
-                    </Typography>
-                  </Box>
-
-                  {/* Last Purchase */}
-                  <Box sx={{ mb: 1.5 }}>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)' }}>
-                      Last Purchase
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: '#fff' }}>
-                      {new Date(selectedCustomer.lastPurchaseDate).toLocaleDateString('en-NA', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}{' '}
-                      &mdash; {fmtN$(selectedCustomer.lastPurchaseAmount)}
-                    </Typography>
-                  </Box>
-
-                  {/* Status */}
-                  <Box sx={{ mt: 2 }}>
-                    <Typography
-                      variant="caption"
-                      sx={{ color: 'rgba(255,255,255,0.4)', display: 'block', mb: 0.5 }}
-                    >
-                      Status
-                    </Typography>
-                    <Chip
-                      label={selectedCustomer.status}
-                      size="small"
-                      sx={{
-                        fontWeight: 600,
-                        color: '#fff',
-                        backgroundColor:
-                          selectedCustomer.status === 'Active'
-                            ? 'rgba(76,175,80,0.25)'
-                            : selectedCustomer.status === 'Arrears'
-                            ? 'rgba(255,152,0,0.25)'
-                            : selectedCustomer.status === 'Suspended'
-                            ? 'rgba(244,67,54,0.25)'
-                            : 'rgba(158,158,158,0.25)',
-                        border: `1px solid ${
-                          selectedCustomer.status === 'Active'
-                            ? '#4caf50'
-                            : selectedCustomer.status === 'Arrears'
-                            ? '#ff9800'
-                            : selectedCustomer.status === 'Suspended'
-                            ? '#f44336'
-                            : '#9e9e9e'
-                        }`,
-                      }}
-                    />
-                  </Box>
-                </Box>
-              ) : (
-                <Box
-                  sx={{
-                    py: 6,
-                    textAlign: 'center',
-                  }}
+              <Box textAlign="center" py="8px">
+                <Typography variant="caption" color={colors.greenAccent[500]}>
+                  kWh Calculated
+                </Typography>
+                <Typography
+                  variant="h3"
+                  fontWeight="700"
+                  fontFamily="monospace"
+                  color={colors.greenAccent[400]}
                 >
-                  <PersonOutlined sx={{ fontSize: 48, color: 'rgba(255,255,255,0.15)', mb: 1 }} />
-                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.3)' }}>
-                    Search for a customer or select from quick-load options to begin a vending transaction.
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+                  {breakdown.totalKwh.toFixed(2)} kWh
+                </Typography>
+              </Box>
+            </>
+          ) : (
+            <Box
+              display="flex"
+              alignItems="center"
+              justifyContent="center"
+              height="calc(100% - 50px)"
+            >
+              <Typography variant="body2" color={colors.grey[400]} textAlign="center">
+                Enter an amount to see the breakdown.
+              </Typography>
+            </Box>
+          )}
+        </Box>
+
+        {/* ================================================================= */}
+        {/* Token Display (span 12, span 2) — only shown after generation    */}
+        {/* ================================================================= */}
+        {generatedToken && (
+          <Box
+            gridColumn="span 12"
+            gridRow="span 2"
+            backgroundColor={colors.primary[400]}
+            p="20px"
+            display="flex"
+            flexDirection="column"
+            alignItems="center"
+            justifyContent="center"
+          >
+            <Typography variant="caption" color={colors.greenAccent[500]} mb="5px">
+              20-Digit STS Token — {selectedCustomer?.name}
+            </Typography>
+            <Typography
+              variant="h2"
+              fontWeight="700"
+              fontFamily='"Courier New", monospace'
+              color={colors.greenAccent[400]}
+              letterSpacing="4px"
+              mb="15px"
+            >
+              {formatToken(generatedToken)}
+            </Typography>
+            <Box display="flex" gap="10px">
+              <Button
+                variant="outlined"
+                startIcon={<ContentCopyOutlinedIcon />}
+                onClick={handleCopy}
+                sx={{
+                  color: copied ? colors.greenAccent[500] : colors.grey[100],
+                  borderColor: copied ? colors.greenAccent[500] : colors.grey[700],
+                  "&:hover": {
+                    borderColor: colors.greenAccent[500],
+                    backgroundColor: `${colors.greenAccent[700]}20`,
+                  },
+                }}
+              >
+                {copied ? "Copied!" : "Copy"}
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<PrintOutlinedIcon />}
+                sx={{
+                  color: colors.grey[100],
+                  borderColor: colors.grey[700],
+                  "&:hover": {
+                    borderColor: colors.greenAccent[500],
+                    backgroundColor: `${colors.greenAccent[700]}20`,
+                  },
+                }}
+              >
+                Print Receipt
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<SmsOutlinedIcon />}
+                sx={{
+                  color: colors.grey[100],
+                  borderColor: colors.grey[700],
+                  "&:hover": {
+                    borderColor: colors.greenAccent[500],
+                    backgroundColor: `${colors.greenAccent[700]}20`,
+                  },
+                }}
+              >
+                Send SMS
+              </Button>
+            </Box>
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 }

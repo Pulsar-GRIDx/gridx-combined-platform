@@ -1,361 +1,339 @@
-import { useState } from 'react';
+import { useState } from "react";
 import {
   Box,
-  Card,
-  CardContent,
   Typography,
-  Grid,
   TextField,
   Select,
   MenuItem,
   FormControl,
   InputLabel,
   Button,
-  Divider,
-} from '@mui/material';
-import { SaveOutlined } from '@mui/icons-material';
-import Header from '../components/Header';
-import { tariffGroups, tariffConfig } from '../services/mockData';
-
-// ---- Shared card styling ----
-const darkCard = {
-  background: '#152238',
-  border: '1px solid rgba(30, 58, 95, 0.5)',
-  borderRadius: 2,
-};
+  Tabs,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  useTheme,
+} from "@mui/material";
+import { SaveOutlined } from "@mui/icons-material";
+import { tokens } from "../theme";
+import Header from "../components/Header";
+import { tariffGroups, tariffConfig } from "../services/mockData";
 
 // ---- Block tier colors ----
-const blockColors = ['#4cceac', '#00b4d8', '#f2b705', '#db4f4a'];
-
-// ---- Tariff change log entries ----
-const changeLog = [
-  {
-    date: '2025-07-01',
-    description: 'Annual tariff increase applied - Residential Block 4 raised from N$ 2.60 to N$ 2.85/kWh',
-    user: 'Admin: Petrus Shikomba',
-  },
-  {
-    date: '2025-07-01',
-    description: 'Commercial flat rate adjusted from N$ 2.30 to N$ 2.45/kWh',
-    user: 'Admin: Petrus Shikomba',
-  },
-  {
-    date: '2025-04-15',
-    description: 'REL Levy updated from N$ 2.20 to N$ 2.40 per transaction (ECB directive)',
-    user: 'Admin: Maria Nghidengwa',
-  },
-  {
-    date: '2025-01-10',
-    description: 'Arrears auto-deduct threshold increased from N$ 300 to N$ 500',
-    user: 'Admin: Petrus Shikomba',
-  },
-];
+const blockColors = ["#4cceac", "#00b4d8", "#f2b705", "#db4f4a"];
 
 export default function Tariffs() {
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
+
+  const [selectedTab, setSelectedTab] = useState(0);
+
   const [config, setConfig] = useState({
     vatRate: tariffConfig.vatRate,
     fixedCharge: tariffConfig.fixedCharge,
     relLevy: tariffConfig.relLevy,
     minPurchase: tariffConfig.minPurchase,
-    arrearsMode: tariffConfig.arrearsMode,
-    arrearsThreshold: tariffConfig.arrearsThreshold,
-    arrearsPercentage: tariffConfig.arrearsPercentage,
   });
 
   const handleChange = (field) => (e) => {
     setConfig((prev) => ({ ...prev, [field]: e.target.value }));
   };
 
+  const selectedGroup = tariffGroups[selectedTab] || tariffGroups[0];
+
   return (
-    <Box>
+    <Box m="20px">
       <Header
-        title="Tariff Management"
-        subtitle="Configure tariff groups, rate blocks, and system billing parameters"
+        title="TARIFF MANAGEMENT"
+        subtitle="Step Tariff Configuration"
       />
 
-      <Grid container spacing={3}>
-        {/* ---- Left Column: Tariff Groups ---- */}
-        <Grid item xs={12} md={7}>
-          {tariffGroups.map((group) => (
-            <Card key={group.id} sx={{ ...darkCard, mb: 3 }}>
-              <CardContent>
-                {/* Group header */}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                  <Box>
-                    <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.15rem' }}>
-                      {group.name}
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)', mt: 0.3 }}>
-                      {group.description}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body2" sx={{ color: '#00b4d8', fontWeight: 600 }}>
-                      SGC: {group.sgc}
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-                      {group.customerCount.toLocaleString()} meters
-                    </Typography>
-                  </Box>
-                </Box>
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ---- System config card (span 4, span 2) ---- */}
+        <Box
+          gridColumn="span 4"
+          gridRow="span 2"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          p="20px"
+          display="flex"
+          flexDirection="column"
+          justifyContent="space-between"
+        >
+          <Typography
+            variant="h5"
+            color={colors.grey[100]}
+            fontWeight="bold"
+            mb="10px"
+          >
+            System Configuration
+          </Typography>
 
-                {/* Tariff type badge */}
+          <Box display="flex" flexDirection="column" gap="12px" flex="1">
+            <TextField
+              label="VAT Rate (%)"
+              type="number"
+              size="small"
+              fullWidth
+              value={config.vatRate}
+              onChange={handleChange("vatRate")}
+            />
+            <TextField
+              label="Fixed Charge (N$)"
+              type="number"
+              size="small"
+              fullWidth
+              value={config.fixedCharge}
+              onChange={handleChange("fixedCharge")}
+            />
+            <TextField
+              label="REL Levy (N$)"
+              type="number"
+              size="small"
+              fullWidth
+              value={config.relLevy}
+              onChange={handleChange("relLevy")}
+            />
+            <TextField
+              label="Min Purchase (N$)"
+              type="number"
+              size="small"
+              fullWidth
+              value={config.minPurchase}
+              onChange={handleChange("minPurchase")}
+            />
+          </Box>
+
+          <Button
+            variant="contained"
+            startIcon={<SaveOutlined />}
+            sx={{
+              mt: "10px",
+              backgroundColor: colors.greenAccent[500],
+              color: "#000",
+              fontWeight: 600,
+              "&:hover": { backgroundColor: colors.greenAccent[600] },
+            }}
+          >
+            Save Configuration
+          </Button>
+        </Box>
+
+        {/* ---- Tariff groups tabs (span 8, span 2) ---- */}
+        <Box
+          gridColumn="span 8"
+          gridRow="span 2"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          p="20px"
+          display="flex"
+          flexDirection="column"
+        >
+          <Typography
+            variant="h5"
+            color={colors.grey[100]}
+            fontWeight="bold"
+            mb="10px"
+          >
+            Tariff Groups
+          </Typography>
+
+          <Tabs
+            value={selectedTab}
+            onChange={(_, v) => setSelectedTab(v)}
+            sx={{
+              mb: "15px",
+              "& .MuiTab-root": {
+                color: colors.grey[300],
+                textTransform: "none",
+                fontWeight: 600,
+                "&.Mui-selected": { color: colors.greenAccent[500] },
+              },
+              "& .MuiTabs-indicator": {
+                backgroundColor: colors.greenAccent[500],
+              },
+            }}
+          >
+            {tariffGroups.map((g) => (
+              <Tab key={g.id} label={g.name} />
+            ))}
+          </Tabs>
+
+          <Box flex="1" overflow="auto">
+            <Box
+              display="flex"
+              justifyContent="space-between"
+              alignItems="flex-start"
+              mb="8px"
+            >
+              <Box>
                 <Typography
-                  variant="caption"
-                  sx={{
-                    display: 'inline-block',
-                    px: 1.5,
-                    py: 0.3,
-                    borderRadius: 1,
-                    background: 'rgba(104, 112, 250, 0.15)',
-                    color: '#6870fa',
-                    fontWeight: 600,
-                    mb: 2,
-                  }}
+                  variant="h6"
+                  color={colors.grey[100]}
+                  fontWeight="bold"
                 >
-                  {group.type === 'Block' ? 'Step Tariff Blocks' : group.type === 'Flat' ? 'Flat Rate Tariff' : 'Time-of-Use Tariff'}
+                  {selectedGroup.name}
                 </Typography>
+                <Typography variant="body2" color={colors.grey[300]}>
+                  {selectedGroup.description}
+                </Typography>
+              </Box>
+              <Box textAlign="right">
+                <Typography
+                  variant="body2"
+                  color={colors.greenAccent[500]}
+                  fontWeight="600"
+                >
+                  SGC: {selectedGroup.sgc}
+                </Typography>
+                <Typography variant="body2" color={colors.grey[400]}>
+                  {selectedGroup.customerCount.toLocaleString()} meters
+                </Typography>
+              </Box>
+            </Box>
+            <Typography
+              variant="caption"
+              sx={{
+                display: "inline-block",
+                px: 1.5,
+                py: 0.3,
+                borderRadius: 1,
+                backgroundColor: `${colors.blueAccent[500]}22`,
+                color: colors.blueAccent[500],
+                fontWeight: 600,
+                mb: "8px",
+              }}
+            >
+              {selectedGroup.type === "Block"
+                ? "Step Tariff Blocks"
+                : selectedGroup.type === "Flat"
+                ? "Flat Rate Tariff"
+                : "Time-of-Use Tariff"}
+            </Typography>
+            <Typography variant="caption" color={colors.grey[400]} display="block">
+              Effective from:{" "}
+              {new Date(selectedGroup.effectiveDate).toLocaleDateString(
+                "en-ZA",
+                { year: "numeric", month: "long", day: "numeric" }
+              )}
+            </Typography>
+          </Box>
+        </Box>
 
-                {/* Rate blocks */}
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                  {group.blocks.map((block, idx) => (
-                    <Box
-                      key={idx}
+        {/* ---- Selected tariff blocks table (span 12, span 3) ---- */}
+        <Box
+          gridColumn="span 12"
+          gridRow="span 3"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+        >
+          <Box p="20px" pb="0">
+            <Typography
+              variant="h5"
+              color={colors.grey[100]}
+              fontWeight="bold"
+              mb="10px"
+            >
+              {selectedGroup.name} - Rate Blocks
+            </Typography>
+          </Box>
+          <TableContainer sx={{ px: "20px", pb: "20px" }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell
+                    sx={{
+                      color: colors.grey[100],
+                      fontWeight: 700,
+                      borderBottom: `1px solid ${colors.grey[700]}`,
+                    }}
+                  >
+                    Block Name
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      color: colors.grey[100],
+                      fontWeight: 700,
+                      borderBottom: `1px solid ${colors.grey[700]}`,
+                    }}
+                  >
+                    Range
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{
+                      color: colors.grey[100],
+                      fontWeight: 700,
+                      borderBottom: `1px solid ${colors.grey[700]}`,
+                    }}
+                  >
+                    Rate per kWh
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {selectedGroup.blocks.map((block, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell
                       sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 2,
-                        background: 'rgba(255,255,255,0.03)',
-                        borderRadius: 1,
-                        overflow: 'hidden',
+                        borderBottom: `1px solid ${colors.grey[800]}`,
                       }}
                     >
-                      {/* Colored left border strip */}
-                      <Box
-                        sx={{
-                          width: 5,
-                          alignSelf: 'stretch',
-                          backgroundColor: blockColors[idx % blockColors.length],
-                          flexShrink: 0,
-                        }}
-                      />
-                      <Box sx={{ py: 1.2, px: 1, flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Box>
-                          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 600 }}>
-                            {block.name}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)' }}>
-                            {block.range}
-                          </Typography>
-                        </Box>
-                        <Typography
-                          variant="body2"
+                      <Box display="flex" alignItems="center" gap="10px">
+                        <Box
                           sx={{
-                            color: blockColors[idx % blockColors.length],
-                            fontWeight: 700,
-                            fontSize: '0.95rem',
+                            width: 5,
+                            height: 36,
+                            borderRadius: "2px",
+                            backgroundColor:
+                              blockColors[idx % blockColors.length],
+                            flexShrink: 0,
                           }}
+                        />
+                        <Typography
+                          color={colors.grey[100]}
+                          fontWeight="600"
                         >
-                          N$ {block.rate.toFixed(2)}/kWh
+                          {block.name}
                         </Typography>
                       </Box>
-                    </Box>
-                  ))}
-                </Box>
-
-                {/* Effective date */}
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)', display: 'block', mt: 2 }}>
-                  Effective from: {new Date(group.effectiveDate).toLocaleDateString('en-ZA', { year: 'numeric', month: 'long', day: 'numeric' })}
-                </Typography>
-              </CardContent>
-            </Card>
-          ))}
-        </Grid>
-
-        {/* ---- Right Column: System Configuration ---- */}
-        <Grid item xs={12} md={5}>
-          {/* Config card */}
-          <Card sx={{ ...darkCard, mb: 3 }}>
-            <CardContent>
-              <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.05rem', mb: 2.5 }}>
-                System Configuration
-              </Typography>
-
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-                <TextField
-                  label="VAT Rate (%)"
-                  type="number"
-                  size="small"
-                  fullWidth
-                  value={config.vatRate}
-                  onChange={handleChange('vatRate')}
-                  InputProps={{ sx: { color: '#fff' } }}
-                  InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
-                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                    },
-                  }}
-                />
-
-                <TextField
-                  label="Fixed Monthly Charge (N$)"
-                  type="number"
-                  size="small"
-                  fullWidth
-                  value={config.fixedCharge}
-                  onChange={handleChange('fixedCharge')}
-                  InputProps={{ sx: { color: '#fff' } }}
-                  InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
-                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                    },
-                  }}
-                />
-
-                <TextField
-                  label="REL Levy (N$ / transaction)"
-                  type="number"
-                  size="small"
-                  fullWidth
-                  value={config.relLevy}
-                  onChange={handleChange('relLevy')}
-                  InputProps={{ sx: { color: '#fff' } }}
-                  InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
-                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                    },
-                  }}
-                />
-
-                <TextField
-                  label="Min Purchase Amount (N$)"
-                  type="number"
-                  size="small"
-                  fullWidth
-                  value={config.minPurchase}
-                  onChange={handleChange('minPurchase')}
-                  InputProps={{ sx: { color: '#fff' } }}
-                  InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
-                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                    },
-                  }}
-                />
-
-                <FormControl
-                  size="small"
-                  fullWidth
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      color: '#fff',
-                      '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
-                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                    },
-                  }}
-                >
-                  <InputLabel sx={{ color: 'rgba(255,255,255,0.5)' }}>Arrears Collection</InputLabel>
-                  <Select
-                    value={config.arrearsMode}
-                    label="Arrears Collection"
-                    onChange={handleChange('arrearsMode')}
-                    sx={{ color: '#fff' }}
-                  >
-                    <MenuItem value="auto-deduct">Auto-Deduct</MenuItem>
-                    <MenuItem value="manual">Manual</MenuItem>
-                    <MenuItem value="disabled">Disabled</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <TextField
-                  label="Arrears Threshold (N$)"
-                  type="number"
-                  size="small"
-                  fullWidth
-                  value={config.arrearsThreshold}
-                  onChange={handleChange('arrearsThreshold')}
-                  InputProps={{ sx: { color: '#fff' } }}
-                  InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
-                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                    },
-                  }}
-                />
-
-                <TextField
-                  label="Arrears Deduction (%)"
-                  type="number"
-                  size="small"
-                  fullWidth
-                  value={config.arrearsPercentage}
-                  onChange={handleChange('arrearsPercentage')}
-                  InputProps={{ sx: { color: '#fff' } }}
-                  InputLabelProps={{ sx: { color: 'rgba(255,255,255,0.5)' } }}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& fieldset': { borderColor: 'rgba(255,255,255,0.15)' },
-                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                    },
-                  }}
-                />
-
-                <Button
-                  variant="contained"
-                  startIcon={<SaveOutlined />}
-                  sx={{
-                    mt: 1,
-                    background: '#00b4d8',
-                    '&:hover': { background: '#0096b7' },
-                    fontWeight: 600,
-                    textTransform: 'none',
-                  }}
-                >
-                  Save Configuration
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-
-          {/* Tariff Change Log */}
-          <Card sx={darkCard}>
-            <CardContent>
-              <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.05rem', mb: 2 }}>
-                Tariff Change Log
-              </Typography>
-
-              {changeLog.map((entry, idx) => (
-                <Box key={idx}>
-                  <Box sx={{ py: 1.5 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                      <Typography variant="caption" sx={{ color: '#00b4d8', fontWeight: 600 }}>
-                        {new Date(entry.date).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' })}
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)' }}>
-                        {entry.user}
-                      </Typography>
-                    </Box>
-                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem' }}>
-                      {entry.description}
-                    </Typography>
-                  </Box>
-                  {idx < changeLog.length - 1 && (
-                    <Divider sx={{ borderColor: 'rgba(255,255,255,0.07)' }} />
-                  )}
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        color: colors.grey[300],
+                        borderBottom: `1px solid ${colors.grey[800]}`,
+                      }}
+                    >
+                      {block.range}
+                    </TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{
+                        color: blockColors[idx % blockColors.length],
+                        fontWeight: 700,
+                        fontSize: "1rem",
+                        borderBottom: `1px solid ${colors.grey[800]}`,
+                      }}
+                    >
+                      N$ {block.rate.toFixed(2)}/kWh
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      </Box>
     </Box>
   );
 }

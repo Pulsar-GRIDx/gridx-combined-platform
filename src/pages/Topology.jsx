@@ -1,11 +1,8 @@
-import { useState, useMemo } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
+import { useState } from "react";
+import { Link as RouterLink } from "react-router-dom";
 import {
   Box,
-  Card,
-  CardContent,
   Typography,
-  Grid,
   Chip,
   Button,
   Collapse,
@@ -14,7 +11,8 @@ import {
   ListItemIcon,
   ListItemText,
   Divider,
-} from '@mui/material';
+  useTheme,
+} from "@mui/material";
 import {
   LocationCityOutlined,
   PlaceOutlined,
@@ -26,67 +24,48 @@ import {
   PowerOutlined,
   FiberManualRecord,
   VisibilityOutlined,
-  GroupOutlined,
-  TransformOutlined,
-} from '@mui/icons-material';
-import Header from '../components/Header';
-import { topologyData, meters } from '../services/mockData';
+} from "@mui/icons-material";
+import Header from "../components/Header";
+import { tokens } from "../theme";
+import { topologyData, meters } from "../services/mockData";
 
-// ---- Shared card styling ----
-const darkCard = {
-  background: '#152238',
-  border: '1px solid rgba(30, 58, 95, 0.5)',
-  borderRadius: 2,
-};
-
-// ---- Helpers ----
+/* ---- helpers ---- */
 const fmt = (n) => Number(n).toLocaleString();
 
-// ---- Status color map ----
-const statusColors = {
-  Online: { bg: 'rgba(76, 206, 172, 0.15)', text: '#4cceac' },
-  Offline: { bg: 'rgba(108, 117, 125, 0.2)', text: '#6c757d' },
-  Tampered: { bg: 'rgba(219, 79, 74, 0.15)', text: '#db4f4a' },
-};
-
-// ---- Type icons + colors ----
-const typeConfig = {
-  utility: { icon: <LocationCityOutlined />, color: '#00e5ff', label: 'Utility' },
-  location: { icon: <PlaceOutlined />, color: '#4cceac', label: 'Location' },
-  transformer: { icon: <ElectricalServicesOutlined />, color: '#f2b705', label: 'Transformer' },
-  meter: { icon: <SpeedOutlined />, color: '#00b4d8', label: 'Meter' },
-};
-
-// ---- Utility: count all meters in a subtree ----
 function countMeters(node) {
-  if (node.type === 'meter') return 1;
+  if (node.type === "meter") return 1;
   if (!node.children) return 0;
   return node.children.reduce((sum, child) => sum + countMeters(child), 0);
 }
 
-// ---- Utility: sum power in a subtree ----
 function sumPower(node) {
-  if (node.type === 'meter') return node.power || 0;
+  if (node.type === "meter") return node.power || 0;
   if (!node.children) return 0;
   return node.children.reduce((sum, child) => sum + sumPower(child), 0);
 }
 
-// ---- Utility: count children of a specific type ----
 function countType(node, type) {
   if (node.type === type) return 1;
   if (!node.children) return 0;
   return node.children.reduce((sum, child) => sum + countType(child, type), 0);
 }
 
-// ---- Utility: collect all meters from subtree ----
 function collectMeters(node) {
-  if (node.type === 'meter') return [node];
+  if (node.type === "meter") return [node];
   if (!node.children) return [];
   return node.children.flatMap((child) => collectMeters(child));
 }
 
-// ---- Tree Node Component ----
-function TreeNode({ node, depth = 0, selectedNode, onSelect }) {
+/* ---- type icons + colors ---- */
+const typeConfig = {
+  utility: { icon: <LocationCityOutlined />, color: "#00e5ff", label: "Utility" },
+  location: { icon: <PlaceOutlined />, color: "#4cceac", label: "Location" },
+  transformer: { icon: <ElectricalServicesOutlined />, color: "#f2b705", label: "Transformer" },
+  meter: { icon: <SpeedOutlined />, color: "#00b4d8", label: "Meter" },
+};
+
+/* ---- TreeNode Component ---- */
+function TreeNode({ node, depth = 0, selectedNode, onSelect, colors }) {
   const [expanded, setExpanded] = useState(depth < 2);
   const hasChildren = node.children && node.children.length > 0;
   const config = typeConfig[node.type] || typeConfig.meter;
@@ -94,9 +73,7 @@ function TreeNode({ node, depth = 0, selectedNode, onSelect }) {
 
   const handleClick = () => {
     onSelect(node);
-    if (hasChildren) {
-      setExpanded(!expanded);
-    }
+    if (hasChildren) setExpanded(!expanded);
   };
 
   return (
@@ -110,70 +87,73 @@ function TreeNode({ node, depth = 0, selectedNode, onSelect }) {
           borderRadius: 1,
           mb: 0.3,
           minHeight: 36,
-          '&.Mui-selected': {
-            bgcolor: 'rgba(0, 229, 255, 0.08)',
-            borderLeft: '3px solid #00e5ff',
-            '&:hover': { bgcolor: 'rgba(0, 229, 255, 0.12)' },
+          "&.Mui-selected": {
+            bgcolor: `rgba(76,206,172,0.08)`,
+            borderLeft: `3px solid ${colors.greenAccent[500]}`,
+            "&:hover": { bgcolor: "rgba(76,206,172,0.12)" },
           },
-          '&:hover': {
-            bgcolor: 'rgba(0, 180, 216, 0.06)',
-          },
+          "&:hover": { bgcolor: "rgba(0,180,216,0.06)" },
         }}
       >
-        {/* Expand/collapse icon */}
         {hasChildren ? (
           expanded ? (
-            <ExpandMore sx={{ fontSize: 18, color: 'rgba(255,255,255,0.4)', mr: 0.5 }} />
+            <ExpandMore sx={{ fontSize: 18, color: colors.grey[400], mr: 0.5 }} />
           ) : (
-            <ChevronRight sx={{ fontSize: 18, color: 'rgba(255,255,255,0.4)', mr: 0.5 }} />
+            <ChevronRight sx={{ fontSize: 18, color: colors.grey[400], mr: 0.5 }} />
           )
         ) : (
           <Box sx={{ width: 22 }} />
         )}
-
-        {/* Type icon */}
-        <ListItemIcon sx={{ minWidth: 30, '& .MuiSvgIcon-root': { fontSize: 18, color: config.color } }}>
+        <ListItemIcon
+          sx={{
+            minWidth: 30,
+            "& .MuiSvgIcon-root": { fontSize: 18, color: config.color },
+          }}
+        >
           {config.icon}
         </ListItemIcon>
-
-        {/* Node label */}
         <ListItemText
           primary={node.name}
           primaryTypographyProps={{
-            fontSize: node.type === 'utility' ? '0.88rem' : node.type === 'meter' ? '0.75rem' : '0.8rem',
-            fontWeight: node.type === 'utility' ? 700 : node.type === 'location' ? 600 : 500,
-            color: isSelected ? '#00e5ff' : '#fff',
-            fontFamily: node.type === 'meter' ? '"Roboto Mono", monospace' : 'inherit',
+            fontSize:
+              node.type === "utility"
+                ? "0.88rem"
+                : node.type === "meter"
+                ? "0.75rem"
+                : "0.8rem",
+            fontWeight:
+              node.type === "utility" ? 700 : node.type === "location" ? 600 : 500,
+            color: isSelected ? colors.greenAccent[500] : colors.grey[100],
+            fontFamily: node.type === "meter" ? '"Roboto Mono", monospace' : "inherit",
           }}
         />
-
-        {/* Meter count badge for non-meter nodes */}
-        {node.type !== 'meter' && (
+        {node.type !== "meter" && (
           <Chip
             label={countMeters(node)}
             size="small"
             sx={{
               height: 20,
-              fontSize: '0.65rem',
-              bgcolor: 'rgba(0,180,216,0.12)',
-              color: '#00b4d8',
+              fontSize: "0.65rem",
+              bgcolor: "rgba(0,180,216,0.12)",
+              color: "#00b4d8",
               fontWeight: 600,
             }}
           />
         )}
-
-        {/* Status dot for meters */}
-        {node.type === 'meter' && (
+        {node.type === "meter" && (
           <FiberManualRecord
             sx={{
               fontSize: 10,
-              color: node.status === 'Online' ? '#4cceac' : node.status === 'Tampered' ? '#db4f4a' : '#6c757d',
+              color:
+                node.status === "Online"
+                  ? colors.greenAccent[500]
+                  : node.status === "Tampered"
+                  ? "#db4f4a"
+                  : colors.grey[400],
             }}
           />
         )}
       </ListItemButton>
-
-      {/* Children */}
       {hasChildren && (
         <Collapse in={expanded} timeout="auto" unmountOnExit>
           <List disablePadding>
@@ -184,6 +164,7 @@ function TreeNode({ node, depth = 0, selectedNode, onSelect }) {
                 depth={depth + 1}
                 selectedNode={selectedNode}
                 onSelect={onSelect}
+                colors={colors}
               />
             ))}
           </List>
@@ -193,166 +174,152 @@ function TreeNode({ node, depth = 0, selectedNode, onSelect }) {
   );
 }
 
-// ---- Detail: City overview ----
-function CityDetail({ node }) {
-  const totalMeters = countMeters(node);
-  const totalLocations = countType(node, 'location');
-  const totalTransformers = countType(node, 'transformer');
-  const totalPower = sumPower(node);
+/* ---- Detail panels ---- */
+function CityDetail({ node, colors }) {
+  const totalM = countMeters(node);
+  const totalLoc = countType(node, "location");
+  const totalTx = countType(node, "transformer");
+  const totalPw = sumPower(node);
+
+  const stats = [
+    { label: "Locations", value: totalLoc, color: "#4cceac", icon: <PlaceOutlined /> },
+    { label: "Transformers", value: totalTx, color: "#f2b705", icon: <ElectricalServicesOutlined /> },
+    { label: "Meters", value: totalM, color: "#00b4d8", icon: <SpeedOutlined /> },
+    { label: "kW Total Load", value: totalPw.toFixed(1), color: "#db4f4a", icon: <BoltOutlined /> },
+  ];
 
   return (
     <>
-      <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700, mb: 0.5, fontSize: '1.1rem' }}>
+      <Typography variant="h5" color={colors.grey[100]} fontWeight="bold" mb={0.5}>
         {node.name}
       </Typography>
-      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.45)', mb: 3, fontSize: '0.82rem' }}>
+      <Typography variant="body2" color={colors.grey[400]} mb={2} fontSize="0.82rem">
         Utility-level overview of the entire grid network
       </Typography>
-
-      <Grid container spacing={2}>
-        <Grid item xs={6} sm={3}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <PlaceOutlined sx={{ fontSize: 28, color: '#4cceac', mb: 0.5 }} />
-            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.5rem' }}>{totalLocations}</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>Locations</Typography>
+      <Box display="flex" gap="5px" flexWrap="wrap" mb={3}>
+        {stats.map((s) => (
+          <Box
+            key={s.label}
+            flex="1 1 120px"
+            backgroundColor={colors.primary[400]}
+            p={2}
+            borderRadius="4px"
+            textAlign="center"
+          >
+            <Box sx={{ "& .MuiSvgIcon-root": { fontSize: 28, color: s.color, mb: 0.5 } }}>{s.icon}</Box>
+            <Typography variant="h5" color={colors.grey[100]} fontWeight={700} fontSize="1.5rem">
+              {s.value}
+            </Typography>
+            <Typography variant="caption" color={colors.grey[400]} fontSize="0.72rem">
+              {s.label}
+            </Typography>
           </Box>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <ElectricalServicesOutlined sx={{ fontSize: 28, color: '#f2b705', mb: 0.5 }} />
-            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.5rem' }}>{totalTransformers}</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>Transformers</Typography>
-          </Box>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <SpeedOutlined sx={{ fontSize: 28, color: '#00b4d8', mb: 0.5 }} />
-            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.5rem' }}>{totalMeters}</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>Meters</Typography>
-          </Box>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <BoltOutlined sx={{ fontSize: 28, color: '#db4f4a', mb: 0.5 }} />
-            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.5rem' }}>{totalPower.toFixed(1)}</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>kW Total Load</Typography>
-          </Box>
-        </Grid>
-      </Grid>
-
-      {/* Location breakdown */}
-      <Typography variant="h6" sx={{ color: '#fff', fontWeight: 600, mt: 3, mb: 2, fontSize: '0.95rem' }}>
+        ))}
+      </Box>
+      <Typography variant="h6" color={colors.grey[100]} fontWeight={600} mb={1.5} fontSize="0.95rem">
         Locations
       </Typography>
-      <Grid container spacing={1.5}>
-        {(node.children || []).map((loc, i) => (
-          <Grid item xs={12} sm={6} key={i}>
-            <Box
-              sx={{
-                bgcolor: 'rgba(10,22,40,0.6)',
-                border: '1px solid rgba(30,58,95,0.4)',
-                borderRadius: 2,
-                p: 2,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <Box>
-                <Typography variant="body1" sx={{ color: '#fff', fontWeight: 600, fontSize: '0.88rem' }}>
-                  {loc.name}
-                </Typography>
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.72rem' }}>
-                  {countType(loc, 'transformer')} transformers &bull; {countMeters(loc)} meters
-                </Typography>
-              </Box>
-              <Chip
-                label={`${sumPower(loc).toFixed(1)} kW`}
-                size="small"
-                sx={{ bgcolor: 'rgba(0,229,255,0.1)', color: '#00e5ff', fontWeight: 600, fontSize: '0.72rem' }}
-              />
-            </Box>
-          </Grid>
-        ))}
-      </Grid>
+      {(node.children || []).map((loc, i) => (
+        <Box
+          key={i}
+          backgroundColor={colors.primary[400]}
+          p={2}
+          borderRadius="4px"
+          mb={1}
+          display="flex"
+          justifyContent="space-between"
+          alignItems="center"
+        >
+          <Box>
+            <Typography variant="body1" color={colors.grey[100]} fontWeight={600} fontSize="0.88rem">
+              {loc.name}
+            </Typography>
+            <Typography variant="caption" color={colors.grey[400]} fontSize="0.72rem">
+              {countType(loc, "transformer")} transformers &bull; {countMeters(loc)} meters
+            </Typography>
+          </Box>
+          <Chip
+            label={`${sumPower(loc).toFixed(1)} kW`}
+            size="small"
+            sx={{
+              bgcolor: "rgba(76,206,172,0.1)",
+              color: colors.greenAccent[500],
+              fontWeight: 600,
+              fontSize: "0.72rem",
+            }}
+          />
+        </Box>
+      ))}
     </>
   );
 }
 
-// ---- Detail: Location overview ----
-function LocationDetail({ node }) {
-  const meterCount = countMeters(node);
-  const transformerCount = countType(node, 'transformer');
-  const totalPower = sumPower(node);
+function LocationDetail({ node, colors }) {
+  const mc = countMeters(node);
+  const tc = countType(node, "transformer");
+  const pw = sumPower(node);
 
   return (
     <>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-        <PlaceOutlined sx={{ color: '#4cceac', fontSize: 24 }} />
-        <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem' }}>
+      <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+        <PlaceOutlined sx={{ color: "#4cceac", fontSize: 24 }} />
+        <Typography variant="h5" color={colors.grey[100]} fontWeight="bold">
           {node.name}
         </Typography>
       </Box>
-      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.45)', mb: 3, fontSize: '0.82rem' }}>
+      <Typography variant="body2" color={colors.grey[400]} mb={2} fontSize="0.82rem">
         Location-level stats
       </Typography>
-
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={4}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <Typography variant="h5" sx={{ color: '#f2b705', fontWeight: 700, fontSize: '1.5rem' }}>{transformerCount}</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>Transformers</Typography>
+      <Box display="flex" gap="5px" mb={3}>
+        {[
+          { label: "Transformers", value: tc, color: "#f2b705" },
+          { label: "Meters", value: mc, color: "#00b4d8" },
+          { label: "kW Load", value: pw.toFixed(1), color: colors.greenAccent[500] },
+        ].map((s) => (
+          <Box
+            key={s.label}
+            flex="1"
+            backgroundColor={colors.primary[400]}
+            p={2}
+            borderRadius="4px"
+            textAlign="center"
+          >
+            <Typography variant="h5" color={s.color} fontWeight={700} fontSize="1.5rem">
+              {s.value}
+            </Typography>
+            <Typography variant="caption" color={colors.grey[400]} fontSize="0.72rem">
+              {s.label}
+            </Typography>
           </Box>
-        </Grid>
-        <Grid item xs={4}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <Typography variant="h5" sx={{ color: '#00b4d8', fontWeight: 700, fontSize: '1.5rem' }}>{meterCount}</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>Meters</Typography>
-          </Box>
-        </Grid>
-        <Grid item xs={4}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <Typography variant="h5" sx={{ color: '#4cceac', fontWeight: 700, fontSize: '1.5rem' }}>{totalPower.toFixed(1)}</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>kW Load</Typography>
-          </Box>
-        </Grid>
-      </Grid>
-
-      {/* Transformers listing */}
-      <Typography variant="h6" sx={{ color: '#fff', fontWeight: 600, mb: 2, fontSize: '0.95rem' }}>
+        ))}
+      </Box>
+      <Typography variant="h6" color={colors.grey[100]} fontWeight={600} mb={1.5} fontSize="0.95rem">
         Transformers
       </Typography>
       {(node.children || []).map((tx, i) => (
         <Box
           key={i}
-          sx={{
-            bgcolor: 'rgba(10,22,40,0.6)',
-            border: '1px solid rgba(30,58,95,0.4)',
-            borderRadius: 2,
-            p: 2,
-            mb: 1.5,
-          }}
+          backgroundColor={colors.primary[400]}
+          p={2}
+          borderRadius="4px"
+          mb={1}
         >
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <ElectricalServicesOutlined sx={{ color: '#f2b705', fontSize: 20 }} />
-              <Typography variant="body1" sx={{ color: '#fff', fontWeight: 600, fontSize: '0.88rem', fontFamily: 'monospace' }}>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+            <Box display="flex" alignItems="center" gap={1}>
+              <ElectricalServicesOutlined sx={{ color: "#f2b705", fontSize: 20 }} />
+              <Typography variant="body1" color={colors.grey[100]} fontWeight={600} fontSize="0.88rem" fontFamily="monospace">
                 {tx.name}
               </Typography>
             </Box>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box display="flex" gap={1}>
               {tx.capacity && (
-                <Chip label={tx.capacity} size="small" sx={{ bgcolor: 'rgba(242,183,5,0.12)', color: '#f2b705', fontSize: '0.68rem', height: 22 }} />
+                <Chip label={tx.capacity} size="small" sx={{ bgcolor: "rgba(242,183,5,0.12)", color: "#f2b705", fontSize: "0.68rem", height: 22 }} />
               )}
-              <Chip
-                label={`${sumPower(tx).toFixed(1)} kW`}
-                size="small"
-                sx={{ bgcolor: 'rgba(0,229,255,0.1)', color: '#00e5ff', fontSize: '0.68rem', height: 22 }}
-              />
+              <Chip label={`${sumPower(tx).toFixed(1)} kW`} size="small" sx={{ bgcolor: "rgba(76,206,172,0.1)", color: colors.greenAccent[500], fontSize: "0.68rem", height: 22 }} />
             </Box>
           </Box>
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.72rem' }}>
-            {countMeters(tx)} connected meters {tx.load ? `\u2022 ${tx.load}% loaded` : ''}
+          <Typography variant="caption" color={colors.grey[400]} fontSize="0.72rem">
+            {countMeters(tx)} connected meters {tx.load ? `\u2022 ${tx.load}% loaded` : ""}
           </Typography>
         </Box>
       ))}
@@ -360,92 +327,98 @@ function LocationDetail({ node }) {
   );
 }
 
-// ---- Detail: Transformer overview ----
-function TransformerDetail({ node }) {
+function TransformerDetail({ node, colors }) {
   const meterList = collectMeters(node);
-  const totalPower = sumPower(node);
+  const totalPw = sumPower(node);
 
   return (
     <>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-        <ElectricalServicesOutlined sx={{ color: '#f2b705', fontSize: 24 }} />
-        <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem', fontFamily: 'monospace' }}>
+      <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+        <ElectricalServicesOutlined sx={{ color: "#f2b705", fontSize: 24 }} />
+        <Typography variant="h5" color={colors.grey[100]} fontWeight="bold" fontFamily="monospace">
           {node.name}
         </Typography>
       </Box>
-      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.45)', mb: 3, fontSize: '0.82rem' }}>
-        {node.capacity ? `Capacity: ${node.capacity}` : 'Transformer'} {node.load ? `\u2022 Load: ${node.load}%` : ''}
+      <Typography variant="body2" color={colors.grey[400]} mb={2} fontSize="0.82rem">
+        {node.capacity ? `Capacity: ${node.capacity}` : "Transformer"}{" "}
+        {node.load ? `\u2022 Load: ${node.load}%` : ""}
       </Typography>
-
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={4}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <Typography variant="h5" sx={{ color: '#00b4d8', fontWeight: 700, fontSize: '1.5rem' }}>{meterList.length}</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>Connected Meters</Typography>
+      <Box display="flex" gap="5px" mb={3}>
+        {[
+          { label: "Connected Meters", value: meterList.length, color: "#00b4d8" },
+          { label: "kW Total Load", value: totalPw.toFixed(1), color: colors.greenAccent[500] },
+          {
+            label: "Capacity Used",
+            value: node.load !== undefined ? `${node.load}%` : "N/A",
+            color:
+              node.load > 80 ? "#db4f4a" : node.load > 60 ? "#f2b705" : colors.greenAccent[500],
+          },
+        ].map((s) => (
+          <Box
+            key={s.label}
+            flex="1"
+            backgroundColor={colors.primary[400]}
+            p={2}
+            borderRadius="4px"
+            textAlign="center"
+          >
+            <Typography variant="h5" color={s.color} fontWeight={700} fontSize="1.5rem">
+              {s.value}
+            </Typography>
+            <Typography variant="caption" color={colors.grey[400]} fontSize="0.72rem">
+              {s.label}
+            </Typography>
           </Box>
-        </Grid>
-        <Grid item xs={4}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <Typography variant="h5" sx={{ color: '#4cceac', fontWeight: 700, fontSize: '1.5rem' }}>{totalPower.toFixed(1)}</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>kW Total Load</Typography>
-          </Box>
-        </Grid>
-        <Grid item xs={4}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            {node.load !== undefined ? (
-              <>
-                <Typography variant="h5" sx={{ color: node.load > 80 ? '#db4f4a' : node.load > 60 ? '#f2b705' : '#4cceac', fontWeight: 700, fontSize: '1.5rem' }}>
-                  {node.load}%
-                </Typography>
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>Capacity Used</Typography>
-              </>
-            ) : (
-              <>
-                <Typography variant="h5" sx={{ color: 'rgba(255,255,255,0.3)', fontWeight: 700, fontSize: '1.5rem' }}>N/A</Typography>
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>Capacity Used</Typography>
-              </>
-            )}
-          </Box>
-        </Grid>
-      </Grid>
-
-      {/* Connected meters list */}
-      <Typography variant="h6" sx={{ color: '#fff', fontWeight: 600, mb: 2, fontSize: '0.95rem' }}>
+        ))}
+      </Box>
+      <Typography variant="h6" color={colors.grey[100]} fontWeight={600} mb={1.5} fontSize="0.95rem">
         Connected Meters
       </Typography>
       {meterList.map((m, i) => {
-        const sc = statusColors[m.status] || statusColors.Online;
-        // Find full meter data from meters array
         const fullMeter = meters.find((fm) => fm.meterNo === m.meterNo);
+        const statusColor =
+          m.status === "Online"
+            ? colors.greenAccent[500]
+            : m.status === "Tampered"
+            ? "#db4f4a"
+            : colors.grey[400];
         return (
           <Box
             key={i}
-            sx={{
-              bgcolor: 'rgba(10,22,40,0.6)',
-              border: '1px solid rgba(30,58,95,0.4)',
-              borderRadius: 2,
-              p: 2,
-              mb: 1.5,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 1,
-            }}
+            backgroundColor={colors.primary[400]}
+            p={2}
+            borderRadius="4px"
+            mb={1}
+            display="flex"
+            justifyContent="space-between"
+            alignItems="center"
+            flexWrap="wrap"
+            gap={1}
           >
             <Box>
-              <Typography variant="body1" sx={{ color: '#fff', fontWeight: 600, fontSize: '0.88rem', fontFamily: 'monospace' }}>
+              <Typography variant="body1" color={colors.grey[100]} fontWeight={600} fontSize="0.88rem" fontFamily="monospace">
                 {m.name}
               </Typography>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.72rem' }}>
+              <Typography variant="caption" color={colors.grey[400]} fontSize="0.72rem">
                 {m.customer} &bull; {m.power} kW
               </Typography>
             </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box display="flex" alignItems="center" gap={1}>
               <Chip
                 label={m.status}
                 size="small"
-                sx={{ bgcolor: sc.bg, color: sc.text, fontWeight: 600, fontSize: '0.68rem', height: 22 }}
+                sx={{
+                  bgcolor:
+                    m.status === "Online"
+                      ? "rgba(76,206,172,0.15)"
+                      : m.status === "Tampered"
+                      ? "rgba(219,79,74,0.15)"
+                      : "rgba(108,117,125,0.2)",
+                  color: statusColor,
+                  fontWeight: 600,
+                  fontSize: "0.68rem",
+                  height: 22,
+                }}
               />
               {fullMeter && (
                 <Button
@@ -453,7 +426,14 @@ function TransformerDetail({ node }) {
                   to={`/meter/${fullMeter.drn}`}
                   variant="outlined"
                   size="small"
-                  sx={{ fontSize: '0.68rem', minWidth: 'auto', py: 0.3, px: 1 }}
+                  sx={{
+                    fontSize: "0.68rem",
+                    minWidth: "auto",
+                    py: 0.3,
+                    px: 1,
+                    color: colors.greenAccent[500],
+                    borderColor: colors.greenAccent[500],
+                  }}
                 >
                   Profile
                 </Button>
@@ -466,101 +446,96 @@ function TransformerDetail({ node }) {
   );
 }
 
-// ---- Detail: Meter overview ----
-function MeterDetail({ node }) {
+function MeterDetail({ node, colors }) {
   const fullMeter = meters.find((m) => m.meterNo === node.meterNo);
-  const sc = statusColors[node.status] || statusColors.Online;
+  const statusColor =
+    node.status === "Online"
+      ? colors.greenAccent[500]
+      : node.status === "Tampered"
+      ? "#db4f4a"
+      : colors.grey[400];
 
   return (
     <>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-        <SpeedOutlined sx={{ color: '#00b4d8', fontSize: 24 }} />
-        <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem', fontFamily: 'monospace' }}>
+      <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+        <SpeedOutlined sx={{ color: "#00b4d8", fontSize: 24 }} />
+        <Typography variant="h5" color={colors.grey[100]} fontWeight="bold" fontFamily="monospace">
           {node.name}
         </Typography>
       </Box>
-      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.45)', mb: 3, fontSize: '0.82rem' }}>
+      <Typography variant="body2" color={colors.grey[400]} mb={2} fontSize="0.82rem">
         {node.customer}
       </Typography>
-
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={6} sm={3}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <BoltOutlined sx={{ fontSize: 22, color: '#f2b705', mb: 0.3 }} />
-            <Typography variant="h6" sx={{ color: '#f2b705', fontWeight: 700, fontSize: '1.1rem' }}>
-              {fullMeter ? `${fullMeter.power.voltage} V` : 'N/A'}
+      <Box display="flex" gap="5px" flexWrap="wrap" mb={3}>
+        {[
+          { label: "Voltage", value: fullMeter ? `${fullMeter.power.voltage} V` : "N/A", color: "#f2b705" },
+          { label: "Current", value: fullMeter ? `${fullMeter.power.current} A` : "N/A", color: "#00b4d8" },
+          { label: "Power", value: `${node.power} kW`, color: colors.greenAccent[500] },
+          { label: "Status", value: node.status, color: statusColor },
+        ].map((s) => (
+          <Box
+            key={s.label}
+            flex="1 1 100px"
+            backgroundColor={colors.primary[400]}
+            p={2}
+            borderRadius="4px"
+            textAlign="center"
+          >
+            <Typography variant="h6" color={s.color} fontWeight={700} fontSize="1.1rem">
+              {s.value}
             </Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.68rem' }}>Voltage</Typography>
-          </Box>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <ElectricalServicesOutlined sx={{ fontSize: 22, color: '#00b4d8', mb: 0.3 }} />
-            <Typography variant="h6" sx={{ color: '#00b4d8', fontWeight: 700, fontSize: '1.1rem' }}>
-              {fullMeter ? `${fullMeter.power.current} A` : 'N/A'}
+            <Typography variant="caption" color={colors.grey[400]} fontSize="0.68rem">
+              {s.label}
             </Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.68rem' }}>Current</Typography>
           </Box>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <PowerOutlined sx={{ fontSize: 22, color: '#4cceac', mb: 0.3 }} />
-            <Typography variant="h6" sx={{ color: '#4cceac', fontWeight: 700, fontSize: '1.1rem' }}>
-              {node.power} kW
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.68rem' }}>Power</Typography>
-          </Box>
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 2, textAlign: 'center' }}>
-            <FiberManualRecord sx={{ fontSize: 22, color: sc.text, mb: 0.3 }} />
-            <Typography variant="h6" sx={{ color: sc.text, fontWeight: 700, fontSize: '1.1rem' }}>
-              {node.status}
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.68rem' }}>Status</Typography>
-          </Box>
-        </Grid>
-      </Grid>
-
-      {/* Additional info from full meter data */}
+        ))}
+      </Box>
       {fullMeter && (
         <>
-          <Divider sx={{ borderColor: 'rgba(30,58,95,0.4)', mb: 2 }} />
-          <Grid container spacing={1.5} sx={{ mb: 3 }}>
-            <Grid item xs={6}>
-              <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 1.5 }}>
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.68rem', display: 'block' }}>Power Factor</Typography>
-                <Typography variant="body1" sx={{ color: '#4cceac', fontWeight: 700 }}>{fullMeter.power.powerFactor}</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={6}>
-              <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 1.5 }}>
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.68rem', display: 'block' }}>Last Update</Typography>
-                <Typography variant="body2" sx={{ color: '#fff', fontWeight: 600, fontSize: '0.82rem' }}>
-                  {new Date(fullMeter.lastUpdate).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          <Divider sx={{ borderColor: "rgba(255,255,255,0.08)", mb: 2 }} />
+          <Box display="flex" gap="5px" flexWrap="wrap" mb={3}>
+            {[
+              { label: "Power Factor", value: fullMeter.power.powerFactor, color: colors.greenAccent[500] },
+              {
+                label: "Last Update",
+                value: new Date(fullMeter.lastUpdate).toLocaleString("en-GB", {
+                  day: "2-digit",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+                color: colors.grey[100],
+              },
+              { label: "Frequency", value: `${fullMeter.power.frequency} Hz`, color: "#00b4d8" },
+              { label: "Temperature", value: `${fullMeter.power.temperature}\u00B0C`, color: "#db4f4a" },
+            ].map((s) => (
+              <Box
+                key={s.label}
+                flex="1 1 100px"
+                backgroundColor={colors.primary[400]}
+                p={1.5}
+                borderRadius="4px"
+              >
+                <Typography variant="caption" color={colors.grey[400]} fontSize="0.68rem" display="block">
+                  {s.label}
+                </Typography>
+                <Typography variant="body1" color={s.color} fontWeight={700}>
+                  {s.value}
                 </Typography>
               </Box>
-            </Grid>
-            <Grid item xs={6}>
-              <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 1.5 }}>
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.68rem', display: 'block' }}>Frequency</Typography>
-                <Typography variant="body1" sx={{ color: '#00b4d8', fontWeight: 700 }}>{fullMeter.power.frequency} Hz</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={6}>
-              <Box sx={{ bgcolor: 'rgba(10,22,40,0.6)', border: '1px solid rgba(30,58,95,0.4)', borderRadius: 2, p: 1.5 }}>
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.68rem', display: 'block' }}>Temperature</Typography>
-                <Typography variant="body1" sx={{ color: '#db4f4a', fontWeight: 700 }}>{fullMeter.power.temperature}{'\u00B0'}C</Typography>
-              </Box>
-            </Grid>
-          </Grid>
-
+            ))}
+          </Box>
           <Button
             component={RouterLink}
             to={`/meter/${fullMeter.drn}`}
             variant="contained"
             fullWidth
             startIcon={<VisibilityOutlined />}
+            sx={{
+              backgroundColor: colors.greenAccent[700],
+              "&:hover": { backgroundColor: colors.greenAccent[600] },
+              textTransform: "none",
+            }}
           >
             View Full Profile
           </Button>
@@ -570,92 +545,96 @@ function MeterDetail({ node }) {
   );
 }
 
-// ---- Node detail dispatcher ----
-function NodeDetail({ node }) {
+function NodeDetail({ node, colors }) {
   if (!node) {
     return (
-      <Box sx={{ textAlign: 'center', py: 8 }}>
-        <SpeedOutlined sx={{ fontSize: 48, color: 'rgba(255,255,255,0.15)', mb: 1 }} />
-        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.35)' }}>
+      <Box textAlign="center" py={8}>
+        <SpeedOutlined sx={{ fontSize: 48, color: colors.grey[400], mb: 1 }} />
+        <Typography variant="body1" color={colors.grey[400]}>
           Select a node from the tree to view details
         </Typography>
       </Box>
     );
   }
-
   switch (node.type) {
-    case 'utility':
-      return <CityDetail node={node} />;
-    case 'location':
-      return <LocationDetail node={node} />;
-    case 'transformer':
-      return <TransformerDetail node={node} />;
-    case 'meter':
-      return <MeterDetail node={node} />;
+    case "utility":
+      return <CityDetail node={node} colors={colors} />;
+    case "location":
+      return <LocationDetail node={node} colors={colors} />;
+    case "transformer":
+      return <TransformerDetail node={node} colors={colors} />;
+    case "meter":
+      return <MeterDetail node={node} colors={colors} />;
     default:
       return null;
   }
 }
 
-// ===========================================================================
-// Topology Page
-// ===========================================================================
+/* ==================================================================== */
+/* Topology Page                                                        */
+/* ==================================================================== */
 export default function Topology() {
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
   const [selectedNode, setSelectedNode] = useState(topologyData);
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      {/* ----------------------------------------------------------------- */}
-      {/* Header                                                            */}
-      {/* ----------------------------------------------------------------- */}
+    <Box m="20px">
       <Header
-        title="Grid Topology"
+        title="GRID TOPOLOGY"
         subtitle="Network hierarchy: City \u2192 Location \u2192 Transformer \u2192 Meter"
       />
 
-      {/* ================================================================= */}
-      {/* Main Layout: Tree (4 cols) + Details (8 cols)                      */}
-      {/* ================================================================= */}
-      <Grid container spacing={2.5}>
-        {/* ---- Left Sidebar: Tree View ---- */}
-        <Grid item xs={12} md={4}>
-          <Card sx={{ ...darkCard, height: '100%', minHeight: 600 }}>
-            <CardContent sx={{ p: 1.5 }}>
-              <Typography
-                variant="h6"
-                sx={{
-                  color: 'rgba(255,255,255,0.6)',
-                  fontWeight: 600,
-                  fontSize: '0.82rem',
-                  mb: 1.5,
-                  px: 1,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                }}
-              >
-                Network Tree
-              </Typography>
-              <List disablePadding sx={{ maxHeight: 560, overflowY: 'auto' }}>
-                <TreeNode
-                  node={topologyData}
-                  depth={0}
-                  selectedNode={selectedNode}
-                  onSelect={setSelectedNode}
-                />
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ---- Left: Tree View (span 4) ---- */}
+        <Box
+          gridColumn="span 4"
+          gridRow="span 5"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+          p="10px"
+        >
+          <Typography
+            variant="h6"
+            color={colors.grey[400]}
+            fontWeight={600}
+            fontSize="0.82rem"
+            mb={1.5}
+            px={1}
+            textTransform="uppercase"
+            letterSpacing="0.05em"
+          >
+            Network Tree
+          </Typography>
+          <List disablePadding sx={{ maxHeight: 620, overflowY: "auto" }}>
+            <TreeNode
+              node={topologyData}
+              depth={0}
+              selectedNode={selectedNode}
+              onSelect={setSelectedNode}
+              colors={colors}
+            />
+          </List>
+        </Box>
 
-        {/* ---- Right Main Area: Selected Node Details ---- */}
-        <Grid item xs={12} md={8}>
-          <Card sx={{ ...darkCard, height: '100%', minHeight: 600 }}>
-            <CardContent>
-              <NodeDetail node={selectedNode} />
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+        {/* ---- Right: Node Details (span 8) ---- */}
+        <Box
+          gridColumn="span 8"
+          gridRow="span 5"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+          p="20px"
+        >
+          <NodeDetail node={selectedNode} colors={colors} />
+        </Box>
+      </Box>
     </Box>
   );
 }

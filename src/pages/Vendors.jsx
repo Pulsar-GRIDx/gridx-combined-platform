@@ -1,21 +1,16 @@
 import {
   Box,
-  Card,
-  CardContent,
   Typography,
-  Grid,
   Chip,
-  Button,
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
   Divider,
-} from '@mui/material';
+  useTheme,
+} from "@mui/material";
 import {
-  AddBusinessOutlined,
   StorefrontOutlined,
   PointOfSaleOutlined,
   AccountBalanceWalletOutlined,
@@ -23,261 +18,441 @@ import {
   PersonOutlined,
   PhoneOutlined,
   AccessTimeOutlined,
-  VisibilityOutlined,
-  PlaylistAddCheckOutlined,
-  StopCircleOutlined,
-} from '@mui/icons-material';
-import Header from '../components/Header';
-import { vendors } from '../services/mockData';
+} from "@mui/icons-material";
+import { tokens } from "../theme";
+import Header from "../components/Header";
+import { vendors } from "../services/mockData";
 
-// ---- Shared card styling ----
-const darkCard = {
-  background: '#152238',
-  border: '1px solid rgba(30, 58, 95, 0.5)',
-  borderRadius: 2,
-};
+// ---- Helpers ----------------------------------------------------------------
 
-// ---- Helpers ----
 const fmtCurrency = (n) =>
-  `N$ ${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  `N$ ${Number(n).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 const fmt = (n) => Number(n).toLocaleString();
 
 function formatDateTime(iso) {
-  if (!iso) return '-';
+  if (!iso) return "-";
   const d = new Date(iso);
-  return d.toLocaleDateString('en-NA', { year: 'numeric', month: 'short', day: 'numeric' }) +
-    ' ' +
-    d.toLocaleTimeString('en-NA', { hour: '2-digit', minute: '2-digit' });
+  return (
+    d.toLocaleDateString("en-NA", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }) +
+    " " +
+    d.toLocaleTimeString("en-NA", { hour: "2-digit", minute: "2-digit" })
+  );
 }
 
-export default function Vendors() {
-  // ---- Commission summary calculations ----
-  const commissionData = vendors.map((v) => {
-    const grossSales = v.totalSales;
-    const commissionAmount = grossSales * (v.commissionRate / 100);
-    const netToNamPower = grossSales - commissionAmount;
-    return {
-      id: v.id,
-      name: v.name,
-      commissionRate: v.commissionRate,
-      grossSales,
-      commissionAmount,
-      netToNamPower,
-    };
-  });
+// ---- Main Component ---------------------------------------------------------
 
-  const totals = commissionData.reduce(
-    (acc, row) => ({
-      grossSales: acc.grossSales + row.grossSales,
-      commissionAmount: acc.commissionAmount + row.commissionAmount,
-      netToNamPower: acc.netToNamPower + row.netToNamPower,
-    }),
-    { grossSales: 0, commissionAmount: 0, netToNamPower: 0 }
-  );
+export default function Vendors() {
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
+
+  // Derived stats
+  const totalVendors = vendors.length;
+  const activeVendors = vendors.filter((v) => v.status === "Active").length;
+  const totalSales = vendors.reduce((s, v) => s + v.totalSales, 0);
+  const avgCommission =
+    vendors.length > 0
+      ? (
+          vendors.reduce((s, v) => s + v.commissionRate, 0) / vendors.length
+        ).toFixed(1)
+      : "0";
+
+  const headerCellSx = {
+    color: colors.grey[300],
+    fontWeight: 600,
+    fontSize: "0.75rem",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    borderBottom: `1px solid ${colors.primary[300]}`,
+    whiteSpace: "nowrap",
+  };
+
+  const bodyCellSx = {
+    color: colors.grey[100],
+    borderBottom: `1px solid ${colors.primary[300]}`,
+    fontSize: "0.85rem",
+  };
 
   return (
-    <Box>
-      {/* ---- Page Header ---- */}
+    <Box m="20px">
       <Header
-        title="Vendor Management"
-        subtitle="Point-of-sale vendor operations"
-        action={
-          <Button variant="contained" color="primary" startIcon={<AddBusinessOutlined />}>
-            Add Vendor
-          </Button>
-        }
+        title="VENDOR MANAGEMENT"
+        subtitle="Vending Point Operators"
       />
 
-      {/* ---- Vendor Cards Grid ---- */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        {vendors.map((v) => (
-          <Grid item xs={12} sm={6} md={4} key={v.id}>
-            <Card sx={darkCard}>
-              <CardContent>
-                {/* Name + Status */}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <StorefrontOutlined sx={{ color: '#6870fa', fontSize: 22 }} />
-                    <Typography variant="subtitle1" sx={{ color: '#fff', fontWeight: 700, fontSize: '1rem', lineHeight: 1.3 }}>
-                      {v.name}
-                    </Typography>
-                  </Box>
-                  <Chip
-                    label={v.status}
-                    size="small"
-                    sx={{
-                      backgroundColor: v.status === 'Active'
-                        ? 'rgba(76, 206, 172, 0.15)'
-                        : 'rgba(108, 117, 125, 0.2)',
-                      color: v.status === 'Active' ? '#4cceac' : '#6c757d',
-                      fontWeight: 600,
-                      fontSize: '0.7rem',
-                      flexShrink: 0,
-                    }}
-                  />
-                </Box>
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ---- Stat: Total Vendors (span 3) ---- */}
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          flexDirection="column"
+          p="15px"
+        >
+          <StorefrontOutlined
+            sx={{ color: colors.blueAccent[500], fontSize: 32, mb: "8px" }}
+          />
+          <Typography variant="h4" fontWeight="700" color={colors.grey[100]}>
+            {totalVendors}
+          </Typography>
+          <Typography variant="body2" color={colors.blueAccent[400]}>
+            Total Vendors
+          </Typography>
+        </Box>
 
-                {/* Location */}
-                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', display: 'block', mb: 2 }}>
-                  {v.location}
-                </Typography>
+        {/* ---- Stat: Active Vendors (span 3) ---- */}
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          flexDirection="column"
+          p="15px"
+        >
+          <PointOfSaleOutlined
+            sx={{ color: colors.greenAccent[500], fontSize: 32, mb: "8px" }}
+          />
+          <Typography variant="h4" fontWeight="700" color={colors.grey[100]}>
+            {activeVendors}
+          </Typography>
+          <Typography variant="body2" color={colors.greenAccent[500]}>
+            Active
+          </Typography>
+        </Box>
 
-                {/* Stats grid */}
-                <Grid container spacing={1} sx={{ mb: 2 }}>
-                  <Grid item xs={6}>
-                    <StatMini
-                      icon={<AccountBalanceWalletOutlined sx={{ fontSize: 16 }} />}
-                      label="Total Sales"
-                      value={fmtCurrency(v.totalSales)}
-                      color="#4cceac"
-                    />
-                  </Grid>
-                  <Grid item xs={6}>
-                    <StatMini
-                      icon={<PointOfSaleOutlined sx={{ fontSize: 16 }} />}
-                      label="Transactions"
-                      value={fmt(v.transactionCount)}
-                      color="#6870fa"
-                    />
-                  </Grid>
-                  <Grid item xs={6}>
-                    <StatMini
-                      icon={<AccountBalanceWalletOutlined sx={{ fontSize: 16 }} />}
-                      label="Balance"
-                      value={fmtCurrency(v.balance)}
-                      color="#00b4d8"
-                    />
-                  </Grid>
-                  <Grid item xs={6}>
-                    <StatMini
-                      icon={<PercentOutlined sx={{ fontSize: 16 }} />}
-                      label="Commission"
-                      value={`${v.commissionRate}%`}
-                      color="#f2b705"
-                    />
-                  </Grid>
-                </Grid>
+        {/* ---- Stat: Total Sales (span 3) ---- */}
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          flexDirection="column"
+          p="15px"
+        >
+          <AccountBalanceWalletOutlined
+            sx={{ color: colors.greenAccent[500], fontSize: 32, mb: "8px" }}
+          />
+          <Typography variant="h4" fontWeight="700" color={colors.grey[100]}>
+            {fmtCurrency(totalSales)}
+          </Typography>
+          <Typography variant="body2" color={colors.greenAccent[500]}>
+            Total Sales
+          </Typography>
+        </Box>
 
-                <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', mb: 1.5 }} />
+        {/* ---- Stat: Avg Commission (span 3) ---- */}
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          flexDirection="column"
+          p="15px"
+        >
+          <PercentOutlined
+            sx={{ color: colors.yellowAccent[500], fontSize: 32, mb: "8px" }}
+          />
+          <Typography variant="h4" fontWeight="700" color={colors.grey[100]}>
+            {avgCommission}%
+          </Typography>
+          <Typography variant="body2" color={colors.yellowAccent[500]}>
+            Avg Commission
+          </Typography>
+        </Box>
 
-                {/* Operator */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                  <PersonOutlined sx={{ fontSize: 15, color: 'rgba(255,255,255,0.35)' }} />
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)' }}>
-                    Operator:
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: '#fff', fontWeight: 500 }}>
-                    {v.operatorName}
-                  </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                  <PhoneOutlined sx={{ fontSize: 15, color: 'rgba(255,255,255,0.35)' }} />
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.55)' }}>
-                    {v.operatorPhone}
-                  </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1.5 }}>
-                  <AccessTimeOutlined sx={{ fontSize: 15, color: 'rgba(255,255,255,0.35)' }} />
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)' }}>
-                    Last Activity:
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                    {formatDateTime(v.lastActivity)}
-                  </Typography>
-                </Box>
+        {/* ---- Vendor Table (span 12, span 4) ---- */}
+        <Box
+          gridColumn="span 12"
+          gridRow="span 4"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+        >
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems="center"
+            p="15px"
+            borderBottom={`1px solid ${colors.primary[300]}`}
+          >
+            <Typography
+              variant="h5"
+              fontWeight="600"
+              color={colors.grey[100]}
+            >
+              Vendor Directory
+            </Typography>
+            <Typography variant="body2" color={colors.greenAccent[500]}>
+              {totalVendors} vendors registered
+            </Typography>
+          </Box>
 
-                {/* Action buttons */}
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button variant="outlined" size="small" startIcon={<VisibilityOutlined />} sx={{ flex: 1 }}>
-                    View Details
-                  </Button>
-                  {v.status === 'Active' ? (
-                    <Button variant="outlined" size="small" color="success" startIcon={<PlaylistAddCheckOutlined />} sx={{ flex: 1 }}>
-                      Open Batch
-                    </Button>
-                  ) : (
-                    <Button variant="outlined" size="small" color="warning" startIcon={<StopCircleOutlined />} sx={{ flex: 1 }}>
-                      Close Batch
-                    </Button>
-                  )}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-
-      {/* ---- Commission Summary Table ---- */}
-      <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem', mb: 2 }}>
-        Commission Summary
-      </Typography>
-
-      <Card sx={darkCard}>
-        <TableContainer>
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>Vendor Name</TableCell>
-                <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }} align="center">Commission Rate</TableCell>
-                <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }} align="right">Gross Sales (N$)</TableCell>
-                <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }} align="right">Commission Amount (N$)</TableCell>
-                <TableCell sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }} align="right">Net to NamPower (N$)</TableCell>
+                <TableCell sx={headerCellSx}>Vendor Name</TableCell>
+                <TableCell sx={headerCellSx}>Location</TableCell>
+                <TableCell sx={headerCellSx}>Status</TableCell>
+                <TableCell sx={headerCellSx} align="right">
+                  Total Sales
+                </TableCell>
+                <TableCell sx={headerCellSx} align="right">
+                  Transactions
+                </TableCell>
+                <TableCell sx={headerCellSx} align="right">
+                  Balance
+                </TableCell>
+                <TableCell sx={headerCellSx} align="center">
+                  Commission
+                </TableCell>
+                <TableCell sx={headerCellSx}>Operator</TableCell>
+                <TableCell sx={headerCellSx}>Phone</TableCell>
+                <TableCell sx={headerCellSx}>Last Activity</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {commissionData.map((row) => (
-                <TableRow key={row.id} hover>
-                  <TableCell sx={{ color: '#fff', fontWeight: 500 }}>{row.name}</TableCell>
-                  <TableCell align="center">{row.commissionRate}%</TableCell>
-                  <TableCell align="right">{fmtCurrency(row.grossSales)}</TableCell>
-                  <TableCell align="right" sx={{ color: '#f2b705' }}>{fmtCurrency(row.commissionAmount)}</TableCell>
-                  <TableCell align="right" sx={{ color: '#4cceac' }}>{fmtCurrency(row.netToNamPower)}</TableCell>
+              {vendors.map((v) => (
+                <TableRow
+                  key={v.id}
+                  sx={{
+                    "&:hover": {
+                      backgroundColor: `${colors.primary[300]}44`,
+                    },
+                  }}
+                >
+                  <TableCell sx={{ ...bodyCellSx, fontWeight: 600 }}>
+                    <Box display="flex" alignItems="center" gap="8px">
+                      <StorefrontOutlined
+                        sx={{
+                          color: colors.blueAccent[500],
+                          fontSize: 18,
+                        }}
+                      />
+                      {v.name}
+                    </Box>
+                  </TableCell>
+                  <TableCell sx={bodyCellSx}>{v.location}</TableCell>
+                  <TableCell sx={bodyCellSx}>
+                    <Chip
+                      label={v.status}
+                      size="small"
+                      sx={{
+                        backgroundColor:
+                          v.status === "Active"
+                            ? colors.greenAccent[900]
+                            : "rgba(108,117,125,0.15)",
+                        color:
+                          v.status === "Active"
+                            ? colors.greenAccent[500]
+                            : colors.grey[400],
+                        fontWeight: 600,
+                        fontSize: "0.7rem",
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell
+                    sx={{ ...bodyCellSx, color: colors.greenAccent[500] }}
+                    align="right"
+                  >
+                    {fmtCurrency(v.totalSales)}
+                  </TableCell>
+                  <TableCell sx={bodyCellSx} align="right">
+                    {fmt(v.transactionCount)}
+                  </TableCell>
+                  <TableCell sx={bodyCellSx} align="right">
+                    {fmtCurrency(v.balance)}
+                  </TableCell>
+                  <TableCell
+                    sx={{ ...bodyCellSx, color: colors.yellowAccent[500] }}
+                    align="center"
+                  >
+                    {v.commissionRate}%
+                  </TableCell>
+                  <TableCell sx={bodyCellSx}>
+                    <Box display="flex" alignItems="center" gap="4px">
+                      <PersonOutlined
+                        sx={{ fontSize: 15, color: colors.grey[300] }}
+                      />
+                      {v.operatorName}
+                    </Box>
+                  </TableCell>
+                  <TableCell sx={bodyCellSx}>
+                    <Box display="flex" alignItems="center" gap="4px">
+                      <PhoneOutlined
+                        sx={{ fontSize: 15, color: colors.grey[300] }}
+                      />
+                      {v.operatorPhone}
+                    </Box>
+                  </TableCell>
+                  <TableCell sx={{ ...bodyCellSx, whiteSpace: "nowrap" }}>
+                    <Box display="flex" alignItems="center" gap="4px">
+                      <AccessTimeOutlined
+                        sx={{ fontSize: 15, color: colors.grey[300] }}
+                      />
+                      {formatDateTime(v.lastActivity)}
+                    </Box>
+                  </TableCell>
                 </TableRow>
               ))}
-
-              {/* Totals row */}
-              <TableRow sx={{ '& td': { borderTop: '2px solid rgba(255,255,255,0.15)' } }}>
-                <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Totals</TableCell>
-                <TableCell />
-                <TableCell align="right" sx={{ color: '#fff', fontWeight: 700 }}>{fmtCurrency(totals.grossSales)}</TableCell>
-                <TableCell align="right" sx={{ color: '#f2b705', fontWeight: 700 }}>{fmtCurrency(totals.commissionAmount)}</TableCell>
-                <TableCell align="right" sx={{ color: '#4cceac', fontWeight: 700 }}>{fmtCurrency(totals.netToNamPower)}</TableCell>
-              </TableRow>
             </TableBody>
           </Table>
-        </TableContainer>
-      </Card>
-    </Box>
-  );
-}
 
-// ---- Small stat mini-card inside vendor card ----
-function StatMini({ icon, label, value, color }) {
-  return (
-    <Box
-      sx={{
-        background: 'rgba(255,255,255,0.03)',
-        borderRadius: 1,
-        p: 1,
-        textAlign: 'center',
-      }}
-    >
-      <Box sx={{ color: color || 'rgba(255,255,255,0.5)', mb: 0.3, display: 'flex', justifyContent: 'center' }}>
-        {icon}
+          {/* Commission Summary Row */}
+          <Divider sx={{ borderColor: colors.primary[300] }} />
+          <Box p="15px">
+            <Typography
+              variant="h6"
+              fontWeight="600"
+              color={colors.grey[100]}
+              mb="10px"
+            >
+              Commission Summary
+            </Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={headerCellSx}>Vendor</TableCell>
+                  <TableCell sx={headerCellSx} align="center">
+                    Rate
+                  </TableCell>
+                  <TableCell sx={headerCellSx} align="right">
+                    Gross Sales
+                  </TableCell>
+                  <TableCell sx={headerCellSx} align="right">
+                    Commission
+                  </TableCell>
+                  <TableCell sx={headerCellSx} align="right">
+                    Net to NamPower
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {vendors.map((v) => {
+                  const commAmt = v.totalSales * (v.commissionRate / 100);
+                  const net = v.totalSales - commAmt;
+                  return (
+                    <TableRow
+                      key={v.id}
+                      sx={{
+                        "&:hover": {
+                          backgroundColor: `${colors.primary[300]}44`,
+                        },
+                      }}
+                    >
+                      <TableCell sx={{ ...bodyCellSx, fontWeight: 500 }}>
+                        {v.name}
+                      </TableCell>
+                      <TableCell sx={bodyCellSx} align="center">
+                        {v.commissionRate}%
+                      </TableCell>
+                      <TableCell sx={bodyCellSx} align="right">
+                        {fmtCurrency(v.totalSales)}
+                      </TableCell>
+                      <TableCell
+                        sx={{
+                          ...bodyCellSx,
+                          color: colors.yellowAccent[500],
+                        }}
+                        align="right"
+                      >
+                        {fmtCurrency(commAmt)}
+                      </TableCell>
+                      <TableCell
+                        sx={{
+                          ...bodyCellSx,
+                          color: colors.greenAccent[500],
+                        }}
+                        align="right"
+                      >
+                        {fmtCurrency(net)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {/* Totals row */}
+                <TableRow
+                  sx={{
+                    "& td": {
+                      borderTop: `2px solid ${colors.grey[400]}`,
+                    },
+                  }}
+                >
+                  <TableCell
+                    sx={{
+                      ...bodyCellSx,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Totals
+                  </TableCell>
+                  <TableCell sx={bodyCellSx} />
+                  <TableCell
+                    sx={{ ...bodyCellSx, fontWeight: 700 }}
+                    align="right"
+                  >
+                    {fmtCurrency(totalSales)}
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      ...bodyCellSx,
+                      color: colors.yellowAccent[500],
+                      fontWeight: 700,
+                    }}
+                    align="right"
+                  >
+                    {fmtCurrency(
+                      vendors.reduce(
+                        (s, v) =>
+                          s + v.totalSales * (v.commissionRate / 100),
+                        0
+                      )
+                    )}
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      ...bodyCellSx,
+                      color: colors.greenAccent[500],
+                      fontWeight: 700,
+                    }}
+                    align="right"
+                  >
+                    {fmtCurrency(
+                      vendors.reduce(
+                        (s, v) =>
+                          s +
+                          (v.totalSales -
+                            v.totalSales * (v.commissionRate / 100)),
+                        0
+                      )
+                    )}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </Box>
+        </Box>
       </Box>
-      <Typography
-        variant="caption"
-        sx={{ color: 'rgba(255,255,255,0.4)', display: 'block', fontSize: '0.65rem', lineHeight: 1.2 }}
-      >
-        {label}
-      </Typography>
-      <Typography
-        variant="body2"
-        sx={{ color: '#fff', fontWeight: 700, fontSize: '0.78rem', mt: 0.2 }}
-      >
-        {value}
-      </Typography>
     </Box>
   );
 }

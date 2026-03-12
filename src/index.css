@@ -1,120 +1,33 @@
-/* GRIDx Combined - Global Styles */
+@import url("https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&display=swap");
 
-*,
-*::before,
-*::after {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+html,
+body,
+#root,
+.app,
+.content {
+  height: 100%;
+  width: 100%;
+  font-family: "Source Sans Pro", sans-serif;
 }
 
-html {
-  scroll-behavior: smooth;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-}
-
-body {
-  margin: 0;
-  padding: 0;
-  background-color: #0a1628;
-  color: #e0e0e0;
-  font-family: 'Inter', 'Source Sans 3', sans-serif;
-  font-size: 14px;
-  line-height: 1.6;
-  min-height: 100vh;
-  overflow-x: hidden;
-}
-
-#root {
-  min-height: 100vh;
+.app {
   display: flex;
-  flex-direction: column;
+  position: relative;
+  flex-grow: 1;
 }
 
-/* Links */
-a {
-  color: #00b4d8;
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-
-a:hover {
-  color: #43d3ff;
-}
-
-/* Scrollbar - Webkit */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0a1628;
+  background: #e0e0e0;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #1e3a5f;
-  border-radius: 4px;
-  border: 2px solid #0a1628;
+  background: #888;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #2a4a6f;
-}
-
-/* Scrollbar - Firefox */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #1e3a5f #0a1628;
-}
-
-/* Selection */
-::selection {
-  background-color: rgba(0, 180, 216, 0.3);
-  color: #ffffff;
-}
-
-/* Focus outline for accessibility */
-:focus-visible {
-  outline: 2px solid #00b4d8;
-  outline-offset: 2px;
-}
-
-/* Remove default button styles */
-button {
-  font-family: inherit;
-  cursor: pointer;
-}
-
-/* Table reset */
-table {
-  border-collapse: collapse;
-  border-spacing: 0;
-}
-
-/* Image reset */
-img,
-svg {
-  display: block;
-  max-width: 100%;
-}
-
-/* Input reset */
-input,
-textarea,
-select {
-  font-family: inherit;
-  font-size: inherit;
-}
-
-/* Utility: hide scrollbar but keep scrollable */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+  background: #555;
 }

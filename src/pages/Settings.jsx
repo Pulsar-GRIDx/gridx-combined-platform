@@ -1,483 +1,244 @@
-import { useState } from 'react';
 import {
   Box,
-  Card,
-  CardContent,
   Typography,
-  Grid,
-  TextField,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Switch,
-  FormControlLabel,
-  Button,
-} from '@mui/material';
+  useTheme,
+} from "@mui/material";
 import {
-  SaveOutlined,
-  FiberManualRecord,
-  BackupOutlined,
-} from '@mui/icons-material';
-import Header from '../components/Header';
+  BoltOutlined,
+  ElectricalServicesOutlined,
+  SpeedOutlined,
+  GraphicEqOutlined,
+  ThermostatOutlined,
+  TuneOutlined,
+  SignalCellularAltOutlined,
+  LockOutlined,
+  SettingsOutlined,
+} from "@mui/icons-material";
+import Header from "../components/Header";
+import { tokens } from "../theme";
 
-// ---- Shared card styling ----
-const darkCard = {
-  background: '#152238',
-  border: '1px solid rgba(30, 58, 95, 0.5)',
-  borderRadius: 2,
-};
-
-// ---- Section title ----
-function SectionTitle({ children }) {
+/* ---- info row component ---- */
+function InfoRow({ label, value, color }) {
   return (
-    <Typography
-      variant="h6"
-      sx={{ color: '#fff', fontWeight: 600, fontSize: '1rem', mb: 2 }}
+    <Box
+      display="flex"
+      justifyContent="space-between"
+      py={0.6}
+      borderBottom="1px solid rgba(255,255,255,0.05)"
     >
-      {children}
-    </Typography>
-  );
-}
-
-// ---- Shared field row styling ----
-function FieldRow({ label, children }) {
-  return (
-    <Box sx={{ mb: 2 }}>
-      <Typography
-        variant="caption"
-        sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem', display: 'block', mb: 0.5 }}
-      >
+      <Typography variant="body2" color="rgba(255,255,255,0.5)" fontSize="0.8rem">
         {label}
       </Typography>
-      {children}
+      <Typography variant="body2" color={color || "#fff"} fontWeight={600} fontSize="0.8rem">
+        {value}
+      </Typography>
     </Box>
   );
 }
 
-// ===========================================================================
-// Settings Page
-// ===========================================================================
+/* ==================================================================== */
+/* Settings Page                                                        */
+/* ==================================================================== */
 export default function Settings() {
-  // ---- STS Gateway ----
-  const [gatewayHost, setGatewayHost] = useState('sts-gateway.gridx-meters.com');
-  const [encryption, setEncryption] = useState('STS Standard');
-  const [apiPort, setApiPort] = useState('8583');
-
-  // ---- Database & Backup ----
-  const [backupSchedule, setBackupSchedule] = useState('Daily');
-  const [backupTime, setBackupTime] = useState('02:00');
-  const [dataRetention, setDataRetention] = useState('3 Years');
-
-  // ---- Session & Security ----
-  const [sessionTimeout, setSessionTimeout] = useState('1hr');
-  const [maxLoginAttempts, setMaxLoginAttempts] = useState('5');
-  const [passwordExpiry, setPasswordExpiry] = useState('90 days');
-  const [twoFactorAuth, setTwoFactorAuth] = useState(true);
-
-  // ---- Notifications ----
-  const [smsGateway, setSmsGateway] = useState("Africa's Talking");
-  const [smsApiKey, setSmsApiKey] = useState('');
-  const [emailSmtp, setEmailSmtp] = useState('');
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [smsNotifications, setSmsNotifications] = useState(true);
-
-  // ---- Meter Update Cycles ----
-  const [powerUpdateInterval, setPowerUpdateInterval] = useState('5min');
-  const [energyUpdateInterval, setEnergyUpdateInterval] = useState('15min');
-  const [networkUpdateInterval, setNetworkUpdateInterval] = useState('1hr');
-  const [loadStatusUpdate, setLoadStatusUpdate] = useState('Real-time');
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
 
   return (
-    <Box>
+    <Box m="20px">
       <Header
-        title="System Settings"
+        title="SYSTEM SETTINGS"
         subtitle="Configure platform parameters and integrations"
       />
 
-      <Grid container spacing={2.5}>
-        {/* ================================================================= */}
-        {/* Card 1: STS Gateway Configuration                                */}
-        {/* ================================================================= */}
-        <Grid item xs={12} md={6}>
-          <Card sx={darkCard}>
-            <CardContent>
-              <SectionTitle>STS Gateway Configuration</SectionTitle>
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ============================================================ */}
+        {/* Electrical Thresholds (span 6, span 3)                       */}
+        {/* ============================================================ */}
+        <Box
+          gridColumn="span 6"
+          gridRow="span 3"
+          backgroundColor={colors.primary[400]}
+          p="20px"
+          borderRadius="4px"
+          overflow="auto"
+        >
+          <Box display="flex" alignItems="center" gap={1} mb={2}>
+            <BoltOutlined sx={{ color: "#f2b705" }} />
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold">
+              Electrical Thresholds
+            </Typography>
+          </Box>
 
-              <FieldRow label="Gateway Host">
-                <TextField
-                  size="small"
-                  fullWidth
-                  value={gatewayHost}
-                  onChange={(e) => setGatewayHost(e.target.value)}
-                />
-              </FieldRow>
+          <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+            Voltage Limits
+          </Typography>
+          <InfoRow label="Under-Voltage Threshold" value="207.0 V" color="#db4f4a" />
+          <InfoRow label="Over-Voltage Threshold" value="253.0 V" color="#db4f4a" />
+          <InfoRow label="Nominal Voltage" value="230.0 V" color={colors.greenAccent[500]} />
+          <InfoRow label="Voltage Tolerance" value="\u00B1 10%" />
 
-              <FieldRow label="Encryption Standard">
-                <FormControl size="small" fullWidth>
-                  <Select
-                    value={encryption}
-                    onChange={(e) => setEncryption(e.target.value)}
-                  >
-                    <MenuItem value="STS Standard">STS Standard</MenuItem>
-                    <MenuItem value="AES-256">AES-256</MenuItem>
-                    <MenuItem value="Triple DES">Triple DES</MenuItem>
-                  </Select>
-                </FormControl>
-              </FieldRow>
+          <Box mt={2}>
+            <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+              Current Limits
+            </Typography>
+            <InfoRow label="Maximum Current (Residential)" value="60 A" color="#f2b705" />
+            <InfoRow label="Maximum Current (Commercial)" value="100 A" color="#f2b705" />
+            <InfoRow label="Maximum Current (Industrial)" value="200 A" color="#f2b705" />
+            <InfoRow label="Earth Leakage Threshold" value="30 mA" color="#db4f4a" />
+          </Box>
 
-              <FieldRow label="API Port (ISO 8583)">
-                <TextField
-                  size="small"
-                  fullWidth
-                  value={apiPort}
-                  onChange={(e) => setApiPort(e.target.value)}
-                />
-              </FieldRow>
+          <Box mt={2}>
+            <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+              Power & Frequency
+            </Typography>
+            <InfoRow label="Frequency Range" value="49.5 - 50.5 Hz" color="#6870fa" />
+            <InfoRow label="Power Factor Minimum" value="0.850" color={colors.greenAccent[500]} />
+            <InfoRow label="Over-Power Trip Delay" value="5 seconds" />
+            <InfoRow label="Temperature Alarm" value="65\u00B0C" color="#db4f4a" />
+          </Box>
+        </Box>
 
-              <FieldRow label="Connection Status">
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
-                  <FiberManualRecord sx={{ fontSize: 10, color: '#4cceac' }} />
-                  <Typography variant="body2" sx={{ color: '#4cceac', fontWeight: 600, fontSize: '0.82rem' }}>
-                    Connected
-                  </Typography>
-                </Box>
-              </FieldRow>
+        {/* ============================================================ */}
+        {/* Meter Settings (span 6, span 3)                              */}
+        {/* ============================================================ */}
+        <Box
+          gridColumn="span 6"
+          gridRow="span 3"
+          backgroundColor={colors.primary[400]}
+          p="20px"
+          borderRadius="4px"
+          overflow="auto"
+        >
+          <Box display="flex" alignItems="center" gap={1} mb={2}>
+            <TuneOutlined sx={{ color: "#00b4d8" }} />
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold">
+              Meter Settings
+            </Typography>
+          </Box>
 
-              <Box sx={{ textAlign: 'right', mt: 1 }}>
-                <Button variant="contained" color="primary" size="small" startIcon={<SaveOutlined />}>
-                  Save
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+          <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+            Update Cycles
+          </Typography>
+          <InfoRow label="Power Update Interval" value="5 minutes" color="#00b4d8" />
+          <InfoRow label="Energy Update Interval" value="15 minutes" color="#00b4d8" />
+          <InfoRow label="Network Update Interval" value="1 hour" color="#00b4d8" />
+          <InfoRow label="Load Status Update" value="Real-time" color={colors.greenAccent[500]} />
 
-        {/* ================================================================= */}
-        {/* Card 2: Database & Backup                                        */}
-        {/* ================================================================= */}
-        <Grid item xs={12} md={6}>
-          <Card sx={darkCard}>
-            <CardContent>
-              <SectionTitle>Database &amp; Backup</SectionTitle>
+          <Box mt={2}>
+            <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+              Communication
+            </Typography>
+            <InfoRow label="Protocol" value="DLMS/COSEM" />
+            <InfoRow label="Transport" value="TCP/IP over GPRS" />
+            <InfoRow label="Retry Attempts" value="3" />
+            <InfoRow label="Retry Interval" value="30 seconds" />
+            <InfoRow label="Connection Timeout" value="60 seconds" />
+            <InfoRow label="Heartbeat Interval" value="5 minutes" />
+          </Box>
 
-              <FieldRow label="Auto-backup Schedule">
-                <FormControl size="small" fullWidth>
-                  <Select
-                    value={backupSchedule}
-                    onChange={(e) => setBackupSchedule(e.target.value)}
-                  >
-                    <MenuItem value="Daily">Daily</MenuItem>
-                    <MenuItem value="Weekly">Weekly</MenuItem>
-                    <MenuItem value="Monthly">Monthly</MenuItem>
-                  </Select>
-                </FormControl>
-              </FieldRow>
+          <Box mt={2}>
+            <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+              Data Collection
+            </Typography>
+            <InfoRow label="Meter Reading Schedule" value="Daily 00:00" />
+            <InfoRow label="Tamper Check Interval" value="15 minutes" />
+            <InfoRow label="Load Profile Interval" value="30 minutes" />
+            <InfoRow label="Data Retention" value="3 Years" />
+          </Box>
+        </Box>
 
-              <FieldRow label="Backup Time">
-                <TextField
-                  size="small"
-                  fullWidth
-                  type="time"
-                  value={backupTime}
-                  onChange={(e) => setBackupTime(e.target.value)}
-                />
-              </FieldRow>
+        {/* ============================================================ */}
+        {/* STS Settings (span 6, span 2)                                */}
+        {/* ============================================================ */}
+        <Box
+          gridColumn="span 6"
+          gridRow="span 2"
+          backgroundColor={colors.primary[400]}
+          p="20px"
+          borderRadius="4px"
+          overflow="auto"
+        >
+          <Box display="flex" alignItems="center" gap={1} mb={2}>
+            <LockOutlined sx={{ color: "#6870fa" }} />
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold">
+              STS Configuration
+            </Typography>
+          </Box>
 
-              <FieldRow label="Data Retention Period">
-                <FormControl size="small" fullWidth>
-                  <Select
-                    value={dataRetention}
-                    onChange={(e) => setDataRetention(e.target.value)}
-                  >
-                    <MenuItem value="1 Year">1 Year</MenuItem>
-                    <MenuItem value="3 Years">3 Years</MenuItem>
-                    <MenuItem value="5 Years">5 Years</MenuItem>
-                    <MenuItem value="7 Years">7 Years</MenuItem>
-                  </Select>
-                </FormControl>
-              </FieldRow>
+          <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+            Key Management
+          </Typography>
+          <InfoRow label="Encryption Standard" value="STS Standard (IEC 62055)" />
+          <InfoRow label="Key Revision Number (KRN)" value="1" />
+          <InfoRow label="Supply Group Code (SGC)" value="48901" color="#f2b705" />
+          <InfoRow label="Tariff Index (TI)" value="01" />
+          <InfoRow label="Key Type" value="AES-128" color="#6870fa" />
+          <InfoRow label="Key Change Token Support" value="Enabled" color={colors.greenAccent[500]} />
 
-              <FieldRow label="Last Backup">
-                <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem' }}>
-                  12 Mar 2026, 02:00 AM
-                </Typography>
-              </FieldRow>
+          <Box mt={2}>
+            <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+              Gateway
+            </Typography>
+            <InfoRow label="STS Gateway Host" value="sts-gateway.gridx-meters.com" />
+            <InfoRow label="API Port (ISO 8583)" value="8583" />
+            <InfoRow label="Connection Status" value="Connected" color={colors.greenAccent[500]} />
+            <InfoRow label="TLS Version" value="1.3" />
+          </Box>
+        </Box>
 
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<BackupOutlined />}
-                  sx={{ textTransform: 'none' }}
-                >
-                  Run Backup Now
-                </Button>
-                <Button variant="contained" color="primary" size="small" startIcon={<SaveOutlined />}>
-                  Save
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+        {/* ============================================================ */}
+        {/* System Configuration (span 6, span 2)                        */}
+        {/* ============================================================ */}
+        <Box
+          gridColumn="span 6"
+          gridRow="span 2"
+          backgroundColor={colors.primary[400]}
+          p="20px"
+          borderRadius="4px"
+          overflow="auto"
+        >
+          <Box display="flex" alignItems="center" gap={1} mb={2}>
+            <SettingsOutlined sx={{ color: colors.greenAccent[500] }} />
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold">
+              System Configuration
+            </Typography>
+          </Box>
 
-        {/* ================================================================= */}
-        {/* Card 3: Session & Security                                       */}
-        {/* ================================================================= */}
-        <Grid item xs={12} md={6}>
-          <Card sx={darkCard}>
-            <CardContent>
-              <SectionTitle>Session &amp; Security</SectionTitle>
+          <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+            Tariff Charges
+          </Typography>
+          <InfoRow label="VAT Rate" value="15%" color="#f2b705" />
+          <InfoRow label="Fixed Charge" value="N$ 8.50" />
+          <InfoRow label="REL Levy" value="N$ 2.40" />
+          <InfoRow label="Minimum Purchase" value="N$ 5.00" />
+          <InfoRow label="Arrears Deduction Mode" value="Auto-deduct" />
+          <InfoRow label="Arrears Deduction %" value="25%" color="#db4f4a" />
 
-              <FieldRow label="Session Timeout">
-                <FormControl size="small" fullWidth>
-                  <Select
-                    value={sessionTimeout}
-                    onChange={(e) => setSessionTimeout(e.target.value)}
-                  >
-                    <MenuItem value="30min">30 minutes</MenuItem>
-                    <MenuItem value="1hr">1 hour</MenuItem>
-                    <MenuItem value="2hr">2 hours</MenuItem>
-                    <MenuItem value="4hr">4 hours</MenuItem>
-                  </Select>
-                </FormControl>
-              </FieldRow>
+          <Box mt={2}>
+            <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+              Security
+            </Typography>
+            <InfoRow label="Session Timeout" value="1 hour" />
+            <InfoRow label="Max Login Attempts" value="5" />
+            <InfoRow label="Password Expiry" value="90 days" />
+            <InfoRow label="Two-Factor Auth" value="Enabled" color={colors.greenAccent[500]} />
+          </Box>
 
-              <FieldRow label="Max Login Attempts">
-                <TextField
-                  size="small"
-                  fullWidth
-                  type="number"
-                  value={maxLoginAttempts}
-                  onChange={(e) => setMaxLoginAttempts(e.target.value)}
-                  inputProps={{ min: 1, max: 20 }}
-                />
-              </FieldRow>
-
-              <FieldRow label="Password Expiry">
-                <FormControl size="small" fullWidth>
-                  <Select
-                    value={passwordExpiry}
-                    onChange={(e) => setPasswordExpiry(e.target.value)}
-                  >
-                    <MenuItem value="30 days">30 days</MenuItem>
-                    <MenuItem value="60 days">60 days</MenuItem>
-                    <MenuItem value="90 days">90 days</MenuItem>
-                    <MenuItem value="Never">Never</MenuItem>
-                  </Select>
-                </FormControl>
-              </FieldRow>
-
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={twoFactorAuth}
-                      onChange={(e) => setTwoFactorAuth(e.target.checked)}
-                      color="primary"
-                    />
-                  }
-                  label={
-                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem' }}>
-                      Two-Factor Authentication
-                    </Typography>
-                  }
-                />
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: twoFactorAuth ? '#4cceac' : '#db4f4a',
-                    fontWeight: 600,
-                    fontSize: '0.72rem',
-                  }}
-                >
-                  {twoFactorAuth ? 'Enabled' : 'Disabled'}
-                </Typography>
-              </Box>
-
-              <Box sx={{ textAlign: 'right', mt: 1 }}>
-                <Button variant="contained" color="primary" size="small" startIcon={<SaveOutlined />}>
-                  Save
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* ================================================================= */}
-        {/* Card 4: Notifications                                            */}
-        {/* ================================================================= */}
-        <Grid item xs={12} md={6}>
-          <Card sx={darkCard}>
-            <CardContent>
-              <SectionTitle>Notifications</SectionTitle>
-
-              <FieldRow label="SMS Gateway">
-                <TextField
-                  size="small"
-                  fullWidth
-                  value={smsGateway}
-                  onChange={(e) => setSmsGateway(e.target.value)}
-                />
-              </FieldRow>
-
-              <FieldRow label="SMS API Key">
-                <TextField
-                  size="small"
-                  fullWidth
-                  type="password"
-                  value={smsApiKey}
-                  onChange={(e) => setSmsApiKey(e.target.value)}
-                  placeholder="Enter API key..."
-                />
-              </FieldRow>
-
-              <FieldRow label="Email SMTP">
-                <TextField
-                  size="small"
-                  fullWidth
-                  value={emailSmtp}
-                  onChange={(e) => setEmailSmtp(e.target.value)}
-                  placeholder="smtp.example.com"
-                />
-              </FieldRow>
-
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={emailNotifications}
-                      onChange={(e) => setEmailNotifications(e.target.checked)}
-                      color="primary"
-                    />
-                  }
-                  label={
-                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem' }}>
-                      Email Notifications
-                    </Typography>
-                  }
-                />
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: emailNotifications ? '#4cceac' : '#db4f4a',
-                    fontWeight: 600,
-                    fontSize: '0.72rem',
-                  }}
-                >
-                  {emailNotifications ? 'Enabled' : 'Disabled'}
-                </Typography>
-              </Box>
-
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={smsNotifications}
-                      onChange={(e) => setSmsNotifications(e.target.checked)}
-                      color="primary"
-                    />
-                  }
-                  label={
-                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem' }}>
-                      SMS Notifications
-                    </Typography>
-                  }
-                />
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: smsNotifications ? '#4cceac' : '#db4f4a',
-                    fontWeight: 600,
-                    fontSize: '0.72rem',
-                  }}
-                >
-                  {smsNotifications ? 'Enabled' : 'Disabled'}
-                </Typography>
-              </Box>
-
-              <Box sx={{ textAlign: 'right', mt: 1 }}>
-                <Button variant="contained" color="primary" size="small" startIcon={<SaveOutlined />}>
-                  Save
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* ================================================================= */}
-        {/* Card 5: Meter Update Cycles                                      */}
-        {/* ================================================================= */}
-        <Grid item xs={12} md={6}>
-          <Card sx={darkCard}>
-            <CardContent>
-              <SectionTitle>Meter Update Cycles</SectionTitle>
-
-              <FieldRow label="Power Update Interval">
-                <FormControl size="small" fullWidth>
-                  <Select
-                    value={powerUpdateInterval}
-                    onChange={(e) => setPowerUpdateInterval(e.target.value)}
-                  >
-                    <MenuItem value="1min">1 minute</MenuItem>
-                    <MenuItem value="5min">5 minutes</MenuItem>
-                    <MenuItem value="15min">15 minutes</MenuItem>
-                    <MenuItem value="30min">30 minutes</MenuItem>
-                    <MenuItem value="1hr">1 hour</MenuItem>
-                  </Select>
-                </FormControl>
-              </FieldRow>
-
-              <FieldRow label="Energy Update Interval">
-                <FormControl size="small" fullWidth>
-                  <Select
-                    value={energyUpdateInterval}
-                    onChange={(e) => setEnergyUpdateInterval(e.target.value)}
-                  >
-                    <MenuItem value="15min">15 minutes</MenuItem>
-                    <MenuItem value="30min">30 minutes</MenuItem>
-                    <MenuItem value="1hr">1 hour</MenuItem>
-                    <MenuItem value="6hr">6 hours</MenuItem>
-                  </Select>
-                </FormControl>
-              </FieldRow>
-
-              <FieldRow label="Network Update Interval">
-                <FormControl size="small" fullWidth>
-                  <Select
-                    value={networkUpdateInterval}
-                    onChange={(e) => setNetworkUpdateInterval(e.target.value)}
-                  >
-                    <MenuItem value="1hr">1 hour</MenuItem>
-                    <MenuItem value="6hr">6 hours</MenuItem>
-                    <MenuItem value="12hr">12 hours</MenuItem>
-                    <MenuItem value="24hr">24 hours</MenuItem>
-                  </Select>
-                </FormControl>
-              </FieldRow>
-
-              <FieldRow label="Load Status Update">
-                <FormControl size="small" fullWidth>
-                  <Select
-                    value={loadStatusUpdate}
-                    onChange={(e) => setLoadStatusUpdate(e.target.value)}
-                  >
-                    <MenuItem value="Real-time">Real-time</MenuItem>
-                    <MenuItem value="1min">1 minute</MenuItem>
-                    <MenuItem value="5min">5 minutes</MenuItem>
-                  </Select>
-                </FormControl>
-              </FieldRow>
-
-              <Box sx={{ textAlign: 'right', mt: 1 }}>
-                <Button variant="contained" color="primary" size="small" startIcon={<SaveOutlined />}>
-                  Save
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+          <Box mt={2}>
+            <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={600} fontSize="0.78rem" mb={1}>
+              Backup
+            </Typography>
+            <InfoRow label="Auto-backup Schedule" value="Daily" />
+            <InfoRow label="Backup Time" value="02:00 AM" />
+            <InfoRow label="Last Backup" value="12 Mar 2026, 02:00 AM" />
+          </Box>
+        </Box>
+      </Box>
     </Box>
   );
 }

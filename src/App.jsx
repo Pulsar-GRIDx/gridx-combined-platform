@@ -1,10 +1,8 @@
 import { Routes, Route } from "react-router-dom";
+import { CssBaseline, ThemeProvider } from "@mui/material";
+import { ColorModeContext, useMode } from "./theme";
 import { AuthProvider } from "./context/AuthContext";
-
-// Layout
 import Layout from "./components/Layout";
-
-// Pages
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Vending from "./pages/Vending";
@@ -26,35 +24,40 @@ import Notifications from "./pages/Notifications";
 import Settings from "./pages/Settings";
 
 function App() {
-  return (
-    <AuthProvider>
-      <Routes>
-        {/* Public route */}
-        <Route path="/login" element={<Login />} />
+  const [theme, colorMode] = useMode();
 
-        {/* Protected routes wrapped in Layout */}
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="vending" element={<Vending />} />
-          <Route path="customers" element={<Customers />} />
-          <Route path="transactions" element={<Transactions />} />
-          <Route path="vendors" element={<Vendors />} />
-          <Route path="engineering" element={<Engineering />} />
-          <Route path="batches" element={<Batches />} />
-          <Route path="tariffs" element={<Tariffs />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="admin" element={<Admin />} />
-          <Route path="map" element={<Map />} />
-          <Route path="meter/:drn" element={<MeterProfile />} />
-          <Route path="meter-summary" element={<MeterSummary />} />
-          <Route path="topology" element={<Topology />} />
-          <Route path="analysis" element={<Analysis />} />
-          <Route path="billing" element={<Billing />} />
-          <Route path="notifications" element={<Notifications />} />
-          <Route path="settings" element={<Settings />} />
-        </Route>
-      </Routes>
-    </AuthProvider>
+  return (
+    <ColorModeContext.Provider value={colorMode}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<Layout />}>
+              <Route index element={<Dashboard />} />
+              <Route path="vending" element={<Vending />} />
+              <Route path="customers" element={<Customers />} />
+              <Route path="transactions" element={<Transactions />} />
+              <Route path="vendors" element={<Vendors />} />
+              <Route path="engineering" element={<Engineering />} />
+              <Route path="batches" element={<Batches />} />
+              <Route path="tariffs" element={<Tariffs />} />
+              <Route path="reports" element={<Reports />} />
+              <Route path="admin" element={<Admin />} />
+              <Route path="map" element={<Map />} />
+              <Route path="meter/:drn" element={<MeterProfile />} />
+              <Route path="meter-summary" element={<MeterSummary />} />
+              <Route path="topology" element={<Topology />} />
+              <Route path="analysis" element={<Analysis />} />
+              <Route path="billing" element={<Billing />} />
+              <Route path="notifications" element={<Notifications />} />
+              <Route path="settings" element={<Settings />} />
+              <Route path="users" element={<Admin />} />
+            </Route>
+          </Routes>
+        </AuthProvider>
+      </ThemeProvider>
+    </ColorModeContext.Provider>
   );
 }
 

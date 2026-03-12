@@ -1,13 +1,9 @@
-import { useState } from 'react';
+import { useState } from "react";
 import {
   Box,
-  Card,
-  CardContent,
   Typography,
   Button,
   Chip,
-  Tabs,
-  Tab,
   Table,
   TableHead,
   TableBody,
@@ -22,141 +18,81 @@ import {
   InputLabel,
   Select,
   MenuItem,
-} from '@mui/material';
+  useTheme,
+} from "@mui/material";
 import {
   AddOutlined,
   AccountBalanceOutlined,
   LockOutlined,
-} from '@mui/icons-material';
-import Header from '../components/Header';
-import { salesBatches, bankingBatches, vendors } from '../services/mockData';
+  ReceiptLongOutlined,
+  AccountBalanceWalletOutlined,
+  FolderOpenOutlined,
+  AttachMoneyOutlined,
+} from "@mui/icons-material";
+import { tokens } from "../theme";
+import Header from "../components/Header";
+import { salesBatches, bankingBatches, vendors } from "../services/mockData";
 
 // ---- Helpers ----------------------------------------------------------------
 
-const cardSx = {
-  background: '#152238',
-  border: '1px solid rgba(30, 58, 95, 0.5)',
-  borderRadius: 2,
-};
-
-const textFieldSx = {
-  '& .MuiOutlinedInput-root': {
-    color: '#fff',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    '& fieldset': { borderColor: 'rgba(30,58,95,0.5)' },
-    '&:hover fieldset': { borderColor: 'rgba(0,188,212,0.4)' },
-    '&.Mui-focused fieldset': { borderColor: '#00bcd4' },
-  },
-  '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.45)' },
-  '& .MuiInputLabel-root.Mui-focused': { color: '#00bcd4' },
-};
-
-const selectSx = {
-  color: '#fff',
-  backgroundColor: 'rgba(0,0,0,0.2)',
-  '& fieldset': { borderColor: 'rgba(30,58,95,0.5)' },
-  '&:hover fieldset': { borderColor: 'rgba(0,188,212,0.4)' },
-  '&.Mui-focused fieldset': { borderColor: '#00bcd4' },
-  '& .MuiSelect-icon': { color: 'rgba(255,255,255,0.4)' },
-};
-
-const headerCellSx = {
-  color: 'rgba(255,255,255,0.5)',
-  fontWeight: 600,
-  fontSize: '0.75rem',
-  textTransform: 'uppercase',
-  letterSpacing: 0.5,
-  borderBottom: '1px solid rgba(30,58,95,0.4)',
-  whiteSpace: 'nowrap',
-};
-
-const bodyCellSx = {
-  color: '#fff',
-  borderBottom: '1px solid rgba(30,58,95,0.25)',
-  fontSize: '0.85rem',
-};
-
 function fmtDate(d) {
-  if (!d) return '--';
-  return new Date(d).toLocaleDateString('en-NA', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+  if (!d) return "--";
+  return new Date(d).toLocaleDateString("en-NA", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
 function fmtN$(v) {
-  return `N$ ${Number(v).toLocaleString('en-NA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function salesStatusChip(status) {
-  const isOpen = status === 'Open';
-  return (
-    <Chip
-      label={status}
-      size="small"
-      sx={{
-        fontWeight: 600,
-        color: '#fff',
-        backgroundColor: isOpen ? 'rgba(76,175,80,0.25)' : 'rgba(158,158,158,0.25)',
-        border: `1px solid ${isOpen ? '#4caf50' : '#9e9e9e'}`,
-      }}
-    />
-  );
-}
-
-function bankingStatusChip(status) {
-  const colors = {
-    Pending: { bg: 'rgba(255,193,7,0.2)', border: '#ffc107' },
-    Submitted: { bg: 'rgba(33,150,243,0.2)', border: '#2196f3' },
-    Reconciled: { bg: 'rgba(76,175,80,0.2)', border: '#4caf50' },
-  };
-  const c = colors[status] || colors.Pending;
-  return (
-    <Chip
-      label={status}
-      size="small"
-      sx={{
-        fontWeight: 600,
-        color: '#fff',
-        backgroundColor: c.bg,
-        border: `1px solid ${c.border}`,
-      }}
-    />
-  );
+  return `N$ ${Number(v).toLocaleString("en-NA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 // ---- Component --------------------------------------------------------------
 
 export default function Batches() {
-  const [tabIndex, setTabIndex] = useState(0);
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
 
   // Sales batch dialog
   const [salesDialogOpen, setSalesDialogOpen] = useState(false);
-  const [newBatchVendor, setNewBatchVendor] = useState('');
-  const [newBatchNotes, setNewBatchNotes] = useState('');
+  const [newBatchVendor, setNewBatchVendor] = useState("");
+  const [newBatchNotes, setNewBatchNotes] = useState("");
 
   // Banking batch dialog
   const [bankDialogOpen, setBankDialogOpen] = useState(false);
-  const [bankSalesBatch, setBankSalesBatch] = useState('');
-  const [bankRef, setBankRef] = useState('');
+  const [bankSalesBatch, setBankSalesBatch] = useState("");
+  const [bankRef, setBankRef] = useState("");
 
   // Local copies for demo mutations
   const [localSalesBatches, setLocalSalesBatches] = useState(salesBatches);
-  const [localBankingBatches, setLocalBankingBatches] = useState(bankingBatches);
+  const [localBankingBatches, setLocalBankingBatches] =
+    useState(bankingBatches);
 
-  // Closed sales batches for banking
-  const closedSalesBatches = localSalesBatches.filter((b) => b.status === 'Closed');
-
-  // Selected closed batch amount
-  const selectedClosedBatch = closedSalesBatches.find((b) => b.id === bankSalesBatch);
+  // Derived stats
+  const openBatches = localSalesBatches.filter(
+    (b) => b.status === "Open"
+  ).length;
+  const totalSalesRevenue = localSalesBatches.reduce(
+    (s, b) => s + b.totalAmount,
+    0
+  );
+  const closedSalesBatches = localSalesBatches.filter(
+    (b) => b.status === "Closed"
+  );
+  const selectedClosedBatch = closedSalesBatches.find(
+    (b) => b.id === bankSalesBatch
+  );
 
   // Handlers
   const handleOpenNewBatch = () => {
-    setNewBatchVendor('');
-    setNewBatchNotes('');
+    setNewBatchVendor("");
+    setNewBatchNotes("");
     setSalesDialogOpen(true);
   };
 
@@ -164,11 +100,14 @@ export default function Batches() {
     const vendor = vendors.find((v) => v.id === newBatchVendor);
     if (!vendor) return;
     const newBatch = {
-      id: `SB-${String(localSalesBatches.length + 1).padStart(3, '0')}`,
-      batchNo: `BATCH-${String(localSalesBatches.length + 1).padStart(3, '0')}`,
+      id: `SB-${String(localSalesBatches.length + 1).padStart(3, "0")}`,
+      batchNo: `BATCH-${String(localSalesBatches.length + 1).padStart(
+        3,
+        "0"
+      )}`,
       vendorId: vendor.id,
       vendorName: vendor.name,
-      status: 'Open',
+      status: "Open",
       transactionCount: 0,
       totalAmount: 0,
       openedAt: new Date().toISOString(),
@@ -183,26 +122,29 @@ export default function Batches() {
     setLocalSalesBatches((prev) =>
       prev.map((b) =>
         b.id === batchId
-          ? { ...b, status: 'Closed', closedAt: new Date().toISOString() }
+          ? { ...b, status: "Closed", closedAt: new Date().toISOString() }
           : b
       )
     );
   };
 
   const handleOpenBankDialog = () => {
-    setBankSalesBatch('');
-    setBankRef('');
+    setBankSalesBatch("");
+    setBankRef("");
     setBankDialogOpen(true);
   };
 
   const handleCreateBankingBatch = () => {
     if (!selectedClosedBatch || !bankRef) return;
     const newBank = {
-      id: `BB-${String(localBankingBatches.length + 1).padStart(3, '0')}`,
-      batchNo: `BANK-2026-${String(localBankingBatches.length + 1).padStart(3, '0')}`,
+      id: `BB-${String(localBankingBatches.length + 1).padStart(3, "0")}`,
+      batchNo: `BANK-2026-${String(localBankingBatches.length + 1).padStart(
+        3,
+        "0"
+      )}`,
       salesBatchId: selectedClosedBatch.id,
       bankRef,
-      status: 'Pending',
+      status: "Pending",
       totalAmount: selectedClosedBatch.totalAmount,
       createdAt: new Date().toISOString(),
     };
@@ -210,184 +152,405 @@ export default function Batches() {
     setBankDialogOpen(false);
   };
 
+  const textFieldSx = {
+    "& .MuiOutlinedInput-root": {
+      color: colors.grey[100],
+      backgroundColor: "rgba(0,0,0,0.2)",
+      "& fieldset": { borderColor: colors.primary[300] },
+      "&:hover fieldset": { borderColor: colors.greenAccent[700] },
+      "&.Mui-focused fieldset": { borderColor: colors.greenAccent[500] },
+    },
+    "& .MuiInputLabel-root": { color: colors.grey[300] },
+    "& .MuiInputLabel-root.Mui-focused": { color: colors.greenAccent[500] },
+  };
+
+  const selectSx = {
+    color: colors.grey[100],
+    backgroundColor: "rgba(0,0,0,0.2)",
+    "& fieldset": { borderColor: colors.primary[300] },
+    "&:hover fieldset": { borderColor: colors.greenAccent[700] },
+    "&.Mui-focused fieldset": { borderColor: colors.greenAccent[500] },
+    "& .MuiSelect-icon": { color: colors.grey[300] },
+  };
+
+  const headerCellSx = {
+    color: colors.grey[300],
+    fontWeight: 600,
+    fontSize: "0.75rem",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    borderBottom: `1px solid ${colors.primary[300]}`,
+    whiteSpace: "nowrap",
+  };
+
+  const bodyCellSx = {
+    color: colors.grey[100],
+    borderBottom: `1px solid ${colors.primary[300]}`,
+    fontSize: "0.85rem",
+  };
+
+  function salesStatusChip(status) {
+    const isOpen = status === "Open";
+    return (
+      <Chip
+        label={status}
+        size="small"
+        sx={{
+          fontWeight: 600,
+          color: colors.grey[100],
+          backgroundColor: isOpen
+            ? colors.greenAccent[900]
+            : "rgba(158,158,158,0.15)",
+          border: `1px solid ${
+            isOpen ? colors.greenAccent[500] : colors.grey[400]
+          }`,
+        }}
+      />
+    );
+  }
+
+  function bankingStatusChip(status) {
+    const map = {
+      Pending: {
+        bg: colors.yellowAccent[900],
+        border: colors.yellowAccent[500],
+      },
+      Submitted: {
+        bg: colors.blueAccent[900],
+        border: colors.blueAccent[500],
+      },
+      Reconciled: {
+        bg: colors.greenAccent[900],
+        border: colors.greenAccent[500],
+      },
+    };
+    const c = map[status] || map.Pending;
+    return (
+      <Chip
+        label={status}
+        size="small"
+        sx={{
+          fontWeight: 600,
+          color: colors.grey[100],
+          backgroundColor: c.bg,
+          border: `1px solid ${c.border}`,
+        }}
+      />
+    );
+  }
+
   return (
-    <Box>
+    <Box m="20px">
       <Header
-        title="Batch Management"
-        subtitle="Manage sales and banking batch reconciliation"
+        title="BATCH MANAGEMENT"
+        subtitle="Sales and Banking Batch Operations"
       />
 
-      <Card sx={cardSx}>
-        <CardContent>
-          {/* Tabs */}
-          <Box sx={{ borderBottom: '1px solid rgba(30,58,95,0.4)', mb: 3 }}>
-            <Tabs
-              value={tabIndex}
-              onChange={(_, v) => setTabIndex(v)}
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ---- Stat: Sales Batches (span 3) ---- */}
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          flexDirection="column"
+          p="15px"
+        >
+          <ReceiptLongOutlined
+            sx={{ color: colors.greenAccent[500], fontSize: 32, mb: "8px" }}
+          />
+          <Typography variant="h4" fontWeight="700" color={colors.grey[100]}>
+            {localSalesBatches.length}
+          </Typography>
+          <Typography variant="body2" color={colors.greenAccent[500]}>
+            Sales Batches
+          </Typography>
+        </Box>
+
+        {/* ---- Stat: Banking Batches (span 3) ---- */}
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          flexDirection="column"
+          p="15px"
+        >
+          <AccountBalanceOutlined
+            sx={{ color: colors.blueAccent[500], fontSize: 32, mb: "8px" }}
+          />
+          <Typography variant="h4" fontWeight="700" color={colors.grey[100]}>
+            {localBankingBatches.length}
+          </Typography>
+          <Typography variant="body2" color={colors.blueAccent[400]}>
+            Banking Batches
+          </Typography>
+        </Box>
+
+        {/* ---- Stat: Open Batches (span 3) ---- */}
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          flexDirection="column"
+          p="15px"
+        >
+          <FolderOpenOutlined
+            sx={{ color: colors.yellowAccent[500], fontSize: 32, mb: "8px" }}
+          />
+          <Typography variant="h4" fontWeight="700" color={colors.grey[100]}>
+            {openBatches}
+          </Typography>
+          <Typography variant="body2" color={colors.yellowAccent[500]}>
+            Open Batches
+          </Typography>
+        </Box>
+
+        {/* ---- Stat: Total Revenue (span 3) ---- */}
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          flexDirection="column"
+          p="15px"
+        >
+          <AttachMoneyOutlined
+            sx={{ color: colors.greenAccent[500], fontSize: 32, mb: "8px" }}
+          />
+          <Typography variant="h4" fontWeight="700" color={colors.grey[100]}>
+            {fmtN$(totalSalesRevenue)}
+          </Typography>
+          <Typography variant="body2" color={colors.greenAccent[500]}>
+            Total Revenue
+          </Typography>
+        </Box>
+
+        {/* ---- Sales Batches Table (span 7, span 4) ---- */}
+        <Box
+          gridColumn="span 7"
+          gridRow="span 4"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+        >
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems="center"
+            p="15px"
+            borderBottom={`1px solid ${colors.primary[300]}`}
+          >
+            <Typography
+              variant="h5"
+              fontWeight="600"
+              color={colors.grey[100]}
+            >
+              Sales Batches
+            </Typography>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AddOutlined />}
+              onClick={handleOpenNewBatch}
               sx={{
-                '& .MuiTab-root': {
-                  color: 'rgba(255,255,255,0.45)',
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  fontSize: '0.95rem',
-                },
-                '& .Mui-selected': { color: '#00bcd4' },
-                '& .MuiTabs-indicator': { backgroundColor: '#00bcd4' },
+                fontWeight: 600,
+                backgroundColor: colors.greenAccent[600],
+                color: colors.primary[500],
+                "&:hover": { backgroundColor: colors.greenAccent[700] },
               }}
             >
-              <Tab label="Sales Batches" />
-              <Tab label="Banking Batches" />
-            </Tabs>
+              Open New Batch
+            </Button>
           </Box>
 
-          {/* ---- Sales Batches Tab ---- */}
-          {tabIndex === 0 && (
-            <Box>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-                <Button
-                  variant="contained"
-                  startIcon={<AddOutlined />}
-                  onClick={handleOpenNewBatch}
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={headerCellSx}>Batch ID</TableCell>
+                <TableCell sx={headerCellSx}>Vendor</TableCell>
+                <TableCell sx={headerCellSx}>Status</TableCell>
+                <TableCell sx={headerCellSx} align="right">
+                  Transactions
+                </TableCell>
+                <TableCell sx={headerCellSx} align="right">
+                  Total Amount
+                </TableCell>
+                <TableCell sx={headerCellSx}>Opened</TableCell>
+                <TableCell sx={headerCellSx}>Closed</TableCell>
+                <TableCell sx={headerCellSx} align="center">
+                  Actions
+                </TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {localSalesBatches.map((batch) => (
+                <TableRow
+                  key={batch.id}
                   sx={{
-                    fontWeight: 600,
-                    background: 'linear-gradient(135deg, #00bcd4, #0097a7)',
-                    color: '#0a1628',
-                    '&:hover': { background: 'linear-gradient(135deg, #00acc1, #00838f)' },
+                    "&:hover": {
+                      backgroundColor: `${colors.primary[300]}44`,
+                    },
                   }}
                 >
-                  Open New Batch
-                </Button>
-              </Box>
-
-              <Box sx={{ overflowX: 'auto' }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={headerCellSx}>Batch ID</TableCell>
-                      <TableCell sx={headerCellSx}>Vendor</TableCell>
-                      <TableCell sx={headerCellSx}>Status</TableCell>
-                      <TableCell sx={headerCellSx} align="right">Transactions</TableCell>
-                      <TableCell sx={headerCellSx} align="right">Total Amount</TableCell>
-                      <TableCell sx={headerCellSx}>Opened</TableCell>
-                      <TableCell sx={headerCellSx}>Closed</TableCell>
-                      <TableCell sx={headerCellSx} align="center">Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {localSalesBatches.map((batch) => (
-                      <TableRow
-                        key={batch.id}
-                        sx={{ '&:hover': { backgroundColor: 'rgba(0,188,212,0.04)' } }}
+                  <TableCell
+                    sx={{
+                      ...bodyCellSx,
+                      fontFamily: "monospace",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {batch.batchNo}
+                  </TableCell>
+                  <TableCell sx={bodyCellSx}>{batch.vendorName}</TableCell>
+                  <TableCell sx={bodyCellSx}>
+                    {salesStatusChip(batch.status)}
+                  </TableCell>
+                  <TableCell sx={bodyCellSx} align="right">
+                    {batch.transactionCount.toLocaleString()}
+                  </TableCell>
+                  <TableCell sx={bodyCellSx} align="right">
+                    {fmtN$(batch.totalAmount)}
+                  </TableCell>
+                  <TableCell sx={{ ...bodyCellSx, whiteSpace: "nowrap" }}>
+                    {fmtDate(batch.openedAt)}
+                  </TableCell>
+                  <TableCell sx={{ ...bodyCellSx, whiteSpace: "nowrap" }}>
+                    {fmtDate(batch.closedAt)}
+                  </TableCell>
+                  <TableCell sx={bodyCellSx} align="center">
+                    {batch.status === "Open" && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<LockOutlined sx={{ fontSize: 16 }} />}
+                        onClick={() => handleCloseBatch(batch.id)}
+                        sx={{
+                          color: colors.yellowAccent[500],
+                          borderColor: colors.yellowAccent[700],
+                          fontSize: "0.75rem",
+                          textTransform: "none",
+                          "&:hover": {
+                            borderColor: colors.yellowAccent[500],
+                            backgroundColor: colors.yellowAccent[900],
+                          },
+                        }}
                       >
-                        <TableCell sx={{ ...bodyCellSx, fontFamily: 'monospace', fontWeight: 600 }}>
-                          {batch.batchNo}
-                        </TableCell>
-                        <TableCell sx={bodyCellSx}>{batch.vendorName}</TableCell>
-                        <TableCell sx={bodyCellSx}>{salesStatusChip(batch.status)}</TableCell>
-                        <TableCell sx={bodyCellSx} align="right">
-                          {batch.transactionCount.toLocaleString()}
-                        </TableCell>
-                        <TableCell sx={bodyCellSx} align="right">
-                          {fmtN$(batch.totalAmount)}
-                        </TableCell>
-                        <TableCell sx={{ ...bodyCellSx, whiteSpace: 'nowrap' }}>
-                          {fmtDate(batch.openedAt)}
-                        </TableCell>
-                        <TableCell sx={{ ...bodyCellSx, whiteSpace: 'nowrap' }}>
-                          {fmtDate(batch.closedAt)}
-                        </TableCell>
-                        <TableCell sx={bodyCellSx} align="center">
-                          {batch.status === 'Open' && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<LockOutlined sx={{ fontSize: 16 }} />}
-                              onClick={() => handleCloseBatch(batch.id)}
-                              sx={{
-                                color: '#ff9800',
-                                borderColor: 'rgba(255,152,0,0.4)',
-                                fontSize: '0.75rem',
-                                textTransform: 'none',
-                                '&:hover': {
-                                  borderColor: '#ff9800',
-                                  backgroundColor: 'rgba(255,152,0,0.1)',
-                                },
-                              }}
-                            >
-                              Close Batch
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Box>
-            </Box>
-          )}
+                        Close Batch
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
 
-          {/* ---- Banking Batches Tab ---- */}
-          {tabIndex === 1 && (
-            <Box>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-                <Button
-                  variant="contained"
-                  startIcon={<AccountBalanceOutlined />}
-                  onClick={handleOpenBankDialog}
+        {/* ---- Banking Batches Table (span 5, span 4) ---- */}
+        <Box
+          gridColumn="span 5"
+          gridRow="span 4"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+        >
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems="center"
+            p="15px"
+            borderBottom={`1px solid ${colors.primary[300]}`}
+          >
+            <Typography
+              variant="h5"
+              fontWeight="600"
+              color={colors.grey[100]}
+            >
+              Banking Batches
+            </Typography>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<AccountBalanceOutlined />}
+              onClick={handleOpenBankDialog}
+              sx={{
+                fontWeight: 600,
+                backgroundColor: colors.greenAccent[600],
+                color: colors.primary[500],
+                "&:hover": { backgroundColor: colors.greenAccent[700] },
+              }}
+            >
+              Create
+            </Button>
+          </Box>
+
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={headerCellSx}>Batch ID</TableCell>
+                <TableCell sx={headerCellSx}>Sales Ref</TableCell>
+                <TableCell sx={headerCellSx}>Bank Ref</TableCell>
+                <TableCell sx={headerCellSx}>Status</TableCell>
+                <TableCell sx={headerCellSx} align="right">
+                  Amount
+                </TableCell>
+                <TableCell sx={headerCellSx}>Created</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {localBankingBatches.map((batch) => (
+                <TableRow
+                  key={batch.id}
                   sx={{
-                    fontWeight: 600,
-                    background: 'linear-gradient(135deg, #00bcd4, #0097a7)',
-                    color: '#0a1628',
-                    '&:hover': { background: 'linear-gradient(135deg, #00acc1, #00838f)' },
+                    "&:hover": {
+                      backgroundColor: `${colors.primary[300]}44`,
+                    },
                   }}
                 >
-                  Create Banking Batch
-                </Button>
-              </Box>
-
-              <Box sx={{ overflowX: 'auto' }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={headerCellSx}>Batch ID</TableCell>
-                      <TableCell sx={headerCellSx}>Sales Batch Ref</TableCell>
-                      <TableCell sx={headerCellSx}>Bank Reference</TableCell>
-                      <TableCell sx={headerCellSx}>Status</TableCell>
-                      <TableCell sx={headerCellSx} align="right">Total Amount</TableCell>
-                      <TableCell sx={headerCellSx}>Created</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {localBankingBatches.map((batch) => (
-                      <TableRow
-                        key={batch.id}
-                        sx={{ '&:hover': { backgroundColor: 'rgba(0,188,212,0.04)' } }}
-                      >
-                        <TableCell sx={{ ...bodyCellSx, fontFamily: 'monospace', fontWeight: 600 }}>
-                          {batch.batchNo}
-                        </TableCell>
-                        <TableCell sx={{ ...bodyCellSx, fontFamily: 'monospace' }}>
-                          {batch.salesBatchId}
-                        </TableCell>
-                        <TableCell sx={{ ...bodyCellSx, fontFamily: 'monospace' }}>
-                          {batch.bankRef}
-                        </TableCell>
-                        <TableCell sx={bodyCellSx}>{bankingStatusChip(batch.status)}</TableCell>
-                        <TableCell sx={bodyCellSx} align="right">
-                          {fmtN$(batch.totalAmount)}
-                        </TableCell>
-                        <TableCell sx={{ ...bodyCellSx, whiteSpace: 'nowrap' }}>
-                          {fmtDate(batch.createdAt)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Box>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
+                  <TableCell
+                    sx={{
+                      ...bodyCellSx,
+                      fontFamily: "monospace",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {batch.batchNo}
+                  </TableCell>
+                  <TableCell sx={{ ...bodyCellSx, fontFamily: "monospace" }}>
+                    {batch.salesBatchId}
+                  </TableCell>
+                  <TableCell sx={{ ...bodyCellSx, fontFamily: "monospace" }}>
+                    {batch.bankRef}
+                  </TableCell>
+                  <TableCell sx={bodyCellSx}>
+                    {bankingStatusChip(batch.status)}
+                  </TableCell>
+                  <TableCell sx={bodyCellSx} align="right">
+                    {fmtN$(batch.totalAmount)}
+                  </TableCell>
+                  <TableCell sx={{ ...bodyCellSx, whiteSpace: "nowrap" }}>
+                    {fmtDate(batch.createdAt)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
+      </Box>
 
       {/* ---- Open New Sales Batch Dialog ---- */}
       <Dialog
@@ -397,16 +560,23 @@ export default function Batches() {
         fullWidth
         PaperProps={{
           sx: {
-            backgroundColor: '#152238',
-            border: '1px solid rgba(30,58,95,0.5)',
-            color: '#fff',
+            backgroundColor: colors.primary[400],
+            border: `1px solid ${colors.primary[300]}`,
+            color: colors.grey[100],
           },
         }}
       >
-        <DialogTitle sx={{ fontWeight: 600, color: '#fff' }}>Open New Sales Batch</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 600, color: colors.grey[100] }}>
+          Open New Sales Batch
+        </DialogTitle>
         <DialogContent>
           <FormControl fullWidth sx={{ mt: 1, mb: 2 }}>
-            <InputLabel sx={{ color: 'rgba(255,255,255,0.45)', '&.Mui-focused': { color: '#00bcd4' } }}>
+            <InputLabel
+              sx={{
+                color: colors.grey[300],
+                "&.Mui-focused": { color: colors.greenAccent[500] },
+              }}
+            >
               Vendor
             </InputLabel>
             <Select
@@ -414,10 +584,17 @@ export default function Batches() {
               label="Vendor"
               onChange={(e) => setNewBatchVendor(e.target.value)}
               sx={selectSx}
-              MenuProps={{ PaperProps: { sx: { backgroundColor: '#1a2d47', color: '#fff' } } }}
+              MenuProps={{
+                PaperProps: {
+                  sx: {
+                    backgroundColor: colors.primary[400],
+                    color: colors.grey[100],
+                  },
+                },
+              }}
             >
               {vendors
-                .filter((v) => v.status === 'Active')
+                .filter((v) => v.status === "Active")
                 .map((v) => (
                   <MenuItem key={v.id} value={v.id}>
                     {v.name}
@@ -439,7 +616,7 @@ export default function Batches() {
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button
             onClick={() => setSalesDialogOpen(false)}
-            sx={{ color: 'rgba(255,255,255,0.5)' }}
+            sx={{ color: colors.grey[300] }}
           >
             Cancel
           </Button>
@@ -449,10 +626,13 @@ export default function Batches() {
             onClick={handleCreateSalesBatch}
             sx={{
               fontWeight: 600,
-              background: 'linear-gradient(135deg, #00bcd4, #0097a7)',
-              color: '#0a1628',
-              '&:hover': { background: 'linear-gradient(135deg, #00acc1, #00838f)' },
-              '&.Mui-disabled': { background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.3)' },
+              backgroundColor: colors.greenAccent[600],
+              color: colors.primary[500],
+              "&:hover": { backgroundColor: colors.greenAccent[700] },
+              "&.Mui-disabled": {
+                backgroundColor: colors.primary[300],
+                color: colors.grey[400],
+              },
             }}
           >
             Open Batch
@@ -468,16 +648,23 @@ export default function Batches() {
         fullWidth
         PaperProps={{
           sx: {
-            backgroundColor: '#152238',
-            border: '1px solid rgba(30,58,95,0.5)',
-            color: '#fff',
+            backgroundColor: colors.primary[400],
+            border: `1px solid ${colors.primary[300]}`,
+            color: colors.grey[100],
           },
         }}
       >
-        <DialogTitle sx={{ fontWeight: 600, color: '#fff' }}>Create Banking Batch</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 600, color: colors.grey[100] }}>
+          Create Banking Batch
+        </DialogTitle>
         <DialogContent>
           <FormControl fullWidth sx={{ mt: 1, mb: 2 }}>
-            <InputLabel sx={{ color: 'rgba(255,255,255,0.45)', '&.Mui-focused': { color: '#00bcd4' } }}>
+            <InputLabel
+              sx={{
+                color: colors.grey[300],
+                "&.Mui-focused": { color: colors.greenAccent[500] },
+              }}
+            >
               Select Closed Sales Batch
             </InputLabel>
             <Select
@@ -485,7 +672,14 @@ export default function Batches() {
               label="Select Closed Sales Batch"
               onChange={(e) => setBankSalesBatch(e.target.value)}
               sx={selectSx}
-              MenuProps={{ PaperProps: { sx: { backgroundColor: '#1a2d47', color: '#fff' } } }}
+              MenuProps={{
+                PaperProps: {
+                  sx: {
+                    backgroundColor: colors.primary[400],
+                    color: colors.grey[100],
+                  },
+                },
+              }}
             >
               {closedSalesBatches.map((b) => (
                 <MenuItem key={b.id} value={b.id}>
@@ -507,13 +701,15 @@ export default function Batches() {
           <TextField
             fullWidth
             label="Total Amount"
-            value={selectedClosedBatch ? fmtN$(selectedClosedBatch.totalAmount) : ''}
+            value={
+              selectedClosedBatch ? fmtN$(selectedClosedBatch.totalAmount) : ""
+            }
             InputProps={{ readOnly: true }}
             sx={{
               ...textFieldSx,
-              '& .MuiOutlinedInput-root': {
-                ...textFieldSx['& .MuiOutlinedInput-root'],
-                backgroundColor: 'rgba(0,0,0,0.35)',
+              "& .MuiOutlinedInput-root": {
+                ...textFieldSx["& .MuiOutlinedInput-root"],
+                backgroundColor: "rgba(0,0,0,0.35)",
               },
             }}
           />
@@ -521,7 +717,7 @@ export default function Batches() {
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button
             onClick={() => setBankDialogOpen(false)}
-            sx={{ color: 'rgba(255,255,255,0.5)' }}
+            sx={{ color: colors.grey[300] }}
           >
             Cancel
           </Button>
@@ -531,10 +727,13 @@ export default function Batches() {
             onClick={handleCreateBankingBatch}
             sx={{
               fontWeight: 600,
-              background: 'linear-gradient(135deg, #00bcd4, #0097a7)',
-              color: '#0a1628',
-              '&:hover': { background: 'linear-gradient(135deg, #00acc1, #00838f)' },
-              '&.Mui-disabled': { background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.3)' },
+              backgroundColor: colors.greenAccent[600],
+              color: colors.primary[500],
+              "&:hover": { backgroundColor: colors.greenAccent[700] },
+              "&.Mui-disabled": {
+                backgroundColor: colors.primary[300],
+                color: colors.grey[400],
+              },
             }}
           >
             Submit
