@@ -1,0 +1,114 @@
+get http://localhost:4000/finance/time-periods
+Content-Type: application/json
+Authorization:  Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzc3NTQxMSwiZXhwIjoxNzEzNzc5MDExfQ.iLFvIbc78qSX8azxHVYuf2u3PaPqjxC6eP9OLrGRmjU 
+
+####
+get http://localhost:4000/finance/currentAndLastYearMonthRevenueTotal 
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzU1NDIxMCwiZXhwIjoxNzEzNTU3ODEwfQ.JZ9aI69CkEsSQkb4HSV9CBLkg4Y7u2ycFT7PmFHSxCA  
+
+
+###
+get http://localhost:4000/finance/currentAndLastWeek
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzU1NDIxMCwiZXhwIjoxNzEzNTU3ODEwfQ.JZ9aI69CkEsSQkb4HSV9CBLkg4Y7u2ycFT7PmFHSxCA  
+
+####
+get https://backend2.gridxmeter.com/finance/hourlyRevenue
+Content-Type: application/json
+Cookie: Bearer accessToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzYyNjg0NSwiZXhwIjoxNzEzNjMwNDQ1fQ.OIt21Mg070cocAK1tbY56YJr7ZqtSlNaO5oVzSnueR0
+###
+post http://localhost:4000/finance/suburbTimePeriod
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzU1NDIxMCwiZXhwIjoxNzEzNTU3ODEwfQ.JZ9aI69CkEsSQkb4HSV9CBLkg4Y7u2ycFT7PmFHSxCA  
+
+{
+    "suburbs":[
+     "Academia" 
+    ]
+}
+
+###
+post http://localhost:4000/finance/suburbWeeklyRevenue 
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzU1NDIxMCwiZXhwIjoxNzEzNTU3ODEwfQ.JZ9aI69CkEsSQkb4HSV9CBLkg4Y7u2ycFT7PmFHSxCA  
+
+{
+    "suburbs":[
+     "Academia" 
+    ]
+}
+###
+post http://localhost:4000/finance/suburbYearlyRevenue
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzU1NDIxMCwiZXhwIjoxNzEzNTU3ODEwfQ.JZ9aI69CkEsSQkb4HSV9CBLkg4Y7u2ycFT7PmFHSxCA  
+
+{
+    "suburbs":[
+     "Academia" 
+    ]
+}
+
+###
+
+post http://localhost:4000/finance/getSuburbChartRevenue
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzU1NDIxMCwiZXhwIjoxNzEzNTU3ODEwfQ.JZ9aI69CkEsSQkb4HSV9CBLkg4Y7u2ycFT7PmFHSxCA  
+
+{
+    "suburbs":[
+     "Academia" ,
+      "Auasblick" ,
+      "Avis" ,
+     "Cimbebasia" ,
+      "Dorado Park" ,
+      "Donkerhoek" ,
+     "Elisenheim" ,
+      "Eros" ,
+     "Eros Park" ,
+     "Freedom Land" ,
+     "Goreangab" ,
+      "Groot Aub" ,
+      "Greenwell" ,
+     "Hakahana" ,
+      "Havana" ,
+       "Hochland Park" ,
+       "Katutura" ,
+       "Khomasdal" ,
+     "Kleine Kuppe" ,
+      "Klein Windhoek" ,
+     "Lafrenz" ,
+       "Ludwigsdorf" ,
+       "Luxury Hill" ,
+       "Maxuilili" ,
+        "Northern Industrial " ,
+       "Okuryangava" ,
+        "Olympia" ,
+       "Ombili" ,
+       "Otjomuise" ,
+       "Pionierspark" ,
+        "Prosperita" ,
+      "Rocky Crest" ,
+     "Southern Industria" ,
+      "Suiderhof" ,
+     "Tauben Glen" ,
+      "Wanaheda" ,
+        "Windhoek Central" ,
+        "Windhoek North" ,
+       "Windhoek West" 
+    ]}
+###
+get http://localhost:4000/tokenAmountIncreaseOrDecrease
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNDM4ODAxNiwiZXhwIjoxNzE0MzkxNjE2fQ.lmxHi6tSVvsnAnlcDOj90JI9fvLmELbo8CduocbowZs
+###
+GET HTTP://LOCALHOST:4000/suburbRevenueIncreaseOrDecrease
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNDM4ODAxNiwiZXhwIjoxNzE0MzkxNjE2fQ.lmxHi6tSVvsnAnlcDOj90JI9fvLmELbo8CduocbowZs
+
+
+{
+    "suburbs":[
+     "Academia" 
+    ]
+}

@@ -1,0 +1,55 @@
+###
+get http://localhost:4000/meter_change
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTE3NDM5NSwiZXhwIjoxNzE1MTc3OTk1fQ.kaVG3URU_cHRlvT_n-k5hat5gX_DS5i8g2JFz6_6UUs
+###
+get http://localhost:4000/active_state_count
+Content-Type: application/json
+authorization: Bearer yJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTY3NjY2OSwiZXhwIjoxNzE1NjgwMjY5fQ.ZFEyCYNHsEpiR1bbwQFwy7xkAZXRJinl74MOP79uVLU
+###
+get http://localhost:4000/inactive_state_count
+Content-Type: application/json
+authorization: Bearer yJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTY3NjY2OSwiZXhwIjoxNzE1NjgwMjY5fQ.ZFEyCYNHsEpiR1bbwQFwy7xkAZXRJinl74MOP79uVLU
+###
+get http://localhost:4000/powerIncreaseOrDecrease 
+Content-Type: application/json
+Authorization: Bearer yJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTY3NjY2OSwiZXhwIjoxNzE1NjgwMjY5fQ.ZFEyCYNHsEpiR1bbwQFwy7xkAZXRJinl74MOP79uVLU
+###
+post http://localhost:4000/suburbAdvancedPowerIncreaseOrDecrease
+Content-Type: application/json
+Authorization: Bearer yJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTY3NjY2OSwiZXhwIjoxNzE1NjgwMjY5fQ.ZFEyCYNHsEpiR1bbwQFwy7xkAZXRJinl74MOP79uVLU
+
+{
+    "suburbs":[
+     "Academia" 
+    ]
+}
+
+###
+get http://localhost:4000/ratioUnitsBoughtAndUsedThisMonth
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTc2NTU5NiwiZXhwIjoxNzE1NzY5MTk2fQ.-tpSjXM699kxrmLJXu5elBlBxTdsrwat5MG5AELi0FA
+### 
+get http://localhost:4000/time-periods-ratios 
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTc3ODI0NiwiZXhwIjoxNzE1NzgxODQ2fQ.g7FBTvttyJznvfaRz8GJr6Q61IgH4lveeYxNzZZObQI
+###
+get http://localhost:4000/WeekRatio 
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTc3ODI0NiwiZXhwIjoxNzE1NzgxODQ2fQ.g7FBTvttyJznvfaRz8GJr6Q61IgH4lveeYxNzZZObQI
+###
+get http://localhost:4000/monthRatios
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTc3ODI0NiwiZXhwIjoxNzE1NzgxODQ2fQ.g7FBTvttyJznvfaRz8GJr6Q61IgH4lveeYxNzZZObQI
+
+###
+POST http://localhost:4000/suburbRevenueIncreaseOrDecrease
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTE4NDUwNSwiZXhwIjoxNzE1MTg4MTA1fQ.Zr2LzSapWyMvCbyBr0IBdNgyYryEKDT0gNnS5xS9je4
+  
+
+{
+    "suburbs":[
+     "Academia" 
+    ]
+}

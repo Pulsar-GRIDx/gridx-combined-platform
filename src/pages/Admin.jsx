@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   Box,
   Typography,
@@ -11,6 +12,7 @@ import {
   TableRow,
   Divider,
   useTheme,
+  CircularProgress,
 } from "@mui/material";
 import {
   PersonOutlined,
@@ -25,7 +27,8 @@ import {
 import Header from "../components/Header";
 import StatBox from "../components/StatBox";
 import { tokens } from "../theme";
-import { operators, auditLog } from "../services/mockData";
+import { operators as mockOperators, auditLog as mockAuditLog } from "../services/mockData";
+import { authAPI } from "../services/api";
 
 /* ---- role chip color map ---- */
 const roleColor = {
@@ -73,13 +76,42 @@ export default function Admin() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
 
+  const [operators, setOperators] = useState(mockOperators);
+  const [auditLog, setAuditLog] = useState(mockAuditLog);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAdmins = async () => {
+      try {
+        const res = await authAPI.getAllAdmins();
+        if (res?.users && res.users.length > 0) {
+          const mapped = res.users.map((a) => ({
+            id: a.Admin_ID,
+            name: `${a.FirstName || ""} ${a.LastName || ""}`.trim() || a.Username,
+            username: a.Username || a.Email,
+            role: (a.AccessLevel || "OPERATOR").toUpperCase(),
+            lastLogin: a.lastLoginTime || null,
+            status: a.IsActive === 1 ? "Online" : "Offline",
+          }));
+          setOperators(mapped);
+        }
+      } catch (err) {
+        console.error("Failed to fetch admins:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAdmins();
+  }, []);
+
   /* ---- counts ---- */
   const totalOperators = operators.length;
   const onlineOperators = operators.filter((o) => o.status === "Online").length;
   const recentLogins = operators
     .filter((o) => {
+      if (!o.lastLogin) return false;
       const d = new Date(o.lastLogin);
-      const now = new Date("2026-03-12T09:00:00");
+      const now = new Date();
       return now - d < 24 * 60 * 60 * 1000;
     }).length;
 

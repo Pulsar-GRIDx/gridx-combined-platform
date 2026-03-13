@@ -1,4 +1,5 @@
 import { createContext, useContext, useState } from "react";
+import { authAPI } from "../services/api";
 
 const AuthContext = createContext(null);
 
@@ -8,10 +9,15 @@ export const AuthProvider = ({ children }) => {
     return stored ? JSON.parse(stored) : null;
   });
 
-  const login = (userData) => {
-    sessionStorage.setItem("token", "mock-jwt-token");
+  const login = async (email, password) => {
+    const res = await authAPI.login(email, password);
+    const token = res.token;
+    const userData = res.user;
+
+    sessionStorage.setItem("token", token);
     sessionStorage.setItem("user", JSON.stringify(userData));
     setUser(userData);
+    return userData;
   };
 
   const logout = () => {

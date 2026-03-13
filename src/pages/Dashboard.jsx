@@ -1,8 +1,10 @@
-import { Box, Typography, useTheme, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
+import { useState, useEffect } from "react";
+import { Box, Typography, useTheme, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress } from "@mui/material";
 import { tokens } from "../theme";
 import Header from "../components/Header";
 import StatBox from "../components/StatBox";
-import { dashboardData, notifications } from "../services/mockData";
+import { meterAPI, tokenAPI, financeAPI, energyAPI } from "../services/api";
+import { dashboardData as mockDashboard, notifications as mockNotifications } from "../services/mockData";
 import ElectricBoltOutlinedIcon from "@mui/icons-material/ElectricBoltOutlined";
 import BatteryChargingFullIcon from "@mui/icons-material/BatteryChargingFull";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
@@ -26,10 +28,11 @@ import {
 } from "recharts";
 
 // ---- Helpers ----
-const fmt = (n) => Number(n).toLocaleString();
-const fmtCurrency = (n) => `N$ ${Number(n).toLocaleString()}`;
+const fmt = (n) => Number(n || 0).toLocaleString();
+const fmtCurrency = (n) => `N$ ${Number(n || 0).toLocaleString()}`;
 
 function formatTime(isoStr) {
+  if (!isoStr) return "";
   const d = new Date(isoStr);
   return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
@@ -60,6 +63,114 @@ export default function Dashboard() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
 
+  const [kpis, setKpis] = useState(mockDashboard.kpis);
+  const [salesTrend, setSalesTrend] = useState(mockDashboard.salesTrend);
+  const [recentTxns, setRecentTxns] = useState(mockDashboard.recentTransactions);
+  const [notifs, setNotifs] = useState(mockNotifications);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch multiple endpoints in parallel
+        const results = await Promise.allSettled([
+          meterAPI.getDashboard(),
+          tokenAPI.getAmount(),
+          tokenAPI.getCount(),
+          financeAPI.getPastWeekTokens(),
+          energyAPI.getCurrentDay(),
+          tokenAPI.getAllProcessed(),
+        ]);
+
+        const [meterDash, tokenAmt, tokenCnt, weekTokens, dayEnergy, processedTokens] = results;
+
+        // Build KPIs from meter dashboard
+        if (meterDash.status === "fulfilled" && meterDash.value?.data) {
+          const d = meterDash.value.data;
+          setKpis((prev) => ({
+            ...prev,
+            totalMeters: d.totalMeters || d.total || prev.totalMeters,
+            activeMeters: d.activeMeters || d.active || prev.activeMeters,
+            inactiveMeters: d.inactiveMeters || d.inactive || prev.inactiveMeters,
+            systemLoad: d.systemLoad || prev.systemLoad,
+          }));
+        }
+
+        // Token amount = today's revenue
+        if (tokenAmt.status === "fulfilled") {
+          const data = tokenAmt.value;
+          setKpis((prev) => ({
+            ...prev,
+            todayRevenue: parseFloat(data?.grandTotal) || prev.todayRevenue,
+          }));
+        }
+
+        // Token count
+        if (tokenCnt.status === "fulfilled") {
+          const data = tokenCnt.value;
+          setKpis((prev) => ({
+            ...prev,
+            todayTokens: data?.grandTotal || prev.todayTokens,
+          }));
+        }
+
+        // Current day energy
+        if (dayEnergy.status === "fulfilled") {
+          const data = dayEnergy.value;
+          setKpis((prev) => ({
+            ...prev,
+            avgConsumption: data?.totalEnergy || prev.avgConsumption,
+          }));
+        }
+
+        // Past week tokens for trend chart
+        if (weekTokens.status === "fulfilled" && Array.isArray(weekTokens.value)) {
+          const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+          const trend = weekTokens.value.map((item) => {
+            const d = new Date(item.date || item.Date);
+            return {
+              day: dayNames[d.getDay()] || "?",
+              revenue: parseFloat(item.total_amount || item.amount || 0),
+              tokens: parseInt(item.token_count || item.count || 0, 10),
+              kWh: parseFloat(item.total_kwh || item.kwh || 0),
+            };
+          });
+          if (trend.length > 0) setSalesTrend(trend);
+        }
+
+        // Processed tokens as recent transactions
+        if (processedTokens.status === "fulfilled" && processedTokens.value?.data) {
+          const txns = processedTokens.value.data.slice(0, 10).map((t, i) => ({
+            id: t.token_id || `TXN-${i}`,
+            time: t.date_time || t.createdAt || new Date().toISOString(),
+            customer: t.customer || t.DRN || `Meter ${t.DRN || ""}`,
+            meterNo: t.DRN || t.meter_number || "-",
+            amount: parseFloat(t.token_amount || t.amount || 0),
+            kWh: parseFloat(t.kwh || 0),
+            token: t.sts_token || t.token || "-",
+            operator: t.operator || "-",
+            status: "Completed",
+          }));
+          if (txns.length > 0) setRecentTxns(txns);
+        }
+      } catch (err) {
+        console.error("Dashboard fetch error:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <Box m="20px" display="flex" justifyContent="center" alignItems="center" height="60vh">
+        <CircularProgress sx={{ color: colors.greenAccent[500] }} />
+      </Box>
+    );
+  }
+
   return (
     <Box m="20px">
       <Header title="DASHBOARD" subtitle="Meters Network Summary" />
@@ -70,9 +181,7 @@ export default function Dashboard() {
         gridAutoRows="140px"
         gap="5px"
       >
-        {/* ================================================================= */}
-        {/* ROW 1: 4 Stat Boxes                                              */}
-        {/* ================================================================= */}
+        {/* ROW 1: 4 Stat Boxes */}
         <Box
           gridColumn="span 3"
           backgroundColor={colors.primary[400]}
@@ -81,7 +190,7 @@ export default function Dashboard() {
           justifyContent="center"
         >
           <StatBox
-            title={fmt(dashboardData.kpis.totalMeters)}
+            title={fmt(kpis.totalMeters)}
             subtitle="Total Meters"
             progress="0.75"
             increase="+2.4%"
@@ -102,7 +211,7 @@ export default function Dashboard() {
           justifyContent="center"
         >
           <StatBox
-            title={fmt(dashboardData.kpis.activeMeters)}
+            title={fmt(kpis.activeMeters)}
             subtitle="Active Meters"
             progress="0.89"
             increase="+1.2%"
@@ -123,7 +232,7 @@ export default function Dashboard() {
           justifyContent="center"
         >
           <StatBox
-            title={fmt(dashboardData.kpis.inactiveMeters)}
+            title={fmt(kpis.inactiveMeters)}
             subtitle="Inactive Meters"
             progress="0.11"
             increase="-0.8%"
@@ -144,9 +253,9 @@ export default function Dashboard() {
           justifyContent="center"
         >
           <StatBox
-            title={`${dashboardData.kpis.systemLoad}%`}
+            title={`${kpis.systemLoad}%`}
             subtitle="Current System Load"
-            progress={String(dashboardData.kpis.systemLoad / 100)}
+            progress={String(kpis.systemLoad / 100)}
             increase="+3.1%"
             link="/"
             icon={
@@ -157,9 +266,7 @@ export default function Dashboard() {
           />
         </Box>
 
-        {/* ================================================================= */}
-        {/* ROW 2: Revenue & Energy Chart (span 9) + Notifications (span 3)  */}
-        {/* ================================================================= */}
+        {/* ROW 2: Revenue & Energy Chart (span 9) + Notifications (span 3) */}
         <Box
           gridColumn="span 9"
           gridRow="span 3"
@@ -177,7 +284,7 @@ export default function Dashboard() {
           <Box height="calc(100% - 40px)">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={dashboardData.salesTrend}
+                data={salesTrend}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
                 <defs>
@@ -249,7 +356,7 @@ export default function Dashboard() {
               Notifications
             </Typography>
           </Box>
-          {notifications.slice(0, 8).map((notif, i) => (
+          {notifs.slice(0, 8).map((notif, i) => (
             <Box
               key={notif.id}
               display="flex"
@@ -269,9 +376,9 @@ export default function Dashboard() {
                   {notif.title}
                 </Typography>
                 <Typography variant="body2" color={colors.grey[300]} sx={{ fontSize: "11px" }}>
-                  {notif.message.length > 80
+                  {notif.message && notif.message.length > 80
                     ? notif.message.substring(0, 80) + "..."
-                    : notif.message}
+                    : notif.message || ""}
                 </Typography>
                 <Typography
                   variant="caption"
@@ -285,9 +392,7 @@ export default function Dashboard() {
           ))}
         </Box>
 
-        {/* ================================================================= */}
-        {/* ROW 3: Token Transactions Chart (span 9) + Timeline (span 3)     */}
-        {/* ================================================================= */}
+        {/* ROW 3: Token Transactions Chart (span 9) + Timeline (span 3) */}
         <Box
           gridColumn="span 9"
           gridRow="span 5"
@@ -305,7 +410,7 @@ export default function Dashboard() {
           <Box height="calc(100% - 40px)">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={dashboardData.salesTrend}
+                data={salesTrend}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
                 <defs>
@@ -357,7 +462,7 @@ export default function Dashboard() {
           >
             Token Timeline
           </Typography>
-          {dashboardData.recentTransactions.slice(0, 10).map((txn, i) => (
+          {recentTxns.slice(0, 10).map((txn, i) => (
             <Box
               key={txn.id}
               display="flex"
@@ -388,7 +493,7 @@ export default function Dashboard() {
                     ? colors.greenAccent[500]
                     : txn.status === "Failed"
                     ? colors.redAccent[500]
-                    : colors.yellowAccent[500]
+                    : colors.yellowAccent?.[500] || colors.grey[100]
                 }
               >
                 {fmtCurrency(txn.amount)}
@@ -397,9 +502,7 @@ export default function Dashboard() {
           ))}
         </Box>
 
-        {/* ================================================================= */}
-        {/* ROW 4: Energy Overview Stat Boxes (3 x span 4)                   */}
-        {/* ================================================================= */}
+        {/* ROW 4: Energy Overview Stat Boxes */}
         <Box
           gridColumn="span 4"
           backgroundColor={colors.primary[400]}
@@ -408,7 +511,7 @@ export default function Dashboard() {
           justifyContent="center"
         >
           <StatBox
-            title={fmtCurrency(dashboardData.kpis.todayRevenue)}
+            title={fmtCurrency(kpis.todayRevenue)}
             subtitle="Total Units Purchased"
             progress="0.65"
             increase="+8.3%"
@@ -429,7 +532,7 @@ export default function Dashboard() {
           justifyContent="center"
         >
           <StatBox
-            title={`${fmt(dashboardData.kpis.avgConsumption)} kWh`}
+            title={`${fmt(kpis.avgConsumption)} kWh`}
             subtitle="Units Available Balance"
             progress="0.48"
             increase="+2.1%"
@@ -450,7 +553,7 @@ export default function Dashboard() {
           justifyContent="center"
         >
           <StatBox
-            title={fmt(dashboardData.kpis.todayTokens)}
+            title={fmt(kpis.todayTokens)}
             subtitle="Total Energy Consumed"
             progress="0.72"
             increase="+5.7%"
@@ -463,9 +566,7 @@ export default function Dashboard() {
           />
         </Box>
 
-        {/* ================================================================= */}
-        {/* ROW 5: Recent Transactions Table (span 12, span 4)               */}
-        {/* ================================================================= */}
+        {/* ROW 5: Recent Transactions Table */}
         <Box
           gridColumn="span 12"
           gridRow="span 4"
@@ -504,7 +605,7 @@ export default function Dashboard() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {dashboardData.recentTransactions.map((txn) => (
+                {recentTxns.map((txn) => (
                   <TableRow
                     key={txn.id}
                     sx={{
@@ -525,9 +626,9 @@ export default function Dashboard() {
                       {txn.meterNo}
                     </TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>
-                      {fmt(txn.amount.toFixed(2))}
+                      {fmt(Number(txn.amount).toFixed(2))}
                     </TableCell>
-                    <TableCell>{fmt(txn.kWh.toFixed(2))}</TableCell>
+                    <TableCell>{fmt(Number(txn.kWh).toFixed(2))}</TableCell>
                     <TableCell sx={{ fontFamily: "monospace", fontSize: "10px !important" }}>
                       {txn.token}
                     </TableCell>

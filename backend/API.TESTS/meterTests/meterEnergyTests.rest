@@ -1,0 +1,163 @@
+
+get http://localhost:4000/totalEnergyAmount
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNjk5NDA1MCwiZXhwIjoxNzE2OTk3NjUwfQ.UcJIY4cs7pFciZRUhF_7IRDFJ_q9e1ITPCEt-bZM_zs
+
+###
+
+get http://localhost:4000/weeklyDataAmount
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNDY0MDUwMiwiZXhwIjoxNzE0NjQ0MTAyfQ.8QFSP2wXMMEL0f7H3H7NQz3fcQVps-qtU1h-lbg5G-Q
+
+
+###
+get http://localhost:4000/currentDayEnergy
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNDY0MDUwMiwiZXhwIjoxNzE0NjQ0MTAyfQ.8QFSP2wXMMEL0f7H3H7NQz3fcQVps-qtU1h-lbg5G-Q
+
+###
+
+post http://localhost:4000/getSuburbEnergy
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzg3NDc0OCwiZXhwIjoxNzEzODc4MzQ4fQ.TSjsHxgCVWhlteWgM4tqXTlHhuJt3qVaol1-5LAbvU4
+
+
+{
+    "suburbs":[
+     "Academia" ,
+      "Auasblick" ,
+      "Avis" ,
+     "Cimbebasia" ,
+      "Dorado Park" ,
+      "Donkerhoek" ,
+     "Elisenheim" ,
+      "Eros" ,
+     "Eros Park" ,
+     "Freedom Land" ,
+     "Goreangab" ,
+      "Groot Aub" ,
+      "Greenwell" ,
+     "Hakahana" ,
+      "Havana" ,
+       "Hochland Park" ,
+       "Katutura" ,
+       "Khomasdal" ,
+     "Kleine Kuppe" ,
+      "Klein Windhoek" ,
+     "Lafrenz" ,
+       "Ludwigsdorf" ,
+       "Luxury Hill" ,
+       "Maxuilili" ,
+        "Northern Industrial " ,
+       "Okuryangava" ,
+        "Olympia" ,
+       "Ombili" ,
+       "Otjomuise" ,
+       "Pionierspark" ,
+        "Prosperita" ,
+      "Rocky Crest" ,
+     "Southern Industria" ,
+      "Suiderhof" ,
+     "Tauben Glen" ,
+      "Wanaheda" ,
+        "Windhoek Central" ,
+        "Windhoek North" ,
+       "Windhoek West" 
+    ]}
+
+
+###
+
+get http://localhost:4000/energy-time-periods 
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNjk4MDYwOCwiZXhwIjoxNzE2OTg0MjA4fQ.opKLSZcxExd9JPiirRsSx3PMZocTwuK36xFpfjXsIAw
+####
+get http://localhost:4000/yearly/currentAndLastYearMonthEnergyTotal 
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNjkwOTQ4MCwiZXhwIjoxNzE2OTEzMDgwfQ.hmlZ4OTFV8bDeDFmX55mY962Fcz1qowLCxpplUOKzmM
+
+
+### Get current and last week energy total
+GET http://localhost:4000/weekly/currentAndLastWeekEnergyTotal
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNjkwOTQ4MCwiZXhwIjoxNzE2OTEzMDgwfQ.hmlZ4OTFV8bDeDFmX55mY962Fcz1qowLCxpplUOKzmM
+
+####
+
+get http://localhost:4000/hourlyPowerConsumption 
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNjA1MTc1OSwiZXhwIjoxNzE2MDU1MzU5fQ.e48oKri0tMfH2_XTyVJVuWjenmz1GsSbn74jZ1XXckQ
+
+
+
+####
+
+post http://localhost:4000/getSuburbHourlyEnergy 
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzc5ODE3NCwiZXhwIjoxNzEzODAxNzc0fQ.FU_tIClAOY8FJr6R2DfhxO6kjk-RxUSS5dXoHRMEBJo
+
+{
+    "suburbs":[
+     "Academia" ,
+      "Auasblick" ,
+      "Avis" ,
+     "Cimbebasia" ,
+      "Dorado Park" ,
+      "Donkerhoek" ,
+     "Elisenheim" ,
+      "Eros" ,
+     "Eros Park" ,
+     "Freedom Land" ,
+     "Goreangab" ,
+      "Groot Aub" ,
+      "Greenwell" ,
+     "Hakahana" ,
+      "Havana" ,
+       "Hochland Park" ,
+       "Katutura" ,
+       "Khomasdal" ,
+     "Kleine Kuppe" ,
+      "Klein Windhoek" ,
+     "Lafrenz" ,
+       "Ludwigsdorf" ,
+       "Luxury Hill" ,
+       "Maxuilili" ,
+        "Northern Industrial " ,
+       "Okuryangava" ,
+        "Olympia" ,
+       "Ombili" ,
+       "Otjomuise" ,
+       "Pionierspark" ,
+        "Prosperita" ,
+      "Rocky Crest" ,
+     "Southern Industria" ,
+      "Suiderhof" ,
+     "Tauben Glen" ,
+      "Wanaheda" ,
+        "Windhoek Central" ,
+        "Windhoek North" ,
+       "Windhoek West" 
+    ]}
+
+####
+
+get https://backend2.gridxmeter.com/average-current-voltage
+
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzU1NDIxMCwiZXhwIjoxNzEzNTU3ODEwfQ.JZ9aI69CkEsSQkb4HSV9CBLkg4Y7u2ycFT7PmFHSxCA
+
+####
+
+get http://localhost:4000/last-apparent-power
+
+Content-Type: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxMzk2NjY4OCwiZXhwIjoxNzEzOTcwMjg4fQ.mQkCw0b6kG6N9T2RTnoC-hJ0IqLcWxj0Ljxeb5N7uWM
+
+####
+get http://localhost:4000/get-system-processed-tokens
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNDY0MzYzOSwiZXhwIjoxNzE0NjQ3MjM5fQ.aLmIUMBSzm9Nhxqlvq9nbzaPC_yO69pS-hQZlEa3oY0
+####
+get http://localhost:4000/total-tranformers
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTc4NDQ1NCwiZXhwIjoxNzE1Nzg4MDU0fQ.ke_qy1bjItLUM1Ic-KZCNbuAADa0fPVakYrXIS2JkMM

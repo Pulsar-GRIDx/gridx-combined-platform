@@ -1,0 +1,137 @@
+### ============================================================
+### GridX Meters - Billing Email Notification API Tests
+### Base URL: http://localhost:4000/api/billing
+### ============================================================
+
+### ---- STEP 1: Authenticate to get a token ----
+# @name login
+POST http://localhost:4000/signin
+Content-Type: application/json
+
+{
+    "Email": "pareekshit.sachan@gmail.com",
+    "Password": "password"
+}
+
+###
+
+### ============================================================
+### TEST 1: Send test billing email for a specific meter (DRN)
+### - Looks up billing config + user from DB for the given DRN
+### - Generates energy chart + PDF invoice for current billing period
+### - Sends the email to the user's registered address
+### ============================================================
+POST http://localhost:4000/api/billing/test-notification
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MSwiRW1haWwiOiJwYXJlZWtzaGl0LnNhY2hhbkBnbWFpbC5jb20iLCJBY2Nlc3NMZXZlbCI6IjEiLCJpYXQiOjE3NzIzNjk3MTUsImV4cCI6MTc3MjM3MzMxNX0.qqPvDzGQmkK_CJSU4gnYoHJmHinFy84Nw2i0Ojs5msM
+
+{
+    "DRN": "0260060136363"
+}
+
+###
+
+### ============================================================
+### TEST 2: Send test billing email and OVERRIDE recipient address
+### - Same as TEST 1 but delivers to the specified emailOverride
+### - Useful for testing without emailing the real customer
+### ============================================================
+POST http://localhost:4000/api/billing/test-notification
+Content-Type: application/json
+Authorization: Bearer <paste_token_here>
+
+{
+    "DRN": "0260060135803",
+    "emailOverride": "pareekshit.sachan@gmail.com"
+}
+
+###
+
+### ============================================================
+### TEST 3: Send test email for a PREPAID meter
+### - Sends a prepaid usage update email (no invoice amount)
+### - Subject: "GridX Meters: Your Prepaid Meter Usage Update"
+### ============================================================
+POST http://localhost:4000/api/billing/test-notification
+Content-Type: application/json
+Authorization: Bearer <paste_token_here>
+
+{
+    "DRN": "GX-00002",
+    "emailOverride": "test@example.com"
+}
+
+###
+
+### ============================================================
+### TEST 4: Send test email for a POSTPAID meter
+### - Sends a monthly billing statement with PDF attachment
+### - Subject: "GridX Meters: Your Monthly Billing Statement"
+### ============================================================
+POST http://localhost:4000/api/billing/test-notification
+Content-Type: application/json
+Authorization: Bearer <paste_token_here>
+
+{
+    "DRN": "GX-00003",
+    "emailOverride": "test@example.com"
+}
+
+###
+
+### ============================================================
+### TEST 5: Missing DRN — expect 400 Bad Request
+### ============================================================
+POST http://localhost:4000/api/billing/test-notification
+Content-Type: application/json
+Authorization: Bearer <paste_token_here>
+
+{
+}
+
+###
+
+### ============================================================
+### TEST 6: Invalid / non-existent DRN — expect 404 Not Found
+### ============================================================
+POST http://localhost:4000/api/billing/test-notification
+Content-Type: application/json
+Authorization: Bearer <paste_token_here>
+
+{
+    "DRN": "GX-99999"
+}
+
+###
+
+### ============================================================
+### TEST 7: Unauthenticated request — expect 401 Unauthorized
+### ============================================================
+POST http://localhost:4000/api/billing/test-notification
+Content-Type: application/json
+
+{
+    "DRN": "GX-00001"
+}
+
+###
+
+### ============================================================
+### TEST 8: Trigger billing cycle for ALL eligible meters
+### - Processes every meter whose billing/notification day = today
+### - Sends billing emails in bulk for the current billing cycle
+### - Equivalent to what the daily 08:00 cron job does
+### ============================================================
+POST http://localhost:4000/api/billing/trigger-all
+Content-Type: application/json
+Authorization: Bearer <paste_token_here>
+
+###
+
+### ============================================================
+### TEST 9: Trigger all — unauthenticated — expect 401
+### ============================================================
+POST http://localhost:4000/api/billing/trigger-all
+Content-Type: application/json
+
+###

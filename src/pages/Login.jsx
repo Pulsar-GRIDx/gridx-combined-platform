@@ -34,14 +34,10 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // Mock auth: accept any email/password combo
-      const userData = { name: "Admin", role: "admin", email };
-      sessionStorage.setItem("token", "mock-jwt-token");
-      sessionStorage.setItem("user", JSON.stringify(userData));
-      login(userData);
+      await login(email, password);
       navigate("/");
     } catch (err) {
-      setError("An unexpected error occurred. Please try again.");
+      setError(err.message || "Invalid email or password.");
     } finally {
       setLoading(false);
     }

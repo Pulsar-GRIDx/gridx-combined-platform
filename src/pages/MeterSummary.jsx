@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Box, Typography, Chip, Button, useTheme } from "@mui/material";
+import { Box, Typography, Chip, Button, useTheme, CircularProgress } from "@mui/material";
 import { DataGrid, GridToolbar } from "@mui/x-data-grid";
 import {
   SpeedOutlined,
@@ -12,21 +12,11 @@ import {
 import Header from "../components/Header";
 import StatBox from "../components/StatBox";
 import { tokens } from "../theme";
-import { meters } from "../services/mockData";
+import { meterAPI } from "../services/api";
+import { meters as mockMeters } from "../services/mockData";
 
 /* ---- helpers ---- */
 const fmt = (n) => Number(n).toLocaleString();
-
-function formatDateTime(isoStr) {
-  if (!isoStr) return "---";
-  const d = new Date(isoStr);
-  return d.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 /* ==================================================================== */
 /* MeterSummary Page                                                    */
@@ -35,6 +25,42 @@ export default function MeterSummary() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const navigate = useNavigate();
+
+  const [meters, setMeters] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMeters = async () => {
+      try {
+        const res = await meterAPI.getList();
+        if (res?.data && res.data.length > 0) {
+          // Map backend fields to frontend fields
+          const mapped = res.data.map((m) => ({
+            drn: m.drn || m.DRN || m.id,
+            meterNo: m.meterNo || m.meter_number || m.drn,
+            customerName: m.customerName || m.customer_name || m.drn,
+            area: m.area || m.city || "-",
+            suburb: m.suburb || "-",
+            transformer: m.transformer || "-",
+            status: m.status || (m.isActive === 1 ? "Online" : "Offline"),
+            power: {
+              voltage: m.voltage || 230,
+              powerFactor: m.powerFactor || 0.98,
+            },
+          }));
+          setMeters(mapped);
+        } else {
+          setMeters(mockMeters);
+        }
+      } catch (err) {
+        console.error("Failed to fetch meters:", err);
+        setMeters(mockMeters);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchMeters();
+  }, []);
 
   /* ---- counts ---- */
   const totalMeters = meters.length;
@@ -164,6 +190,14 @@ export default function MeterSummary() {
   /* ---- rows with id ---- */
   const rows = meters.map((m) => ({ ...m, id: m.drn }));
 
+  if (loading) {
+    return (
+      <Box m="20px" display="flex" justifyContent="center" alignItems="center" height="60vh">
+        <CircularProgress sx={{ color: colors.greenAccent[500] }} />
+      </Box>
+    );
+  }
+
   return (
     <Box m="20px">
       <Header
@@ -178,7 +212,6 @@ export default function MeterSummary() {
         gridAutoRows="140px"
         gap="5px"
       >
-        {/* Total Meters */}
         <Box
           gridColumn="span 3"
           backgroundColor={colors.primary[400]}
@@ -196,7 +229,6 @@ export default function MeterSummary() {
           />
         </Box>
 
-        {/* Online */}
         <Box
           gridColumn="span 3"
           backgroundColor={colors.primary[400]}
@@ -207,14 +239,13 @@ export default function MeterSummary() {
           <StatBox
             title={fmt(onlineCount)}
             subtitle="Online"
-            progress={onlineCount / totalMeters}
-            increase={`${((onlineCount / totalMeters) * 100).toFixed(1)}%`}
+            progress={totalMeters > 0 ? onlineCount / totalMeters : 0}
+            increase={totalMeters > 0 ? `${((onlineCount / totalMeters) * 100).toFixed(1)}%` : "0%"}
             icon={<WifiOutlined sx={{ color: colors.greenAccent[600], fontSize: "26px" }} />}
             link="/meters"
           />
         </Box>
 
-        {/* Offline */}
         <Box
           gridColumn="span 3"
           backgroundColor={colors.primary[400]}
@@ -225,14 +256,13 @@ export default function MeterSummary() {
           <StatBox
             title={fmt(offlineCount)}
             subtitle="Offline"
-            progress={offlineCount / totalMeters}
-            increase={`${((offlineCount / totalMeters) * 100).toFixed(1)}%`}
+            progress={totalMeters > 0 ? offlineCount / totalMeters : 0}
+            increase={totalMeters > 0 ? `${((offlineCount / totalMeters) * 100).toFixed(1)}%` : "0%"}
             icon={<WifiOffOutlined sx={{ color: colors.grey[400], fontSize: "26px" }} />}
             link="/meters"
           />
         </Box>
 
-        {/* Tampered */}
         <Box
           gridColumn="span 3"
           backgroundColor={colors.primary[400]}
@@ -243,8 +273,8 @@ export default function MeterSummary() {
           <StatBox
             title={fmt(tamperedCount)}
             subtitle="Tampered"
-            progress={tamperedCount / totalMeters}
-            increase={`${((tamperedCount / totalMeters) * 100).toFixed(1)}%`}
+            progress={totalMeters > 0 ? tamperedCount / totalMeters : 0}
+            increase={totalMeters > 0 ? `${((tamperedCount / totalMeters) * 100).toFixed(1)}%` : "0%"}
             icon={<WarningAmberOutlined sx={{ color: "#db4f4a", fontSize: "26px" }} />}
             link="/meters"
           />

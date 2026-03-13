@@ -1,0 +1,159 @@
+
+get https://backend2.gridxmeter.com/allProcessedTokensByDRN0260066545641
+Content-Type: application/json
+###
+get https://backend2.gridxmeter.com/meterDataByDRN0260066545641
+Content-Type: application/json
+###
+
+get https://backend2.gridxmeter.com/meterWeekAndMonthData0260066545641
+Content-Type: application/json
+###
+get http://localhost:4000/activeInactiveMeters
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNjQ1Mzc4MSwiZXhwIjoxNzE2NDU3MzgxfQ.DyW59vHuJ832kO-ArX9-NaJvHgPqb59TZwYfvWhaeJI
+###
+get http://localhost:4000/totalMeters
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNjA1NzczOSwiZXhwIjoxNzE2MDYxMzM5fQ.5yxzKUVVg4TfXhiQsB3NitaiI_PImAAxKxu7BgZy37E
+
+###
+get https://backend2.gridxmeter.com/tokenAmount
+Content-Type: application/json
+###
+get https://backend2.gridxmeter.com/totalTokensBought
+Content-Type: application/json
+###
+get https://backend2.gridxmeter.com/totalEnergyAmount
+Content-Type: application/json
+###
+get http://localhost:4000/weeklyDataAmount
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNDY0MDUwMiwiZXhwIjoxNzE0NjQ0MTAyfQ.8QFSP2wXMMEL0f7H3H7NQz3fcQVps-qtU1h-lbg5G-Q
+###
+get https://backend2.gridxmeter.com/currentDayEnergy
+Content-Type: application/json
+###
+post https://backend2.gridxmeter.com/insertMeterData
+Content-Type: application/json
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2Nlc3NMZXZlbCI6IjEiLCJpYXQiOjE3MDkwMjU5MzksImV4cCI6MTcwOTAyOTUzOX0.Jm7GAosRlzrlEacE1n1D3pX9-sDpvWInV6aJsKokixQ
+
+{
+ "data":{
+   "DRN": "0260694812784",
+    "Surname": "Jose",
+    "Name": "Dino",
+    "Suburb": "Havana",
+    "City": "Wndhoek",
+    "Streetname": "Tugela Steet",
+    "Housenumber": "20",
+    "Simnumber": "0811234567",
+    "Usercategory": "Home",
+    "Meterlng": "-22.521021538121",
+    "Meterlat": "17.0324874862621",
+    "Transformerlng": "-22.5208258027464",
+    "Transformerlat": "17.033259962460",
+    "TransformerDRN": "0260000000090"
+ }
+  
+ 
+}
+###
+
+post https://backend2.gridxmeter.com/getSuburbEnergy
+Content-Type: application/json
+
+{
+    "suburbs":[
+     "Academia" ,
+      "Auasblick" ,
+      "Avis" ,
+     "Cimbebasia" ,
+      "Dorado Park" ,
+      "Donkerhoek" ,
+     "Elisenheim" ,
+      "Eros" ,
+     "Eros Park" ,
+     "Freedom Land" ,
+     "Goreangab" ,
+      "Groot Aub" ,
+      "Greenwell" ,
+     "Hakahana" ,
+      "Havana" ,
+       "Hochland Park" ,
+       "Katutura" ,
+       "Khomasdal" ,
+     "Kleine Kuppe" ,
+      "Klein Windhoek" ,
+     "Lafrenz" ,
+       "Ludwigsdorf" ,
+       "Luxury Hill" ,
+       "Maxuilili" ,
+        "Northern Industrial " ,
+       "Okuryangava" ,
+        "Olympia" ,
+       "Ombili" ,
+       "Otjomuise" ,
+       "Pionierspark" ,
+        "Prosperita" ,
+      "Rocky Crest" ,
+     "Southern Industria" ,
+      "Suiderhof" ,
+     "Tauben Glen" ,
+      "Wanaheda" ,
+        "Windhoek Central" ,
+        "Windhoek North" ,
+       "Windhoek West" 
+    ]}
+  
+###
+get https://backend2.gridxmeter.com/meter_change
+Content-Type: application/json
+###
+get https://backend2.gridxmeter.com/active_state_count
+Content-Type: application/json
+###
+get https://backend2.gridxmeter.com/inactive_state_count
+Content-Type: application/json
+###
+post https://backend2.gridxmeter.com/insertTransformer
+Content-Type: application/json
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2Nlc3NMZXZlbCI6IjEiLCJpYXQiOjE3MDkwMjU5MzksImV4cCI6MTcwOTAyOTUzOX0.Jm7GAosRlzrlEacE1n1D3pX9-sDpvWInV6aJsKokixQ
+ 
+{
+  "TransformerData":{
+    "DRN":"0240000000019",
+    "LocationName":"Khomasdal",
+    "Name":"Hofsanger 1",
+    "Type":"Big Tranformer",
+    "pLat":"-22.538236805338209",
+    "pLng":"17.050350565314447",
+    "Status":"1",
+    "PowerSupply":"0260000000009",
+    "powerRating":"1000kVA",
+    "City":"Windhoek"
+  }
+}
+
+###
+get https://backend2.gridxmeter.com/active-energy
+Content-Type: application/json
+
+
+####
+post http://localhost:4000/gridTopology
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNTA2OTM3NywiZXhwIjoxNzE1MDcyOTc3fQ.nt6LiMSpx5bfn8fVD_hqYvRzh2LmRhP__eAaU9kSI9E
+
+{
+  "cities":[
+    "Windhoek"
+    
+  ]
+}
+
+
+####
+get http://localhost:4000/getTriggerDefinition
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBZG1pbl9JRCI6MTAsIkVtYWlsIjoiYWRtaW5AcHVsc2FyLmNvbSIsIkFjY2Vzc0xldmVsIjoiMSIsImlhdCI6MTcxNjIyMDIyMiwiZXhwIjoxNzE2MjIzODIyfQ.JUStEurnY4KiyUux1hqwnyZKCWBUxckFfPkppZ39mm4
