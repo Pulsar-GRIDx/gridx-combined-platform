@@ -55,6 +55,11 @@ const meterBillingRoutes = require('./meter/meterBillingRoutes');
 const billingNotificationRoutes = require('./services/billingNotificationRoutes');
 const meterRegistrationRoutes = require('./meter/meterRegistrationRoutes');
 const meterDataRoutes = require('./routes/meterDataRoutes');
+const mqttRoutes = require('./routes/mqttRoutes');
+
+// Initialize MQTT handler (subscribes to meter telemetry topics)
+const mqttHandler = require('./services/mqttHandler');
+mqttHandler.init();
 
 // Create a sub-router for all API routes under /cb prefix
 const apiRouter = express.Router();
@@ -76,6 +81,7 @@ apiRouter.use('/systemSettings', systemSettingsRoutes);
 apiRouter.use('/meter-billing', meterBillingRoutes);
 apiRouter.use('/billing', billingNotificationRoutes);
 apiRouter.use('/', meterDataRoutes);
+apiRouter.use('/', mqttRoutes);
 
 // Fast meters-list endpoint (avoids slow JOINs in meterService)
 const db = require('./config/db');

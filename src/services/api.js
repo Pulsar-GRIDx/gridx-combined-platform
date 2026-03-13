@@ -188,6 +188,13 @@ export const meterRegistrationAPI = {
   register: (data) => post('/meter-registration', data),
 };
 
+// ===== MQTT =====
+export const mqttAPI = {
+  getStatus: () => get('/mqtt/status'),
+  sendCommand: (drn, command) => post(`/mqtt/command/${drn}`, command),
+  testPublish: (drn) => post('/mqtt/test-publish', { drn }),
+};
+
 // ===== SUBURB ENERGY =====
 export const suburbAPI = {
   getEnergy: (suburbs) => post('/suburbEnergy', { suburbs }),
@@ -206,4 +213,5 @@ export default {
   meterRegistration: meterRegistrationAPI,
   suburb: suburbAPI,
   loadControl: loadControlAPI,
+  mqtt: mqttAPI,
 };
