@@ -264,9 +264,10 @@ export default function MeterProfile() {
   const [vendAmount, setVendAmount] = useState("");
   const [generatedToken, setGeneratedToken] = useState("");
 
-  /* ---------- Google Maps loader ---------- */
+  /* ---------- Google Maps loader (must match libraries used in Map.jsx) ---------- */
   const { isLoaded: mapsLoaded } = useJsApiLoader({
     googleMapsApiKey: "AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk",
+    libraries: ["drawing"],
   });
 
   /* ---------- API data state ---------- */
