@@ -1,10 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const meterProfileContoller = require('./meterProfileContoller');
+const commissionReportController = require('./commissionReportController');
 const {authenticateToken} = require('../admin/authMiddllware')
 
 router.use(authenticateToken);
 
+// Commission report endpoints
+router.post('/commissionReport', commissionReportController.saveReport);
+router.get('/commissionReports/:DRN', commissionReportController.getReportsByDRN);
+router.get('/commissionReport/latest/:DRN', commissionReportController.getLatestReportByDRN);
+router.get('/commissionReport/:id', commissionReportController.getReportById);
 
 //Endpoint to get meter reset history
 router.get('/meterResetHistory/:DRN', meterProfileContoller.getMeterResetHistory);

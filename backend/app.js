@@ -69,6 +69,8 @@ const apiRouter = express.Router();
 
 // Public routes
 apiRouter.use('/meter-registration', meterRegistrationRoutes);
+const commissionReportPublicRoutes = require('./meterProfile/commissionReportPublicRoutes');
+apiRouter.use('/commission-report', commissionReportPublicRoutes);
 
 // Authenticated routes
 apiRouter.use('/', getRoutes);

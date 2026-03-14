@@ -184,6 +184,13 @@ export const meterProfileAPI = {
   update: (data) => post('/settings/meterProfile', data),
 };
 
+// ===== COMMISSION REPORTS =====
+export const commissionReportAPI = {
+  getByDRN: (drn) => get(`/settings/commissionReports/${drn}`),
+  getLatest: (drn) => get(`/settings/commissionReport/latest/${drn}`),
+  getById: (id) => get(`/settings/commissionReport/${id}`),
+};
+
 // ===== METER REGISTRATION =====
 export const meterRegistrationAPI = {
   register: (data) => post('/meter-registration', data),
@@ -233,4 +240,5 @@ export default {
   loadControl: loadControlAPI,
   groupControl: groupControlAPI,
   mqtt: mqttAPI,
+  commissionReport: commissionReportAPI,
 };

@@ -53,6 +53,7 @@ import {
   ArrowBackOutlined,
   CheckCircleOutlined,
   CancelOutlined,
+  AssignmentOutlined,
 } from "@mui/icons-material";
 import {
   AreaChart,
@@ -70,7 +71,7 @@ import Header from "../components/Header";
 import DataBadge from "../components/DataBadge";
 import { tokens } from "../theme";
 import { useAuth } from "../context/AuthContext";
-import { meterAPI, loadControlAPI } from "../services/api";
+import { meterAPI, loadControlAPI, commissionReportAPI } from "../services/api";
 import {
   meters as mockMeters,
   transactions,
@@ -272,6 +273,7 @@ export default function MeterProfile() {
   const [mainsState, setMainsState] = useState(null);
   const [heaterState, setHeaterState] = useState(null);
   const [dailyPower, setDailyPower] = useState([]);
+  const [commissionReports, setCommissionReports] = useState([]);
 
   /* ---------- Load Control UI state ---------- */
   const [mainsReason, setMainsReason] = useState("Irregular performance");
@@ -303,6 +305,7 @@ export default function MeterProfile() {
         loadControlAPI.getMainsState(drn),
         loadControlAPI.getHeaterState(drn),
         meterAPI.getDailyPower(drn),
+        commissionReportAPI.getByDRN(drn),
       ]);
 
       if (results[0].status === "fulfilled") setProfile(results[0].value);
@@ -318,6 +321,8 @@ export default function MeterProfile() {
       if (results[8].status === "fulfilled") setHeaterState(results[8].value);
       if (results[9].status === "fulfilled" && Array.isArray(results[9].value))
         setDailyPower(results[9].value);
+      if (results[10].status === "fulfilled" && Array.isArray(results[10].value))
+        setCommissionReports(results[10].value);
 
       setLoading(false);
     };
@@ -654,6 +659,11 @@ export default function MeterProfile() {
           icon={<HistoryOutlined sx={{ fontSize: 18 }} />}
           iconPosition="start"
           label="History"
+        />
+        <Tab
+          icon={<AssignmentOutlined sx={{ fontSize: 18 }} />}
+          iconPosition="start"
+          label="Commission Report"
         />
       </Tabs>
 
@@ -2260,6 +2270,384 @@ export default function MeterProfile() {
             )}
           </Box>
         </Box>
+        </Box>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB 7: Commission Report                                       */}
+      {/* ================================================================ */}
+      {tab === 7 && (
+        <Box>
+          <Box display="flex" justifyContent="flex-end" mb={0.5}>
+            <DataBadge />
+          </Box>
+          <Box
+            display="grid"
+            gridTemplateColumns="repeat(12, 1fr)"
+            gap="5px"
+          >
+            {/* Commission Reports Table */}
+            <Box
+              gridColumn="span 12"
+              backgroundColor={colors.primary[400]}
+              p="20px"
+              borderRadius="4px"
+            >
+              <Typography
+                variant="h6"
+                color={colors.grey[100]}
+                fontWeight="bold"
+                mb={2}
+              >
+                Commission Test Reports
+              </Typography>
+
+              {commissionReports.length > 0 ? (
+                commissionReports.map((report, idx) => (
+                  <Box
+                    key={report.id || idx}
+                    mb={2}
+                    p={2}
+                    sx={{
+                      backgroundColor: colors.primary[500],
+                      borderLeft: `4px solid ${
+                        report.overall_passed
+                          ? colors.greenAccent[500]
+                          : "#db4f4a"
+                      }`,
+                      borderRadius: "2px",
+                    }}
+                  >
+                    {/* Report Header */}
+                    <Box
+                      display="flex"
+                      justifyContent="space-between"
+                      alignItems="center"
+                      mb={1.5}
+                    >
+                      <Box display="flex" alignItems="center" gap={1.5}>
+                        <Chip
+                          label={report.report_type?.replace(/_/g, " ").toUpperCase() || "TEST"}
+                          size="small"
+                          sx={{
+                            backgroundColor: report.overall_passed
+                              ? "rgba(76,206,172,0.15)"
+                              : "rgba(219,79,74,0.15)",
+                            color: report.overall_passed
+                              ? colors.greenAccent[500]
+                              : "#db4f4a",
+                            fontWeight: 700,
+                            fontSize: "0.7rem",
+                            textTransform: "uppercase",
+                          }}
+                        />
+                        <Chip
+                          label={report.overall_passed ? "PASSED" : "FAILED"}
+                          size="small"
+                          sx={{
+                            backgroundColor: report.overall_passed
+                              ? "rgba(76,206,172,0.2)"
+                              : "rgba(219,79,74,0.2)",
+                            color: report.overall_passed
+                              ? colors.greenAccent[400]
+                              : "#f44336",
+                            fontWeight: 700,
+                            fontSize: "0.7rem",
+                          }}
+                        />
+                      </Box>
+                      <Typography
+                        color={colors.grey[300]}
+                        fontSize="0.75rem"
+                      >
+                        {report.date_time
+                          ? formatDateTime(report.date_time)
+                          : "---"}
+                      </Typography>
+                    </Box>
+
+                    {/* Report Details Grid */}
+                    <Box
+                      display="grid"
+                      gridTemplateColumns="repeat(auto-fit, minmax(180px, 1fr))"
+                      gap={1.5}
+                    >
+                      {/* Measurement Results */}
+                      {(report.report_type === "measurement" ||
+                        report.report_type === "auto_calibration" ||
+                        report.report_type === "full_system") &&
+                        report.voltage_measured != null && (
+                          <Box>
+                            <Typography
+                              color={colors.grey[300]}
+                              fontSize="0.7rem"
+                              fontWeight={600}
+                              mb={0.5}
+                            >
+                              MEASUREMENT
+                            </Typography>
+                            <Box display="flex" flexDirection="column" gap={0.3}>
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                  Voltage
+                                </Typography>
+                                <Typography
+                                  color={
+                                    report.voltage_passed
+                                      ? colors.greenAccent[500]
+                                      : "#db4f4a"
+                                  }
+                                  fontSize="0.72rem"
+                                  fontWeight={600}
+                                >
+                                  {Number(report.voltage_measured).toFixed(1)}V
+                                  ({Number(report.voltage_error).toFixed(1)}%)
+                                </Typography>
+                              </Box>
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                  Current
+                                </Typography>
+                                <Typography
+                                  color={
+                                    report.current_passed
+                                      ? colors.greenAccent[500]
+                                      : "#db4f4a"
+                                  }
+                                  fontSize="0.72rem"
+                                  fontWeight={600}
+                                >
+                                  {Number(report.current_measured).toFixed(3)}A
+                                  ({Number(report.current_error).toFixed(1)}%)
+                                </Typography>
+                              </Box>
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                  Power
+                                </Typography>
+                                <Typography
+                                  color={
+                                    report.power_passed
+                                      ? colors.greenAccent[500]
+                                      : "#db4f4a"
+                                  }
+                                  fontSize="0.72rem"
+                                  fontWeight={600}
+                                >
+                                  {Number(report.power_measured).toFixed(0)}W
+                                  ({Number(report.power_error).toFixed(1)}%)
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Box>
+                        )}
+
+                      {/* Load Test Results */}
+                      {(report.report_type === "load" ||
+                        report.report_type === "auto_calibration" ||
+                        report.report_type === "full_system") &&
+                        report.load_off_current != null && (
+                          <Box>
+                            <Typography
+                              color={colors.grey[300]}
+                              fontSize="0.7rem"
+                              fontWeight={600}
+                              mb={0.5}
+                            >
+                              LOAD TEST
+                            </Typography>
+                            <Box display="flex" flexDirection="column" gap={0.3}>
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                  OFF Current
+                                </Typography>
+                                <Typography
+                                  color={
+                                    report.load_off_passed
+                                      ? colors.greenAccent[500]
+                                      : "#db4f4a"
+                                  }
+                                  fontSize="0.72rem"
+                                  fontWeight={600}
+                                >
+                                  {Number(report.load_off_current).toFixed(3)}A
+                                  {report.load_off_passed ? " PASS" : " FAIL"}
+                                </Typography>
+                              </Box>
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                  ON Current
+                                </Typography>
+                                <Typography
+                                  color={
+                                    report.load_on_passed
+                                      ? colors.greenAccent[500]
+                                      : "#db4f4a"
+                                  }
+                                  fontSize="0.72rem"
+                                  fontWeight={600}
+                                >
+                                  {Number(report.load_on_current).toFixed(3)}A
+                                  {report.load_on_passed ? " PASS" : " FAIL"}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Box>
+                        )}
+
+                      {/* API Test Results */}
+                      {(report.report_type === "api" ||
+                        report.report_type === "full_system") &&
+                        report.api_tests_total != null && (
+                          <Box>
+                            <Typography
+                              color={colors.grey[300]}
+                              fontSize="0.7rem"
+                              fontWeight={600}
+                              mb={0.5}
+                            >
+                              API TEST
+                            </Typography>
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                Endpoints
+                              </Typography>
+                              <Typography
+                                color={
+                                  report.api_tests_passed === report.api_tests_total
+                                    ? colors.greenAccent[500]
+                                    : "#db4f4a"
+                                }
+                                fontSize="0.72rem"
+                                fontWeight={600}
+                              >
+                                {report.api_tests_passed}/{report.api_tests_total} passed
+                              </Typography>
+                            </Box>
+                          </Box>
+                        )}
+
+                      {/* Full System Summary */}
+                      {report.report_type === "full_system" && (
+                        <Box>
+                          <Typography
+                            color={colors.grey[300]}
+                            fontSize="0.7rem"
+                            fontWeight={600}
+                            mb={0.5}
+                          >
+                            SYSTEM SUMMARY
+                          </Typography>
+                          <Box display="flex" flexDirection="column" gap={0.3}>
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                Measurement
+                              </Typography>
+                              <Typography
+                                color={
+                                  report.measurement_test_passed
+                                    ? colors.greenAccent[500]
+                                    : "#db4f4a"
+                                }
+                                fontSize="0.72rem"
+                                fontWeight={600}
+                              >
+                                {report.measurement_test_passed ? "PASS" : "FAIL"}
+                              </Typography>
+                            </Box>
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                Load
+                              </Typography>
+                              <Typography
+                                color={
+                                  report.load_test_passed
+                                    ? colors.greenAccent[500]
+                                    : "#db4f4a"
+                                }
+                                fontSize="0.72rem"
+                                fontWeight={600}
+                              >
+                                {report.load_test_passed ? "PASS" : "FAIL"}
+                              </Typography>
+                            </Box>
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                API
+                              </Typography>
+                              <Typography
+                                color={
+                                  report.api_test_passed
+                                    ? colors.greenAccent[500]
+                                    : "#db4f4a"
+                                }
+                                fontSize="0.72rem"
+                                fontWeight={600}
+                              >
+                                {report.api_test_passed ? "PASS" : "FAIL"}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Box>
+                      )}
+
+                      {/* Test Metadata */}
+                      <Box>
+                        <Typography
+                          color={colors.grey[300]}
+                          fontSize="0.7rem"
+                          fontWeight={600}
+                          mb={0.5}
+                        >
+                          INFO
+                        </Typography>
+                        <Box display="flex" flexDirection="column" gap={0.3}>
+                          {report.attempts != null && (
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                Attempts
+                              </Typography>
+                              <Typography color={colors.grey[100]} fontSize="0.72rem">
+                                {report.attempts}
+                              </Typography>
+                            </Box>
+                          )}
+                          {report.sample_count != null && (
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                Samples
+                              </Typography>
+                              <Typography color={colors.grey[100]} fontSize="0.72rem">
+                                {report.sample_count}
+                              </Typography>
+                            </Box>
+                          )}
+                          {report.tester_app_version && (
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography color={colors.grey[400]} fontSize="0.72rem">
+                                App Version
+                              </Typography>
+                              <Typography color={colors.grey[100]} fontSize="0.72rem">
+                                {report.tester_app_version}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                      </Box>
+                    </Box>
+                  </Box>
+                ))
+              ) : (
+                <Typography
+                  color="rgba(255,255,255,0.35)"
+                  sx={{ textAlign: "center", py: 4 }}
+                >
+                  No commission reports found for this meter. Run a commission
+                  test from the GRIDx Maintenance app to generate reports.
+                </Typography>
+              )}
+            </Box>
+          </Box>
         </Box>
       )}
 
