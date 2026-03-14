@@ -64,6 +64,12 @@ import {
 import Header from "../components/Header";
 import { tokens } from "../theme";
 import { groupControlAPI, meterAPI } from "../services/api";
+import markerBlue from "../assets/marker-blue.png";
+import markerGreen from "../assets/marker-green.png";
+import markerOrange from "../assets/marker-orange.png";
+import markerRed from "../assets/marker-red.png";
+import markerGrey from "../assets/marker-grey.png";
+import markerPurple from "../assets/marker-purple.png";
 
 const GOOGLE_MAPS_KEY = "AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk";
 const LIBRARIES = ["drawing"];
@@ -89,52 +95,24 @@ const MAP_OPTIONS = {
 };
 
 /* ---- Marker icon helpers ---- */
-function makeMarkerIcon(fillColor, borderColor, innerSymbol, size = 40) {
-  const half = size / 2;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <defs>
-      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="2" result="blur"/>
-        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>
-    </defs>
-    <circle cx="${half}" cy="${half}" r="${half - 6}" fill="${fillColor}" filter="url(#glow)"/>
-    <circle cx="${half}" cy="${half}" r="${half - 6}" fill="none" stroke="${borderColor}" stroke-width="2"/>
-    ${innerSymbol}
-  </svg>`;
+function makePngIcon(img, w = 40, h = 60) {
   return {
-    url: `data:image/svg+xml,${encodeURIComponent(svg)}`,
-    scaledSize: { width: size, height: size, equals: () => false },
-    anchor: { x: half, y: half, equals: () => false },
+    url: img,
+    scaledSize: { width: w, height: h, equals: () => false },
+    anchor: { x: w / 2, y: h, equals: () => false },
   };
 }
 
 // Mains ON + Geyser ON = fully powered (green)
-function iconMainsOnGeyserOn() {
-  return makeMarkerIcon("#4cceac", "rgba(255,255,255,0.8)",
-    `<path d="M17 12 L14 20 H18 L16 26 L24 18 H20 L22 12 Z" fill="white" opacity="0.95"/>`, 40);
-}
+function iconMainsOnGeyserOn() { return makePngIcon(markerGreen); }
 // Mains ON + Geyser OFF = mains only (orange)
-function iconMainsOnGeyserOff() {
-  return makeMarkerIcon("#f2b705", "rgba(255,255,255,0.8)",
-    `<path d="M17 12 L14 20 H18 L16 26 L24 18 H20 L22 12 Z" fill="white" opacity="0.95"/>`, 40);
-}
+function iconMainsOnGeyserOff() { return makePngIcon(markerOrange); }
 // Mains OFF = disconnected (red)
-function iconMainsOff() {
-  return makeMarkerIcon("#db4f4a", "rgba(255,255,255,0.8)",
-    `<line x1="14" y1="14" x2="26" y2="26" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-     <line x1="26" y1="14" x2="14" y2="26" stroke="white" stroke-width="2.5" stroke-linecap="round"/>`, 40);
-}
+function iconMainsOff() { return makePngIcon(markerRed); }
 // Offline / unknown (grey)
-function iconOffline() {
-  return makeMarkerIcon("#4a5568", "rgba(255,255,255,0.5)",
-    `<circle cx="20" cy="20" r="3" fill="white" opacity="0.6"/>`, 40);
-}
+function iconOffline() { return makePngIcon(markerGrey); }
 // Selected / in group (purple with ring)
-function iconSelected() {
-  return makeMarkerIcon("#6870fa", "rgba(255,255,255,0.9)",
-    `<path d="M17 12 L14 20 H18 L16 26 L24 18 H20 L22 12 Z" fill="white"/>`, 44);
-}
+function iconSelected() { return makePngIcon(markerPurple, 50, 75); }
 
 /* ================================================================== */
 /* Group Control Page                                                  */

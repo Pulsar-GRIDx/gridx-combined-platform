@@ -103,37 +103,21 @@ const MAP_OPTIONS = {
   fullscreenControl: true,
 };
 
+/* ---- Marker images ---- */
+import markerBlue from "../assets/marker-blue.png";
+import markerGreen from "../assets/marker-green.png";
+import markerOrange from "../assets/marker-orange.png";
+import markerRed from "../assets/marker-red.png";
+import markerGrey from "../assets/marker-grey.png";
+import markerPurple from "../assets/marker-purple.png";
+
 /* ---- Marker icon helpers ---- */
 function meterIcon(isOnline) {
-  const fill = isOnline ? "#4cceac" : "#db4f4a";
-  const glow = isOnline ? "#4cceac" : "#db4f4a";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
-    <defs>
-      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="2" result="blur"/>
-        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>
-      <radialGradient id="grad" cx="40%" cy="35%">
-        <stop offset="0%" stop-color="${isOnline ? '#70d8bd' : '#e99592'}"/>
-        <stop offset="100%" stop-color="${fill}"/>
-      </radialGradient>
-    </defs>
-    ${isOnline ? `<circle cx="22" cy="22" r="18" fill="none" stroke="${glow}" stroke-width="1.5" opacity="0.3">
-      <animate attributeName="r" values="14;20;14" dur="2.5s" repeatCount="indefinite"/>
-      <animate attributeName="opacity" values="0.4;0;0.4" dur="2.5s" repeatCount="indefinite"/>
-    </circle>
-    <circle cx="22" cy="22" r="15" fill="none" stroke="${glow}" stroke-width="1" opacity="0.2">
-      <animate attributeName="r" values="14;18;14" dur="2s" repeatCount="indefinite" begin="0.5s"/>
-      <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" begin="0.5s"/>
-    </circle>` : ''}
-    <circle cx="22" cy="22" r="13" fill="url(#grad)" filter="url(#glow)"/>
-    <circle cx="22" cy="22" r="13" fill="none" stroke="rgba(255,255,255,0.8)" stroke-width="2"/>
-    <path d="M19 14 L15 23 H20 L18 30 L27 20 H22 L25 14 Z" fill="white" opacity="0.95"/>
-  </svg>`;
+  const img = isOnline ? markerGreen : markerRed;
   return {
-    url: `data:image/svg+xml,${encodeURIComponent(svg)}`,
-    scaledSize: { width: 44, height: 44, equals: () => false },
-    anchor: { x: 22, y: 22, equals: () => false },
+    url: img,
+    scaledSize: { width: 40, height: 60, equals: () => false },
+    anchor: { x: 20, y: 60, equals: () => false },
   };
 }
 
@@ -173,29 +157,10 @@ function transformerIcon() {
 }
 
 function selectedMeterIcon() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 56 56">
-    <defs>
-      <filter id="sglow" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="3" result="blur"/>
-        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>
-    </defs>
-    <circle cx="28" cy="28" r="24" fill="none" stroke="#6870fa" stroke-width="2" opacity="0.4">
-      <animate attributeName="r" values="18;26;18" dur="1.5s" repeatCount="indefinite"/>
-      <animate attributeName="opacity" values="0.5;0;0.5" dur="1.5s" repeatCount="indefinite"/>
-    </circle>
-    <circle cx="28" cy="28" r="20" fill="none" stroke="#6870fa" stroke-width="1.5" opacity="0.3">
-      <animate attributeName="r" values="16;22;16" dur="1.5s" repeatCount="indefinite" begin="0.3s"/>
-      <animate attributeName="opacity" values="0.4;0;0.4" dur="1.5s" repeatCount="indefinite" begin="0.3s"/>
-    </circle>
-    <circle cx="28" cy="28" r="15" fill="#6870fa" filter="url(#sglow)"/>
-    <circle cx="28" cy="28" r="15" fill="none" stroke="white" stroke-width="2.5"/>
-    <path d="M25 18 L21 27 H26 L24 34 L33 24 H28 L31 18 Z" fill="white"/>
-  </svg>`;
   return {
-    url: `data:image/svg+xml,${encodeURIComponent(svg)}`,
-    scaledSize: { width: 56, height: 56, equals: () => false },
-    anchor: { x: 28, y: 28, equals: () => false },
+    url: markerPurple,
+    scaledSize: { width: 50, height: 75, equals: () => false },
+    anchor: { x: 25, y: 75, equals: () => false },
   };
 }
 

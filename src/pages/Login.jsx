@@ -25,7 +25,7 @@ import {
 import { tokens } from "../theme";
 import { useAuth } from "../context/AuthContext";
 import logoImage from "../assets/logo.png";
-import meterImage from "../assets/meter-transparent.png";
+import meterImage from "../assets/meter-login.png";
 
 /* ---- Animated circuit SVG background for left panel ---- */
 const CircuitBG = () => (
