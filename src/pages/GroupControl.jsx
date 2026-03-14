@@ -64,7 +64,12 @@ import {
 import Header from "../components/Header";
 import { tokens } from "../theme";
 import { groupControlAPI, meterAPI } from "../services/api";
-import markerMeter from "../assets/marker-meter.png";
+import markerBlue from "../assets/marker-blue.png";
+import markerGreen from "../assets/marker-green.png";
+import markerOrange from "../assets/marker-orange.png";
+import markerRed from "../assets/marker-red.png";
+import markerGrey from "../assets/marker-grey.png";
+import markerPurple from "../assets/marker-purple.png";
 
 const GOOGLE_MAPS_KEY = "AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk";
 const LIBRARIES = ["drawing"];
@@ -90,23 +95,21 @@ const MAP_OPTIONS = {
 };
 
 /* ---- Marker icon helpers ---- */
-const METER_ICON = {
-  url: markerMeter,
-  scaledSize: { width: 40, height: 60, equals: () => false },
-  anchor: { x: 20, y: 60, equals: () => false },
-};
-const METER_ICON_SELECTED = {
-  url: markerMeter,
-  scaledSize: { width: 52, height: 78, equals: () => false },
-  anchor: { x: 26, y: 78, equals: () => false },
-};
+function makeIcon(url, w = 40, h = 60) {
+  return { url, scaledSize: { width: w, height: h, equals: () => false }, anchor: { x: w / 2, y: h, equals: () => false } };
+}
 
-// All states use the same icon image — differentiated by opacity & size
-function iconMainsOnGeyserOn() { return METER_ICON; }
-function iconMainsOnGeyserOff() { return METER_ICON; }
-function iconMainsOff() { return METER_ICON; }
-function iconOffline() { return METER_ICON; }
-function iconSelected() { return METER_ICON_SELECTED; }
+function getMeterMarkerIcon(meter, isSelected) {
+  if (isSelected) return makeIcon(markerPurple, 52, 78);
+  const isOnline = meter.Status === "1" || meter.Status === 1 || meter.Status === "Active";
+  if (!isOnline) return makeIcon(markerGrey);
+  const mainsOn = meter.mains_state === "1" || meter.mains_state === 1;
+  if (!mainsOn) return makeIcon(markerRed);
+  const geyserOn = meter.geyser_state === "1" || meter.geyser_state === 1;
+  if (mainsOn && geyserOn) return makeIcon(markerGreen);
+  if (mainsOn && !geyserOn) return makeIcon(markerOrange);
+  return makeIcon(markerBlue);
+}
 
 /* ================================================================== */
 /* Group Control Page                                                  */
@@ -234,21 +237,9 @@ export default function GroupControl() {
     };
   }, [meters, selectedMeters]);
 
-  /* ---- Get marker icon and opacity based on state ---- */
+  /* ---- Get marker icon based on state ---- */
   const getMarkerIcon = useCallback((meter) => {
-    if (selectedMeters.has(meter.DRN)) return iconSelected();
-    return METER_ICON;
-  }, [selectedMeters]);
-
-  const getMarkerOpacity = useCallback((meter) => {
-    if (selectedMeters.has(meter.DRN)) return 1;
-    const isOnline = meter.Status === "1" || meter.Status === 1 || meter.Status === "Active";
-    if (!isOnline) return 0.35;
-    const mainsOn = meter.mains_state === "1" || meter.mains_state === 1;
-    if (!mainsOn) return 0.5;
-    const geyserOn = meter.geyser_state === "1" || meter.geyser_state === 1;
-    if (mainsOn && !geyserOn) return 0.75;
-    return 1;
+    return getMeterMarkerIcon(meter, selectedMeters.has(meter.DRN));
   }, [selectedMeters]);
 
   /* ---- Map click to select meter ---- */
@@ -769,7 +760,6 @@ export default function GroupControl() {
                     key={meter.DRN}
                     position={{ lat, lng }}
                     icon={getMarkerIcon(meter)}
-                    opacity={getMarkerOpacity(meter)}
                     onClick={() => handleMeterClick(meter)}
                     title={`${meter.DRN} - ${meter.LocationName || ""}`}
                     animation={selectedMeters.has(meter.DRN) ? 1 : undefined}

@@ -45,7 +45,7 @@ import {
 } from "@react-google-maps/api";
 import Header from "../components/Header";
 import { tokens } from "../theme";
-import { meterAPI, energyAPI, financeAPI } from "../services/api";
+import { meterAPI, energyAPI, financeAPI, groupControlAPI } from "../services/api";
 import {
   BarChart,
   Bar,
@@ -103,15 +103,31 @@ const MAP_OPTIONS = {
   fullscreenControl: true,
 };
 
-/* ---- Marker image ---- */
-import markerMeter from "../assets/marker-meter.png";
+/* ---- Marker images ---- */
+import markerBlue from "../assets/marker-blue.png";
+import markerGreen from "../assets/marker-green.png";
+import markerOrange from "../assets/marker-orange.png";
+import markerRed from "../assets/marker-red.png";
+import markerGrey from "../assets/marker-grey.png";
+import markerPurple from "../assets/marker-purple.png";
 
 /* ---- Marker icon helpers ---- */
-function meterIcon(isOnline) {
+function getMeterMarkerUrl(meter) {
+  const isOnline = meter.Status === "1" || meter.Status === 1 || meter.Status === "Active";
+  if (!isOnline) return markerGrey;
+  const mainsOn = meter.mains_state === "1" || meter.mains_state === 1;
+  if (!mainsOn) return markerRed;
+  const geyserOn = meter.geyser_state === "1" || meter.geyser_state === 1;
+  if (mainsOn && geyserOn) return markerGreen;
+  if (mainsOn && !geyserOn) return markerOrange;
+  return markerBlue;
+}
+
+function meterIcon(meter) {
   return {
-    url: markerMeter,
-    scaledSize: { width: isOnline ? 40 : 32, height: isOnline ? 60 : 48, equals: () => false },
-    anchor: { x: isOnline ? 20 : 16, y: isOnline ? 60 : 48, equals: () => false },
+    url: getMeterMarkerUrl(meter),
+    scaledSize: { width: 40, height: 60, equals: () => false },
+    anchor: { x: 20, y: 60, equals: () => false },
   };
 }
 
@@ -152,7 +168,7 @@ function transformerIcon() {
 
 function selectedMeterIcon() {
   return {
-    url: markerMeter,
+    url: markerPurple,
     scaledSize: { width: 52, height: 78, equals: () => false },
     anchor: { x: 26, y: 78, equals: () => false },
   };
@@ -213,15 +229,35 @@ export default function MapPage() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      const [locResult, transResult] = await Promise.allSettled([
+      const [locResult, transResult, stateResult] = await Promise.allSettled([
         meterAPI.getAllLocations(),
         meterAPI.getAllTransformers(),
+        groupControlAPI.getMetersState(),
       ]);
+
+      let locations = [];
       if (locResult.status === "fulfilled") {
-        setMeterLocations(
-          Array.isArray(locResult.value) ? locResult.value : []
-        );
+        locations = Array.isArray(locResult.value) ? locResult.value : [];
       }
+
+      // Merge mains_state/geyser_state from meters-state into locations
+      if (stateResult.status === "fulfilled") {
+        const stateData = stateResult.value?.data || stateResult.value || [];
+        if (Array.isArray(stateData)) {
+          const stateMap = {};
+          stateData.forEach((s) => { stateMap[s.DRN] = s; });
+          locations = locations.map((loc) => {
+            const st = stateMap[loc.DRN];
+            if (st) {
+              return { ...loc, mains_state: st.mains_state, geyser_state: st.geyser_state };
+            }
+            return loc;
+          });
+        }
+      }
+
+      setMeterLocations(locations);
+
       if (transResult.status === "fulfilled") {
         setTransformers(
           Array.isArray(transResult.value) ? transResult.value : []
@@ -803,14 +839,12 @@ export default function MapPage() {
                   const lat = parseFloat(m.Lat);
                   const lng = parseFloat(m.Longitude);
                   if (isNaN(lat) || isNaN(lng)) return null;
-                  const isOnline = m.Status === "1" || m.Status === 1 || m.Status === "Active";
                   const isSelected = selectedMeter && selectedMeter.DRN === m.DRN;
                   return (
                     <Marker
                       key={`meter-${m.DRN}`}
                       position={{ lat, lng }}
-                      icon={isSelected ? selectedMeterIcon() : meterIcon(isOnline)}
-                      opacity={isOnline ? 1 : 0.45}
+                      icon={isSelected ? selectedMeterIcon() : meterIcon(m)}
                       onClick={() => {
                         if (drawingMode) return;
                         setSelectedTransformer(null);
