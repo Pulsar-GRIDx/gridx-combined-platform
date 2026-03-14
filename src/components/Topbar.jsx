@@ -30,9 +30,9 @@ const Topbar = () => {
         zIndex: theme.zIndex.appBar + 1,
       }}
       display="flex"
-      justifyContent="flex-end"
+      justifyContent="flex-start"
       p={2}
-      pr={4}
+      pl={4}
     >
       <Box display="flex" gap="4px">
         <Tooltip title={theme.palette.mode === "dark" ? "Light Mode" : "Dark Mode"}>
