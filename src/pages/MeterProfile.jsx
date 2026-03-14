@@ -612,70 +612,70 @@ export default function MeterProfile() {
       </Box>
 
       {/* ---- Tabs ---- */}
-      <Tabs
-        value={tab}
-        onChange={(_, v) => setTab(v)}
-        variant="scrollable"
-        scrollButtons="auto"
-        sx={{
-          mb: 2,
-          "& .MuiTab-root": {
-            color: colors.grey[400],
-            textTransform: "none",
-            fontWeight: 600,
-          },
-          "& .Mui-selected": { color: colors.greenAccent[500] },
-          "& .MuiTabs-indicator": {
-            backgroundColor: colors.greenAccent[500],
-          },
-        }}
-      >
-        <Tab
-          icon={<SpeedOutlined sx={{ fontSize: 18 }} />}
-          iconPosition="start"
-          label="Overview"
-        />
-        <Tab
-          icon={<ShoppingCartOutlined sx={{ fontSize: 18 }} />}
-          iconPosition="start"
-          label="Vend Token"
-        />
-        <Tab
-          icon={<PowerSettingsNewOutlined sx={{ fontSize: 18 }} />}
-          iconPosition="start"
-          label="Load Control"
-        />
-        <Tab
-          icon={<AccountBalanceWalletOutlined sx={{ fontSize: 18 }} />}
-          iconPosition="start"
-          label="Billing & Tariff"
-        />
-        <Tab
-          icon={<TuneOutlined sx={{ fontSize: 18 }} />}
-          iconPosition="start"
-          label="Configuration"
-        />
-        <Tab
-          icon={<BarChartOutlined sx={{ fontSize: 18 }} />}
-          iconPosition="start"
-          label="Energy Charts"
-        />
-        <Tab
-          icon={<HistoryOutlined sx={{ fontSize: 18 }} />}
-          iconPosition="start"
-          label="History"
-        />
-        <Tab
-          icon={<AssignmentOutlined sx={{ fontSize: 18 }} />}
-          iconPosition="start"
-          label="Commission Report"
-        />
-        <Tab
-          icon={<HomeOutlined sx={{ fontSize: 18 }} />}
-          iconPosition="start"
-          label="Home Classification"
-        />
-      </Tabs>
+      {(() => {
+        const isDark = theme.palette.mode === "dark";
+        const tabItems = [
+          { icon: <SpeedOutlined sx={{ fontSize: 18 }} />, label: "Overview", accent: "#4cceac" },
+          { icon: <ShoppingCartOutlined sx={{ fontSize: 18 }} />, label: "Vend Token", accent: "#f2b705" },
+          { icon: <PowerSettingsNewOutlined sx={{ fontSize: 18 }} />, label: "Load Control", accent: "#e2726e" },
+          { icon: <AccountBalanceWalletOutlined sx={{ fontSize: 18 }} />, label: "Billing & Tariff", accent: "#6870fa" },
+          { icon: <TuneOutlined sx={{ fontSize: 18 }} />, label: "Configuration", accent: "#868dfb" },
+          { icon: <BarChartOutlined sx={{ fontSize: 18 }} />, label: "Energy Charts", accent: "#00bcd4" },
+          { icon: <HistoryOutlined sx={{ fontSize: 18 }} />, label: "History", accent: "#a3a3a3" },
+          { icon: <AssignmentOutlined sx={{ fontSize: 18 }} />, label: "Commission Report", accent: "#ff9800" },
+          { icon: <HomeOutlined sx={{ fontSize: 18 }} />, label: "Home Classification", accent: "#9c27b0" },
+        ];
+        return (
+          <Tabs
+            value={tab}
+            onChange={(_, v) => setTab(v)}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              mb: 3,
+              bgcolor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)",
+              borderRadius: "14px",
+              p: "6px",
+              minHeight: "auto",
+              "& .MuiTabs-indicator": { display: "none" },
+              "& .MuiTabs-flexContainer": { gap: "6px" },
+              "& .MuiTab-root": {
+                minHeight: "40px",
+                px: "16px",
+                py: "8px",
+                borderRadius: "10px",
+                textTransform: "none",
+                fontWeight: 600,
+                fontSize: "0.82rem",
+                color: isDark ? colors.grey[400] : colors.grey[300],
+                transition: "all 0.2s ease",
+                "&:hover": {
+                  bgcolor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
+                  color: isDark ? colors.grey[200] : colors.grey[100],
+                },
+              },
+            }}
+          >
+            {tabItems.map((t, i) => (
+              <Tab
+                key={i}
+                icon={t.icon}
+                iconPosition="start"
+                label={t.label}
+                sx={{
+                  ...(tab === i && {
+                    bgcolor: `${t.accent}20`,
+                    color: `${t.accent} !important`,
+                    border: `1.5px solid ${t.accent}40`,
+                    boxShadow: `0 0 12px ${t.accent}15`,
+                    "& .MuiSvgIcon-root": { color: t.accent },
+                  }),
+                }}
+              />
+            ))}
+          </Tabs>
+        );
+      })()}
 
       {/* ================================================================ */}
       {/* TAB 0: Overview                                                  */}
