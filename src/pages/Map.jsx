@@ -45,7 +45,7 @@ import {
 } from "@react-google-maps/api";
 import Header from "../components/Header";
 import { tokens } from "../theme";
-import { meterAPI, energyAPI, financeAPI, groupControlAPI } from "../services/api";
+import { meterAPI, energyAPI, financeAPI } from "../services/api";
 import {
   BarChart,
   Bar,
@@ -103,31 +103,37 @@ const MAP_OPTIONS = {
   fullscreenControl: true,
 };
 
-/* ---- Marker images ---- */
-import markerBlue from "../assets/marker-blue.png";
-import markerGreen from "../assets/marker-green.png";
-import markerOrange from "../assets/marker-orange.png";
-import markerRed from "../assets/marker-red.png";
-import markerGrey from "../assets/marker-grey.png";
-import markerPurple from "../assets/marker-purple.png";
-
 /* ---- Marker icon helpers ---- */
-function getMeterMarkerUrl(meter) {
-  const isOnline = meter.Status === "1" || meter.Status === 1 || meter.Status === "Active";
-  if (!isOnline) return markerGrey;
-  const mainsOn = meter.mains_state === "1" || meter.mains_state === 1;
-  if (!mainsOn) return markerRed;
-  const geyserOn = meter.geyser_state === "1" || meter.geyser_state === 1;
-  if (mainsOn && geyserOn) return markerGreen;
-  if (mainsOn && !geyserOn) return markerOrange;
-  return markerBlue;
-}
-
-function meterIcon(meter) {
+function meterIcon(isOnline) {
+  const fill = isOnline ? "#4cceac" : "#db4f4a";
+  const glow = isOnline ? "#4cceac" : "#db4f4a";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
+    <defs>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="2" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <radialGradient id="grad" cx="40%" cy="35%">
+        <stop offset="0%" stop-color="${isOnline ? '#70d8bd' : '#e99592'}"/>
+        <stop offset="100%" stop-color="${fill}"/>
+      </radialGradient>
+    </defs>
+    ${isOnline ? `<circle cx="22" cy="22" r="18" fill="none" stroke="${glow}" stroke-width="1.5" opacity="0.3">
+      <animate attributeName="r" values="14;20;14" dur="2.5s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.4;0;0.4" dur="2.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="22" cy="22" r="15" fill="none" stroke="${glow}" stroke-width="1" opacity="0.2">
+      <animate attributeName="r" values="14;18;14" dur="2s" repeatCount="indefinite" begin="0.5s"/>
+      <animate attributeName="opacity" values="0.3;0;0.3" dur="2s" repeatCount="indefinite" begin="0.5s"/>
+    </circle>` : ''}
+    <circle cx="22" cy="22" r="13" fill="url(#grad)" filter="url(#glow)"/>
+    <circle cx="22" cy="22" r="13" fill="none" stroke="rgba(255,255,255,0.8)" stroke-width="2"/>
+    <path d="M19 14 L15 23 H20 L18 30 L27 20 H22 L25 14 Z" fill="white" opacity="0.95"/>
+  </svg>`;
   return {
-    url: getMeterMarkerUrl(meter),
-    scaledSize: { width: 40, height: 60, equals: () => false },
-    anchor: { x: 20, y: 60, equals: () => false },
+    url: `data:image/svg+xml,${encodeURIComponent(svg)}`,
+    scaledSize: { width: 44, height: 44, equals: () => false },
+    anchor: { x: 22, y: 22, equals: () => false },
   };
 }
 
@@ -167,10 +173,29 @@ function transformerIcon() {
 }
 
 function selectedMeterIcon() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 56 56">
+    <defs>
+      <filter id="sglow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="3" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <circle cx="28" cy="28" r="24" fill="none" stroke="#6870fa" stroke-width="2" opacity="0.4">
+      <animate attributeName="r" values="18;26;18" dur="1.5s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.5;0;0.5" dur="1.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="28" cy="28" r="20" fill="none" stroke="#6870fa" stroke-width="1.5" opacity="0.3">
+      <animate attributeName="r" values="16;22;16" dur="1.5s" repeatCount="indefinite" begin="0.3s"/>
+      <animate attributeName="opacity" values="0.4;0;0.4" dur="1.5s" repeatCount="indefinite" begin="0.3s"/>
+    </circle>
+    <circle cx="28" cy="28" r="15" fill="#6870fa" filter="url(#sglow)"/>
+    <circle cx="28" cy="28" r="15" fill="none" stroke="white" stroke-width="2.5"/>
+    <path d="M25 18 L21 27 H26 L24 34 L33 24 H28 L31 18 Z" fill="white"/>
+  </svg>`;
   return {
-    url: markerPurple,
-    scaledSize: { width: 52, height: 78, equals: () => false },
-    anchor: { x: 26, y: 78, equals: () => false },
+    url: `data:image/svg+xml,${encodeURIComponent(svg)}`,
+    scaledSize: { width: 56, height: 56, equals: () => false },
+    anchor: { x: 28, y: 28, equals: () => false },
   };
 }
 
@@ -229,35 +254,15 @@ export default function MapPage() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      const [locResult, transResult, stateResult] = await Promise.allSettled([
+      const [locResult, transResult] = await Promise.allSettled([
         meterAPI.getAllLocations(),
         meterAPI.getAllTransformers(),
-        groupControlAPI.getMetersState(),
       ]);
-
-      let locations = [];
       if (locResult.status === "fulfilled") {
-        locations = Array.isArray(locResult.value) ? locResult.value : [];
+        setMeterLocations(
+          Array.isArray(locResult.value) ? locResult.value : []
+        );
       }
-
-      // Merge mains_state/geyser_state from meters-state into locations
-      if (stateResult.status === "fulfilled") {
-        const stateData = stateResult.value?.data || stateResult.value || [];
-        if (Array.isArray(stateData)) {
-          const stateMap = {};
-          stateData.forEach((s) => { stateMap[s.DRN] = s; });
-          locations = locations.map((loc) => {
-            const st = stateMap[loc.DRN];
-            if (st) {
-              return { ...loc, mains_state: st.mains_state, geyser_state: st.geyser_state };
-            }
-            return loc;
-          });
-        }
-      }
-
-      setMeterLocations(locations);
-
       if (transResult.status === "fulfilled") {
         setTransformers(
           Array.isArray(transResult.value) ? transResult.value : []
@@ -839,12 +844,13 @@ export default function MapPage() {
                   const lat = parseFloat(m.Lat);
                   const lng = parseFloat(m.Longitude);
                   if (isNaN(lat) || isNaN(lng)) return null;
+                  const isOnline = m.Status === "1" || m.Status === 1 || m.Status === "Active";
                   const isSelected = selectedMeter && selectedMeter.DRN === m.DRN;
                   return (
                     <Marker
                       key={`meter-${m.DRN}`}
                       position={{ lat, lng }}
-                      icon={isSelected ? selectedMeterIcon() : meterIcon(m)}
+                      icon={isSelected ? selectedMeterIcon() : meterIcon(isOnline)}
                       onClick={() => {
                         if (drawingMode) return;
                         setSelectedTransformer(null);
