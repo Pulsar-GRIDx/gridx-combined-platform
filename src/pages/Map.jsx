@@ -103,21 +103,15 @@ const MAP_OPTIONS = {
   fullscreenControl: true,
 };
 
-/* ---- Marker images ---- */
-import markerBlue from "../assets/marker-blue.png";
-import markerGreen from "../assets/marker-green.png";
-import markerOrange from "../assets/marker-orange.png";
-import markerRed from "../assets/marker-red.png";
-import markerGrey from "../assets/marker-grey.png";
-import markerPurple from "../assets/marker-purple.png";
+/* ---- Marker image ---- */
+import markerMeter from "../assets/marker-meter.png";
 
 /* ---- Marker icon helpers ---- */
 function meterIcon(isOnline) {
-  const img = isOnline ? markerGreen : markerRed;
   return {
-    url: img,
-    scaledSize: { width: 40, height: 60, equals: () => false },
-    anchor: { x: 20, y: 60, equals: () => false },
+    url: markerMeter,
+    scaledSize: { width: isOnline ? 40 : 32, height: isOnline ? 60 : 48, equals: () => false },
+    anchor: { x: isOnline ? 20 : 16, y: isOnline ? 60 : 48, equals: () => false },
   };
 }
 
@@ -158,9 +152,9 @@ function transformerIcon() {
 
 function selectedMeterIcon() {
   return {
-    url: markerPurple,
-    scaledSize: { width: 50, height: 75, equals: () => false },
-    anchor: { x: 25, y: 75, equals: () => false },
+    url: markerMeter,
+    scaledSize: { width: 52, height: 78, equals: () => false },
+    anchor: { x: 26, y: 78, equals: () => false },
   };
 }
 
@@ -816,6 +810,7 @@ export default function MapPage() {
                       key={`meter-${m.DRN}`}
                       position={{ lat, lng }}
                       icon={isSelected ? selectedMeterIcon() : meterIcon(isOnline)}
+                      opacity={isOnline ? 1 : 0.45}
                       onClick={() => {
                         if (drawingMode) return;
                         setSelectedTransformer(null);

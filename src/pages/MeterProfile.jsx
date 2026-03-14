@@ -70,7 +70,7 @@ import {
   Legend,
 } from "recharts";
 import { GoogleMap, useJsApiLoader, Marker } from "@react-google-maps/api";
-import markerBlue from "../assets/marker-blue.png";
+import markerMeter from "../assets/marker-meter.png";
 import Header from "../components/Header";
 import DataBadge from "../components/DataBadge";
 import { tokens } from "../theme";
@@ -865,7 +865,7 @@ export default function MeterProfile() {
                       }}
                       title={meterLocation.LocationName || drn}
                       icon={{
-                        url: markerBlue,
+                        url: markerMeter,
                         scaledSize: { width: 40, height: 60, equals: () => false },
                         anchor: { x: 20, y: 60, equals: () => false },
                       }}
