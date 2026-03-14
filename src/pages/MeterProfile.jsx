@@ -55,6 +55,7 @@ import {
   CancelOutlined,
   AssignmentOutlined,
   HomeOutlined,
+  MapOutlined as MapOutlinedIcon,
 } from "@mui/icons-material";
 import {
   AreaChart,
@@ -274,6 +275,7 @@ export default function MeterProfile() {
   const [mainsState, setMainsState] = useState(null);
   const [heaterState, setHeaterState] = useState(null);
   const [dailyPower, setDailyPower] = useState([]);
+  const [meterLocation, setMeterLocation] = useState(null);
   const [commissionReports, setCommissionReports] = useState([]);
   const [homeClassifications, setHomeClassifications] = useState([]);
 
@@ -309,6 +311,7 @@ export default function MeterProfile() {
         meterAPI.getDailyPower(drn),
         commissionReportAPI.getByDRN(drn),
         homeClassificationAPI.getByDRN(drn),
+        meterAPI.getLocation(drn),
       ]);
 
       if (results[0].status === "fulfilled") setProfile(results[0].value);
@@ -328,6 +331,7 @@ export default function MeterProfile() {
         setCommissionReports(results[10].value);
       if (results[11].status === "fulfilled" && Array.isArray(results[11].value))
         setHomeClassifications(results[11].value);
+      if (results[12].status === "fulfilled") setMeterLocation(results[12].value);
 
       setLoading(false);
     };
@@ -685,113 +689,177 @@ export default function MeterProfile() {
           <Box display="flex" justifyContent="flex-end" mb={0.5}>
             <DataBadge live />
           </Box>
-          {/* ---- Mains/Heater icons + Progress Circle + Metrics ---- */}
-          <Box
-            sx={{
-              backgroundColor: colors.primary[400],
-              borderRadius: "4px",
-              p: 3,
-              mb: "5px",
-            }}
-          >
-            {/* Mains/Heater ON/OFF indicators */}
+          {/* ---- Progress Circle + Satellite Map side by side ---- */}
+          <Box display="flex" gap="5px" mb="5px" sx={{ flexDirection: { xs: "column", md: "row" } }}>
+            {/* Left: Mains/Heater icons + Progress Circle + Metrics */}
             <Box
-              display="flex"
-              justifyContent="center"
-              gap={4}
-              mb={2}
+              sx={{
+                backgroundColor: colors.primary[400],
+                borderRadius: "4px",
+                p: 3,
+                flex: 1,
+              }}
             >
-              <Box display="flex" alignItems="center" gap={0.8}>
-                <BoltOutlined
-                  sx={{
-                    color:
-                      lcMainsState === "1"
-                        ? colors.greenAccent[500]
-                        : "#db4f4a",
-                    fontSize: 22,
-                  }}
-                />
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color:
-                      lcMainsState === "1"
-                        ? colors.greenAccent[500]
-                        : "#db4f4a",
-                    fontWeight: 600,
-                    fontSize: "0.8rem",
-                  }}
-                >
-                  Mains {lcMainsState === "1" ? "ON" : "OFF"}
-                </Typography>
+              {/* Mains/Heater ON/OFF indicators */}
+              <Box
+                display="flex"
+                justifyContent="center"
+                gap={4}
+                mb={2}
+              >
+                <Box display="flex" alignItems="center" gap={0.8}>
+                  <BoltOutlined
+                    sx={{
+                      color:
+                        lcMainsState === "1"
+                          ? colors.greenAccent[500]
+                          : "#db4f4a",
+                      fontSize: 22,
+                    }}
+                  />
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color:
+                        lcMainsState === "1"
+                          ? colors.greenAccent[500]
+                          : "#db4f4a",
+                      fontWeight: 600,
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    Mains {lcMainsState === "1" ? "ON" : "OFF"}
+                  </Typography>
+                </Box>
+                <Box display="flex" alignItems="center" gap={0.8}>
+                  <WaterDropOutlined
+                    sx={{
+                      color:
+                        lcGeyserState === "1"
+                          ? colors.greenAccent[500]
+                          : "#db4f4a",
+                      fontSize: 22,
+                    }}
+                  />
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color:
+                        lcGeyserState === "1"
+                          ? colors.greenAccent[500]
+                          : "#db4f4a",
+                      fontWeight: 600,
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    Heater {lcGeyserState === "1" ? "ON" : "OFF"}
+                  </Typography>
+                </Box>
               </Box>
-              <Box display="flex" alignItems="center" gap={0.8}>
-                <WaterDropOutlined
-                  sx={{
-                    color:
-                      lcGeyserState === "1"
-                        ? colors.greenAccent[500]
-                        : "#db4f4a",
-                    fontSize: 22,
-                  }}
+
+              {/* Progress Circle */}
+              <ProgressCircle units={units} colors={colors} size={250} />
+
+              {/* 5 metrics below circle */}
+              <Box
+                display="flex"
+                justifyContent="center"
+                gap={3}
+                mt={3}
+                flexWrap="wrap"
+              >
+                <MetricBox
+                  label="Power"
+                  value={parseFloat(activePower).toFixed(1)}
+                  unit="W"
+                  color={colors.greenAccent[500]}
                 />
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color:
-                      lcGeyserState === "1"
-                        ? colors.greenAccent[500]
-                        : "#db4f4a",
-                    fontWeight: 600,
-                    fontSize: "0.8rem",
-                  }}
-                >
-                  Heater {lcGeyserState === "1" ? "ON" : "OFF"}
-                </Typography>
+                <MetricBox
+                  label="Voltage"
+                  value={parseFloat(voltage).toFixed(1)}
+                  unit="V"
+                  color="#f2b705"
+                />
+                <MetricBox
+                  label="Current"
+                  value={parseFloat(current).toFixed(2)}
+                  unit="A"
+                  color="#00b4d8"
+                />
+                <MetricBox
+                  label="Frequency"
+                  value={parseFloat(frequency).toFixed(2)}
+                  unit="Hz"
+                  color="#6870fa"
+                />
+                <MetricBox
+                  label="Signal"
+                  value={parseFloat(signalStrength).toFixed(0)}
+                  unit="dBm"
+                  color={signalLabel(signalStrength).color}
+                />
               </Box>
             </Box>
 
-            {/* Progress Circle */}
-            <ProgressCircle units={units} colors={colors} size={250} />
-
-            {/* 5 metrics below circle */}
+            {/* Right: Google Maps Satellite View */}
             <Box
-              display="flex"
-              justifyContent="center"
-              gap={3}
-              mt={3}
-              flexWrap="wrap"
+              sx={{
+                backgroundColor: colors.primary[400],
+                borderRadius: "4px",
+                flex: 1,
+                overflow: "hidden",
+                position: "relative",
+                minHeight: { xs: "300px", md: "auto" },
+              }}
             >
-              <MetricBox
-                label="Power"
-                value={parseFloat(activePower).toFixed(1)}
-                unit="W"
-                color={colors.greenAccent[500]}
-              />
-              <MetricBox
-                label="Voltage"
-                value={parseFloat(voltage).toFixed(1)}
-                unit="V"
-                color="#f2b705"
-              />
-              <MetricBox
-                label="Current"
-                value={parseFloat(current).toFixed(2)}
-                unit="A"
-                color="#00b4d8"
-              />
-              <MetricBox
-                label="Frequency"
-                value={parseFloat(frequency).toFixed(2)}
-                unit="Hz"
-                color="#6870fa"
-              />
-              <MetricBox
-                label="Signal"
-                value={parseFloat(signalStrength).toFixed(0)}
-                unit="dBm"
-                color={signalLabel(signalStrength).color}
-              />
+              {meterLocation && meterLocation.Lat && meterLocation.Longitude ? (
+                <>
+                  <Box
+                    sx={{
+                      position: "absolute",
+                      top: 12,
+                      left: 12,
+                      zIndex: 2,
+                      bgcolor: "rgba(20,27,45,0.85)",
+                      backdropFilter: "blur(6px)",
+                      borderRadius: "8px",
+                      px: 1.5,
+                      py: 0.8,
+                    }}
+                  >
+                    <Typography sx={{ fontSize: "0.7rem", color: colors.greenAccent[500], fontWeight: 700 }}>
+                      METER LOCATION
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.65rem", color: colors.grey[400] }}>
+                      {meterLocation.LocationName || `${parseFloat(meterLocation.Lat).toFixed(5)}, ${parseFloat(meterLocation.Longitude).toFixed(5)}`}
+                    </Typography>
+                  </Box>
+                  <iframe
+                    title="Meter Location"
+                    width="100%"
+                    height="100%"
+                    style={{ border: 0, minHeight: "100%" }}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk&q=${meterLocation.Lat},${meterLocation.Longitude}&zoom=19&maptype=satellite`}
+                  />
+                </>
+              ) : (
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="center"
+                  height="100%"
+                  minHeight="300px"
+                  flexDirection="column"
+                  gap={1}
+                >
+                  <MapOutlinedIcon sx={{ fontSize: 48, color: colors.grey[600] }} />
+                  <Typography color={colors.grey[500]} fontSize="0.85rem">
+                    Location data not available
+                  </Typography>
+                </Box>
+              )}
             </Box>
           </Box>
 

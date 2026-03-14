@@ -255,6 +255,20 @@ router.get('/meterDataByDRN/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── METER LOCATION BY DRN ─────────────────────────────
+router.get('/meterLocation/:id', authenticateToken, async (req, res) => {
+  try {
+    const loc = await queryOne(
+      `SELECT * FROM MeterLocationInfoTable WHERE DRN = ?`,
+      [req.params.id]
+    );
+    if (!loc) return res.status(404).json({ message: 'Location not found' });
+    res.json(loc);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── NOTIFICATIONS BY DRN ───────────────────────────────
 router.get('/notificationsByDRN/:id', authenticateToken, async (req, res) => {
   try {

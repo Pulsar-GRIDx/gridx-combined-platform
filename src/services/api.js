@@ -91,6 +91,7 @@ export const meterAPI = {
   getWeekMonthData: (drn) => get(`/meterWeekAndMonthData/${drn}`),
   getStsTokens: (drn) => get(`/stsTokensByDRN/${drn}`),
   // Locations for map
+  getLocation: (drn) => get(`/meterLocation/${drn}`),
   getAllLocations: () => get('/meterLocation/getAll'),
   getAllTransformers: () => get('/transformer/getAll'),
   getMetersByTransformer: (drn) => get(`/meterLocation/getMeterByTrans/${drn}`),
