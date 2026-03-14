@@ -303,21 +303,19 @@ router.get('/loadcontrol/meters-state', authenticateToken, async (req, res) => {
         ml.DRN, ml.Lat, ml.Longitude, ml.LocationName, ml.Status,
         CONCAT(mpr.Name, ' ', mpr.Surname) as customerName,
         mpr.City, mpr.Region, mpr.TransformerDRN,
-        COALESCE(ms.mains_state, '0') as mains_state,
-        COALESCE(hs.heater_state, '0') as geyser_state
+        COALESCE(ms.state, '0') as mains_state,
+        COALESCE(hs.state, '0') as geyser_state
       FROM MeterLocationInfoTable ml
       LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
       LEFT JOIN (
-        SELECT DRN, mains_state,
+        SELECT DRN, state,
                ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
         FROM MeterMainsStateTable
-        WHERE date_time >= NOW() - INTERVAL 7 DAY
       ) ms ON ml.DRN = ms.DRN AND ms.rn = 1
       LEFT JOIN (
-        SELECT DRN, heater_state,
+        SELECT DRN, state,
                ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
         FROM MeterHeaterStateTable
-        WHERE date_time >= NOW() - INTERVAL 7 DAY
       ) hs ON ml.DRN = hs.DRN AND hs.rn = 1
       ORDER BY ml.LocationName, ml.DRN
     `);
