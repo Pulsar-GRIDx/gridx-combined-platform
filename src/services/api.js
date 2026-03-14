@@ -124,6 +124,7 @@ export const energyAPI = {
   getSuburbTimePeriods: (suburbs) => post('/suburb-time-periods', { suburbs }),
   getSuburbWeeklyPower: (suburbs) => post('/search-by-weekly-power', { suburbs }),
   getSuburbMonthlyPower: (suburbs) => post('/search-by-monthly-power', { suburbs }),
+  getSuburbHourlyEnergy: (suburbs) => post('/getSuburbHourlyEnergy', { suburbs }),
 };
 
 // ===== FINANCIAL =====
@@ -186,6 +187,8 @@ export const meterProfileAPI = {
 // ===== METER REGISTRATION =====
 export const meterRegistrationAPI = {
   register: (data) => post('/meter-registration', data),
+  insertMeter: (data) => post('/insertMeterData', data),
+  insertTransformer: (data) => post('/insertTransformer', data),
 };
 
 // ===== MQTT =====

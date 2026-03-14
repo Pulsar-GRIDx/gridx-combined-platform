@@ -19,6 +19,13 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import TrendingDownIcon from "@mui/icons-material/TrendingDown";
+import BarChartIcon from "@mui/icons-material/BarChart";
+import SettingsInputCompositeIcon from "@mui/icons-material/SettingsInputComposite";
+import ElectricalServicesIcon from "@mui/icons-material/ElectricalServices";
+import FlashOnIcon from "@mui/icons-material/FlashOn";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import {
   AreaChart,
   Area,
@@ -31,7 +38,20 @@ import {
   ResponsiveContainer,
   Legend,
   Cell,
+  ReferenceLine,
 } from "recharts";
+
+// All suburbs list for regional chart (ensures all regions shown even with 0 consumption)
+const ALL_SUBURBS = [
+  "Academia", "Auasblick", "Avis", "Cimbebasia", "Dorado Park", "Donkerhoek",
+  "Elisenheim", "Eros", "Eros Park", "Freedom Land", "Goreangab", "Groot Aub",
+  "Greenwell", "Hakahana", "Havana", "Hochland Park", "Katutura", "Khomasdal",
+  "Kleine Kuppe", "Klein Windhoek", "Lafrenz", "Ludwigsdorf", "Luxury Hill",
+  "Maxuilili", "Northern Industrial", "Okuryangava", "Olympia", "Ombili",
+  "Otjomuise", "Pionierspark", "Prosperita", "Rocky Crest", "Southern Industria",
+  "Suiderhof", "Tauben Glen", "Wanaheda", "Windhoek Central", "Windhoek North",
+  "Windhoek West",
+];
 
 // ---- Helpers ----
 const fmt = (n) => Number(n || 0).toLocaleString();
@@ -75,6 +95,9 @@ export default function Dashboard() {
   const [notifs, setNotifs] = useState(mockNotifications);
   const [areaPower, setAreaPower] = useState([]);
   const [areaRevenue, setAreaRevenue] = useState([]);
+  const [hourlyData, setHourlyData] = useState([]);
+  const [hourlyTotals, setHourlyTotals] = useState({ averagePower: 0, peakPower: 0 });
+  const [suburbEnergy, setSuburbEnergy] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -89,9 +112,12 @@ export default function Dashboard() {
           energyAPI.getCurrentDay(),
           tokenAPI.getAllProcessed(),
           meterAPI.getAreaSummary(),
+          energyAPI.getHourlyPower(),
+          energyAPI.getWeeklyAmount(),
+          energyAPI.getSuburbHourlyEnergy(ALL_SUBURBS),
         ]);
 
-        const [meterDash, tokenAmt, tokenCnt, weekTokens, dayEnergy, processedTokens, areaSummaryResult] = results;
+        const [meterDash, tokenAmt, tokenCnt, weekTokens, dayEnergy, processedTokens, areaSummaryResult, hourlyPowerResult, weeklyAmountResult, suburbEnergyResult] = results;
 
         // Build KPIs from meter dashboard
         if (meterDash.status === "fulfilled" && meterDash.value?.data) {
@@ -152,6 +178,41 @@ export default function Dashboard() {
           const { areaPower: ap, areaRevenue: ar } = areaSummaryResult.value;
           if (Array.isArray(ap)) setAreaPower(ap);
           if (Array.isArray(ar)) setAreaRevenue(ar);
+        }
+
+        // Hourly power consumption (24-hour data)
+        if (hourlyPowerResult.status === "fulfilled" && hourlyPowerResult.value) {
+          const hData = hourlyPowerResult.value;
+          if (Array.isArray(hData.sums)) {
+            const chartData = hData.sums.map((val, i) => ({
+              hour: `${i < 10 ? '0' + i : i}:00`,
+              kWh: Number(val) || 0,
+            }));
+            setHourlyData(chartData);
+          }
+        }
+
+        // Weekly data with average/peak power
+        if (weeklyAmountResult.status === "fulfilled" && weeklyAmountResult.value) {
+          const wData = weeklyAmountResult.value;
+          const avgPower = typeof wData?.averagePower === "number"
+            ? wData.averagePower
+            : wData?.enhancedSystemPowerAnalysis?.daily_analysis?.overall_average_power || 0;
+          const peakPower = typeof wData?.peakPower === "number"
+            ? wData.peakPower
+            : wData?.enhancedSystemPowerAnalysis?.daily_analysis?.overall_peak_power || 0;
+          setHourlyTotals({ averagePower: avgPower, peakPower: peakPower });
+        }
+
+        // Suburb hourly energy (for regional consumption chart)
+        if (suburbEnergyResult.status === "fulfilled" && suburbEnergyResult.value) {
+          const sData = suburbEnergyResult.value?.data || suburbEnergyResult.value;
+          if (typeof sData === "object" && !Array.isArray(sData)) {
+            // Ensure all suburbs are present (even with 0)
+            const fullData = {};
+            ALL_SUBURBS.forEach((s) => { fullData[s] = Number(sData[s]) || 0; });
+            setSuburbEnergy(fullData);
+          }
         }
 
         // Processed tokens as recent transactions
@@ -288,120 +349,241 @@ export default function Dashboard() {
           />
         </Box>
 
-        {/* ROW 2: Area Power Consumption & Revenue Bar Charts */}
-        <Box
-          gridColumn="span 6"
-          gridRow="span 3"
-          backgroundColor={colors.primary[400]}
-          p="15px"
-        >
-          <Box display="flex" alignItems="center" gap={1} mb="10px">
-            <MapOutlinedIcon sx={{ color: colors.greenAccent[500], fontSize: 20 }} />
-            <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
-              Area Power Consumption (24h)
-            </Typography>
-            <DataBadge live sx={{ ml: "auto" }} />
-          </Box>
-          <Box height="calc(100% - 40px)">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={areaPower}
-                margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
-                <XAxis
-                  dataKey="area"
-                  stroke={colors.grey[300]}
-                  tick={{ fontSize: 10 }}
-                  angle={-20}
-                  textAnchor="end"
-                  height={60}
-                />
-                <YAxis
-                  stroke={colors.grey[300]}
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`}
-                  label={{ value: "Watts", angle: -90, position: "insideLeft", style: { fill: colors.grey[400], fontSize: 11 } }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: colors.primary[400],
-                    border: `1px solid ${colors.grey[700]}`,
-                    borderRadius: 4,
-                    color: colors.grey[100],
-                  }}
-                  formatter={(value, name) => {
-                    if (name === "total_power_w") return [`${Number(value).toLocaleString()} W`, "Total Power"];
-                    if (name === "avg_power_w") return [`${Number(value).toLocaleString()} W`, "Avg Power"];
-                    return [value, name];
-                  }}
-                />
-                <Bar dataKey="total_power_w" name="total_power_w" radius={[4, 4, 0, 0]}>
-                  {areaPower.map((entry, index) => (
-                    <Cell key={index} fill={index % 2 === 0 ? colors.greenAccent[500] : colors.blueAccent[400]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </Box>
-        </Box>
+        {/* ROW 2: Regional Consumption Chart (Suburban Energy Analytics) */}
+        {(() => {
+          const suburbEntries = Object.entries(suburbEnergy);
+          const suburbValues = suburbEntries.map(([, v]) => Number(v) || 0);
+          const suburbTotal = suburbValues.reduce((a, v) => a + v, 0);
+          const suburbAvg = suburbValues.length ? suburbTotal / suburbValues.length : 0;
+          const maxEntry = suburbEntries.length
+            ? suburbEntries.reduce((p, c) => ((Number(c[1]) || 0) > (Number(p[1]) || 0) ? c : p))
+            : null;
+          const minEntry = suburbEntries.length
+            ? suburbEntries.reduce((p, c) => ((Number(c[1]) || 0) < (Number(p[1]) || 0) ? c : p))
+            : null;
+          const suburbChartData = suburbEntries.map(([name, value]) => ({
+            suburb: name,
+            kWh: Number(value) || 0,
+          }));
 
-        <Box
-          gridColumn="span 6"
-          gridRow="span 3"
-          backgroundColor={colors.primary[400]}
-          p="15px"
-        >
-          <Box display="flex" alignItems="center" gap={1} mb="10px">
-            <AccountBalanceWalletOutlinedIcon sx={{ color: colors.greenAccent[500], fontSize: 20 }} />
-            <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
-              Area Revenue (24h)
-            </Typography>
-            <DataBadge live sx={{ ml: "auto" }} />
-          </Box>
-          <Box height="calc(100% - 40px)">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={areaRevenue}
-                margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
-                <XAxis
-                  dataKey="area"
-                  stroke={colors.grey[300]}
-                  tick={{ fontSize: 10 }}
-                  angle={-20}
-                  textAnchor="end"
-                  height={60}
-                />
-                <YAxis
-                  stroke={colors.grey[300]}
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `N$${v}`}
-                  label={{ value: "Revenue (N$)", angle: -90, position: "insideLeft", style: { fill: colors.grey[400], fontSize: 11 } }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: colors.primary[400],
-                    border: `1px solid ${colors.grey[700]}`,
-                    borderRadius: 4,
-                    color: colors.grey[100],
-                  }}
-                  formatter={(value, name) => {
-                    if (name === "total_revenue") return [`N$ ${Number(value).toLocaleString()}`, "Revenue"];
-                    if (name === "token_count") return [value, "Tokens"];
-                    return [value, name];
-                  }}
-                />
-                <Bar dataKey="total_revenue" name="total_revenue" radius={[4, 4, 0, 0]}>
-                  {areaRevenue.map((entry, index) => (
-                    <Cell key={index} fill={index % 2 === 0 ? colors.yellowAccent[500] : colors.greenAccent[500]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </Box>
-        </Box>
+          return (
+            <Box
+              gridColumn="span 12"
+              gridRow="span 4"
+              backgroundColor={colors.primary[400]}
+              p="15px"
+            >
+              <Box display="flex" alignItems="center" gap={1} mb="10px">
+                <MapOutlinedIcon sx={{ color: colors.greenAccent[500], fontSize: 20 }} />
+                <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+                  Suburban Energy Analytics
+                </Typography>
+                <DataBadge live sx={{ ml: "auto" }} />
+              </Box>
+
+              {/* Stats Header */}
+              <Box sx={{
+                display: "flex",
+                justifyContent: "space-around",
+                backgroundColor: colors.primary[500],
+                borderRadius: "8px",
+                p: 1.5,
+                mb: 2,
+                gap: 2,
+                flexWrap: "wrap",
+              }}>
+                <Box sx={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <TrendingUpIcon sx={{ color: colors.greenAccent[500], fontSize: "2rem", mb: 0.5 }} />
+                  <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                    {maxEntry ? `${Number(maxEntry[1]).toFixed(2)} kWh` : "—"}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: colors.grey[300] }}>Highest usage area</Typography>
+                  <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                    {maxEntry ? maxEntry[0] : ""}
+                  </Typography>
+                </Box>
+                <Box sx={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <TrendingDownIcon sx={{ color: colors.greenAccent[500], fontSize: "2rem", mb: 0.5 }} />
+                  <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                    {minEntry ? `${Number(minEntry[1]).toFixed(2)} kWh` : "—"}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: colors.grey[300] }}>Lowest usage area</Typography>
+                  <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                    {minEntry ? minEntry[0] : ""}
+                  </Typography>
+                </Box>
+                <Box sx={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <BarChartIcon sx={{ color: colors.greenAccent[500], fontSize: "2rem", mb: 0.5 }} />
+                  <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                    {suburbValues.length ? `${suburbAvg.toFixed(2)} kWh` : "—"}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: colors.grey[300] }}>Average usage</Typography>
+                  <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                    {suburbValues.length ? `${suburbValues.length} suburbs` : ""}
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box height="350px">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={suburbChartData} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                    <XAxis
+                      dataKey="suburb"
+                      stroke={colors.grey[300]}
+                      tick={{ fontSize: 10 }}
+                      angle={-45}
+                      textAnchor="end"
+                      interval={0}
+                      height={80}
+                    />
+                    <YAxis
+                      stroke={colors.grey[300]}
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(v) => `${v.toFixed(1)}`}
+                      label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fill: colors.grey[400], fontSize: 11 } }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: colors.primary[400],
+                        border: `1px solid ${colors.grey[700]}`,
+                        borderRadius: 4,
+                        color: colors.grey[100],
+                      }}
+                      formatter={(value) => [`${Number(value).toFixed(2)} kWh`, "Consumption"]}
+                    />
+                    <Bar dataKey="kWh" name="kWh" radius={[4, 4, 0, 0]}>
+                      {suburbChartData.map((entry, index) => (
+                        <Cell key={index} fill={index % 2 === 0 ? colors.greenAccent[500] : colors.blueAccent[400]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </Box>
+            </Box>
+          );
+        })()}
+
+        {/* ROW 2b: Hourly Energy Consumption Chart */}
+        {(() => {
+          const hourlyValues = hourlyData.map((d) => d.kWh);
+          const hourlySum = hourlyValues.reduce((a, b) => a + b, 0);
+          const hourlyAvg = hourlyValues.length ? hourlySum / hourlyValues.length : 0;
+
+          return (
+            <Box
+              gridColumn="span 12"
+              gridRow="span 4"
+              backgroundColor={colors.primary[400]}
+              p="15px"
+            >
+              <Box display="flex" alignItems="center" gap={1} mb="10px">
+                <AccessTimeIcon sx={{ color: colors.greenAccent[500], fontSize: 20 }} />
+                <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+                  Hourly Energy Consumption
+                </Typography>
+                <DataBadge live sx={{ ml: "auto" }} />
+              </Box>
+
+              {/* Power Stats Header */}
+              <Box sx={{
+                display: "flex",
+                justifyContent: "space-around",
+                backgroundColor: colors.primary[500],
+                borderRadius: "8px",
+                p: 1.5,
+                mb: 2,
+                gap: 2,
+                flexWrap: "wrap",
+              }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <SettingsInputCompositeIcon sx={{ color: colors.greenAccent[500], fontSize: "1.8rem" }} />
+                  <Box>
+                    <Typography variant="body2" color={colors.grey[300]}>Today's System Load</Typography>
+                    <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                      {hourlySum.toFixed(2)} kWh
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <ElectricalServicesIcon sx={{ color: colors.greenAccent[500], fontSize: "1.8rem" }} />
+                  <Box>
+                    <Typography variant="body2" color={colors.grey[300]}>Today's Average Power</Typography>
+                    <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                      {isNaN(hourlyTotals.averagePower) ? "0.00" : (hourlyTotals.averagePower / 1000).toFixed(2)} KW
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <FlashOnIcon sx={{ color: colors.greenAccent[500], fontSize: "1.8rem" }} />
+                  <Box>
+                    <Typography variant="body2" color={colors.grey[300]}>Today's Peak Power</Typography>
+                    <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                      {isNaN(hourlyTotals.peakPower) ? "0.00" : (hourlyTotals.peakPower / 1000).toFixed(2)} KW
+                    </Typography>
+                  </Box>
+                </Box>
+              </Box>
+
+              <Box height="350px">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={hourlyData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradHourly" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={colors.greenAccent[500]} stopOpacity={0.4} />
+                        <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                    <XAxis
+                      dataKey="hour"
+                      stroke={colors.grey[300]}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <YAxis
+                      stroke={colors.grey[300]}
+                      tick={{ fontSize: 11 }}
+                      label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fill: colors.grey[400], fontSize: 11 } }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: colors.primary[400],
+                        border: `1px solid ${colors.grey[700]}`,
+                        borderRadius: 4,
+                        color: colors.grey[100],
+                      }}
+                      formatter={(value) => [`${Number(value).toFixed(2)} kWh`, "Energy"]}
+                    />
+                    {hourlyAvg > 0 && (
+                      <ReferenceLine
+                        y={hourlyAvg}
+                        stroke={colors.blueAccent[400]}
+                        strokeDasharray="5 5"
+                        label={{
+                          value: `Avg: ${hourlyAvg.toFixed(2)} kWh`,
+                          fill: colors.blueAccent[400],
+                          fontSize: 11,
+                          fontWeight: 600,
+                          position: "insideTopRight",
+                        }}
+                      />
+                    )}
+                    <Area
+                      type="monotone"
+                      dataKey="kWh"
+                      stroke={colors.greenAccent[500]}
+                      strokeWidth={2}
+                      fill="url(#gradHourly)"
+                      name="Energy (kWh)"
+                      dot={{ r: 3, fill: colors.greenAccent[500] }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </Box>
+            </Box>
+          );
+        })()}
 
         {/* ROW 3: Revenue & Energy Chart (span 9) + Notifications (span 3) */}
         <Box

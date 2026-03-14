@@ -25,6 +25,7 @@ import {
 import { tokens } from "../theme";
 import { useAuth } from "../context/AuthContext";
 import logoImage from "../assets/logo.png";
+import meterImage from "../assets/meter.png";
 
 /* ---- Animated circuit SVG background for left panel ---- */
 const CircuitBG = () => (
@@ -432,18 +433,42 @@ export default function Login() {
           py: { xs: 5, md: 0 },
         }}
       >
-        {/* Subtle top-right glow */}
+        {/* Meter image with glow — top right */}
         <Box
           sx={{
             position: "absolute",
-            top: 0,
-            right: 0,
-            width: 300,
-            height: 300,
-            background: `radial-gradient(circle at top right, rgba(76,206,172,0.04) 0%, transparent 60%)`,
+            top: { xs: 10, md: 20 },
+            right: { xs: 10, md: 30 },
+            width: { xs: 100, md: 160 },
+            height: { xs: 100, md: 160 },
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 2,
             pointerEvents: "none",
+            "&::before": {
+              content: '""',
+              position: "absolute",
+              inset: -20,
+              borderRadius: "50%",
+              background: `radial-gradient(circle, rgba(76,206,172,0.12) 0%, rgba(76,206,172,0.03) 50%, transparent 70%)`,
+            },
           }}
-        />
+        >
+          <Box
+            component="img"
+            src={meterImage}
+            alt="GRIDx Smart Meter"
+            sx={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              filter: "drop-shadow(0 0 20px rgba(76,206,172,0.25))",
+              animation: "pulse 4s ease-in-out infinite",
+              opacity: 0.85,
+            }}
+          />
+        </Box>
 
         <Box
           sx={{

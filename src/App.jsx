@@ -22,6 +22,7 @@ import Analysis from "./pages/Analysis";
 import Billing from "./pages/Billing";
 import Notifications from "./pages/Notifications";
 import Settings from "./pages/Settings";
+import NewMeterDash from "./pages/NewMeterDash";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -53,6 +54,7 @@ function App() {
               <Route path="notifications" element={<Notifications />} />
               <Route path="settings" element={<Settings />} />
               <Route path="users" element={<Admin />} />
+              <Route path="newmeterdash" element={<NewMeterDash />} />
             </Route>
           </Routes>
         </AuthProvider>
