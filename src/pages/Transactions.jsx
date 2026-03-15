@@ -522,7 +522,7 @@ export default function Transactions() {
                         borderBottom: `1px solid ${colors.grey[800]}`,
                       }}
                     >
-                      {t.kWh.toFixed(2)}
+                      {Number(t.kWh).toFixed(2)}
                     </TableCell>
                     <TableCell
                       sx={{

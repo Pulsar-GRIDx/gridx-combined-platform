@@ -1894,7 +1894,7 @@ export default function MeterProfile() {
                               "1px solid rgba(255,255,255,0.05)",
                           }}
                         >
-                          {b.rate.toFixed(2)}
+                          {Number(b.rate).toFixed(2)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -2386,7 +2386,7 @@ export default function MeterProfile() {
                                 "1px solid rgba(255,255,255,0.05)",
                             }}
                           >
-                            {t.kWh.toFixed(2)}
+                            {Number(t.kWh).toFixed(2)}
                           </TableCell>
                           <TableCell
                             sx={{

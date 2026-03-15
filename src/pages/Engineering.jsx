@@ -623,8 +623,8 @@ export default function Engineering() {
                 ["Ref", replOriginal.refNo],
                 ["Customer", replOriginal.customerName],
                 ["Meter", replOriginal.meterNo],
-                ["Amount", `N$ ${replOriginal.amount.toFixed(2)}`],
-                ["kWh", replOriginal.kWh.toFixed(2)],
+                ["Amount", `N$ ${Number(replOriginal.amount).toFixed(2)}`],
+                ["kWh", Number(replOriginal.kWh).toFixed(2)],
                 ["Date", new Date(replOriginal.dateTime).toLocaleString()],
                 ["Status", replOriginal.status],
               ].map(([label, val]) => (

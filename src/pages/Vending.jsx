@@ -532,7 +532,7 @@ export default function Vending() {
                   fontFamily="monospace"
                   color={colors.greenAccent[400]}
                 >
-                  {breakdown.totalKwh.toFixed(2)} kWh
+                  {Number(breakdown.totalKwh).toFixed(2)} kWh
                 </Typography>
               </Box>
             </>
