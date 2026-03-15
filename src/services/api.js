@@ -199,6 +199,23 @@ export const homeClassificationAPI = {
   getById: (id) => get(`/settings/homeClassification/${id}`),
 };
 
+// ===== METER HEALTH (STS Backend) =====
+export const meterHealthAPI = {
+  getLatest: (drn) => request(`/api/v1/meter-health/${drn}`),
+  getHistory: (drn, limit = 72) => request(`/api/v1/meter-health/${drn}/history?limit=${limit}`),
+};
+
+// ===== RELAY EVENTS (STS Backend) =====
+export const relayEventsAPI = {
+  getEvents: (drn, { limit = 100, offset = 0, relay, type } = {}) => {
+    let url = `/api/v1/relay-events/${drn}?limit=${limit}&offset=${offset}`;
+    if (relay !== undefined && relay !== '') url += `&relay=${relay}`;
+    if (type !== undefined && type !== '') url += `&type=${type}`;
+    return request(url);
+  },
+  getSummary: (drn, hours = 168) => request(`/api/v1/relay-events/${drn}/summary?hours=${hours}`),
+};
+
 // ===== METER REGISTRATION =====
 export const meterRegistrationAPI = {
   register: (data) => post('/meter-registration', data),
@@ -250,4 +267,6 @@ export default {
   mqtt: mqttAPI,
   commissionReport: commissionReportAPI,
   homeClassification: homeClassificationAPI,
+  meterHealth: meterHealthAPI,
+  relayEvents: relayEventsAPI,
 };

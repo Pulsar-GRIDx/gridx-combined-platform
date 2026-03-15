@@ -28,6 +28,15 @@ import {
   DialogActions,
   Alert,
   Snackbar,
+  TablePagination,
+  ToggleButton,
+  ToggleButtonGroup,
+  LinearProgress,
+  Card,
+  CardContent,
+  Tooltip,
+  Divider,
+  Grid,
 } from "@mui/material";
 import {
   BoltOutlined,
@@ -56,12 +65,22 @@ import {
   AssignmentOutlined,
   HomeOutlined,
   MapOutlined as MapOutlinedIcon,
+  FavoriteBorderOutlined,
+  SwapVertOutlined,
+  ToggleOn,
+  ToggleOff,
+  HotTub,
 } from "@mui/icons-material";
 import {
   AreaChart,
   Area,
   BarChart,
   Bar,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -74,7 +93,7 @@ import Header from "../components/Header";
 import DataBadge from "../components/DataBadge";
 import { tokens } from "../theme";
 import { useAuth } from "../context/AuthContext";
-import { meterAPI, loadControlAPI, commissionReportAPI, homeClassificationAPI } from "../services/api";
+import { meterAPI, loadControlAPI, commissionReportAPI, homeClassificationAPI, meterHealthAPI, relayEventsAPI } from "../services/api";
 import {
   meters as mockMeters,
   transactions,
@@ -286,6 +305,19 @@ export default function MeterProfile() {
   const [commissionReports, setCommissionReports] = useState([]);
   const [homeClassifications, setHomeClassifications] = useState([]);
 
+  /* ---------- Health & Relay Events state ---------- */
+  const [healthData, setHealthData] = useState(null);
+  const [healthHistory, setHealthHistory] = useState([]);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [relayEvents, setRelayEvents] = useState([]);
+  const [relayTotal, setRelayTotal] = useState(0);
+  const [relaySummary, setRelaySummary] = useState(null);
+  const [relayLoading, setRelayLoading] = useState(false);
+  const [relayPage, setRelayPage] = useState(0);
+  const [relayRowsPerPage, setRelayRowsPerPage] = useState(25);
+  const [relayFilter, setRelayFilter] = useState("");
+  const [relayTypeFilter, setRelayTypeFilter] = useState("");
+
   /* ---------- Load Control UI state ---------- */
   const [mainsReason, setMainsReason] = useState("Irregular performance");
   const [heaterReason, setHeaterReason] = useState("Irregular performance");
@@ -344,6 +376,45 @@ export default function MeterProfile() {
     };
     fetchData();
   }, [drn]);
+
+  /* ---------- Fetch health data when Health tab is selected ---------- */
+  useEffect(() => {
+    if (tab !== 9) return;
+    const fetchHealth = async () => {
+      setHealthLoading(true);
+      try {
+        const [latest, history] = await Promise.allSettled([
+          meterHealthAPI.getLatest(drn),
+          meterHealthAPI.getHistory(drn, 72),
+        ]);
+        if (latest.status === "fulfilled") setHealthData(latest.value?.data || latest.value);
+        if (history.status === "fulfilled") setHealthHistory(history.value?.data || []);
+      } catch (e) { /* ignore */ }
+      setHealthLoading(false);
+    };
+    fetchHealth();
+  }, [drn, tab]);
+
+  /* ---------- Fetch relay events when Relay tab is selected ---------- */
+  useEffect(() => {
+    if (tab !== 10) return;
+    const fetchRelays = async () => {
+      setRelayLoading(true);
+      try {
+        const [eventsRes, summaryRes] = await Promise.allSettled([
+          relayEventsAPI.getEvents(drn, { limit: relayRowsPerPage, offset: relayPage * relayRowsPerPage, relay: relayFilter, type: relayTypeFilter }),
+          relayEventsAPI.getSummary(drn, 168),
+        ]);
+        if (eventsRes.status === "fulfilled") {
+          setRelayEvents(eventsRes.value?.data || []);
+          setRelayTotal(eventsRes.value?.pagination?.total || 0);
+        }
+        if (summaryRes.status === "fulfilled") setRelaySummary(summaryRes.value?.data || null);
+      } catch (e) { /* ignore */ }
+      setRelayLoading(false);
+    };
+    fetchRelays();
+  }, [drn, tab, relayPage, relayRowsPerPage, relayFilter, relayTypeFilter]);
 
   /* ---------- fallback mock meter ---------- */
   const mockMeter = mockMeters.find((m) => m.drn === drn);
@@ -635,6 +706,8 @@ export default function MeterProfile() {
           { icon: <HistoryOutlined sx={{ fontSize: 18 }} />, label: "History", accent: "#a3a3a3" },
           { icon: <AssignmentOutlined sx={{ fontSize: 18 }} />, label: "Commission Report", accent: "#ff9800" },
           { icon: <HomeOutlined sx={{ fontSize: 18 }} />, label: "Home Classification", accent: "#9c27b0" },
+          { icon: <FavoriteBorderOutlined sx={{ fontSize: 18 }} />, label: "Meter Health", accent: "#e91e63" },
+          { icon: <SwapVertOutlined sx={{ fontSize: 18 }} />, label: "Relay Events", accent: "#00897b" },
         ];
         return (
           <Tabs
@@ -3148,6 +3221,250 @@ export default function MeterProfile() {
           </Box>
         </Box>
       )}
+
+      {/* ================================================================ */}
+      {/* TAB 9: Meter Health                                              */}
+      {/* ================================================================ */}
+      {tab === 9 && (
+        <Box>
+          {healthLoading && <LinearProgress sx={{ mb: 2 }} />}
+          {healthData ? (() => {
+            const score = healthData.health_score ?? 0;
+            const scoreColor = score >= 80 ? "#4cceac" : score >= 50 ? "#ff9800" : "#f44336";
+            const scoreLabel = score >= 80 ? "GOOD" : score >= 50 ? "WARNING" : "CRITICAL";
+            return (
+              <Box>
+                {/* Header */}
+                <Box display="flex" alignItems="center" gap={2} mb={2}>
+                  <FavoriteBorderOutlined sx={{ color: scoreColor, fontSize: 28 }} />
+                  <Typography variant="h5" fontWeight="bold" color={colors.grey[100]}>Meter Health Report</Typography>
+                  <Chip label={scoreLabel} size="small" sx={{ backgroundColor: scoreColor, color: "#fff", fontWeight: 700 }} />
+                  {healthData.firmware && <Chip label={`FW: ${healthData.firmware}`} size="small" variant="outlined" sx={{ color: colors.grey[300], borderColor: colors.grey[600] }} />}
+                  {healthData.uptime_seconds && <Chip label={`Uptime: ${Math.floor(healthData.uptime_seconds / 3600)}h`} size="small" variant="outlined" sx={{ color: colors.grey[300], borderColor: colors.grey[600] }} />}
+                </Box>
+
+                <Grid container spacing={2}>
+                  {/* Score gauge */}
+                  <Grid item xs={12} md={4}>
+                    <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 2, p: 3, textAlign: "center", border: `1px solid ${colors.primary[600]}` }}>
+                      <Box sx={{ position: "relative", display: "inline-flex" }}>
+                        <CircularProgress variant="determinate" value={score} size={140} thickness={6} sx={{ color: scoreColor, "& .MuiCircularProgress-circle": { strokeLinecap: "round" } }} />
+                        <Box sx={{ position: "absolute", top: 0, left: 0, bottom: 0, right: 0, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
+                          <Typography variant="h3" fontWeight="bold" color={scoreColor}>{score}</Typography>
+                          <Typography variant="caption" color={colors.grey[300]}>/ 100</Typography>
+                        </Box>
+                      </Box>
+                      <Typography variant="subtitle1" color={colors.grey[100]} mt={1}>Health Score</Typography>
+                    </Box>
+                  </Grid>
+
+                  {/* Power readings + Error counters */}
+                  <Grid item xs={12} md={8}>
+                    <Grid container spacing={1}>
+                      {[
+                        { label: "Voltage", value: healthData.voltage, unit: "V", color: "#4cceac" },
+                        { label: "Current", value: healthData.current_a, unit: "A", color: "#6870fa" },
+                        { label: "Power", value: healthData.active_power, unit: "W", color: "#ff9800" },
+                        { label: "Temperature", value: healthData.temperature, unit: "°C", color: "#f44336" },
+                        { label: "Frequency", value: healthData.frequency, unit: "Hz", color: "#2196f3" },
+                        { label: "Power Factor", value: healthData.power_factor, unit: "", color: "#ab47bc" },
+                        { label: "Mains", value: healthData.mains_state ? "ON" : "OFF", unit: "", color: healthData.mains_state ? "#4cceac" : "#f44336" },
+                        { label: "Geyser", value: healthData.geyser_state ? "ON" : "OFF", unit: "", color: healthData.geyser_state ? "#4cceac" : "#f44336" },
+                      ].map((stat) => (
+                        <Grid item xs={6} sm={3} key={stat.label}>
+                          <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 1, p: 1.5, border: `1px solid ${colors.primary[600]}` }}>
+                            <Typography variant="caption" color={colors.grey[400]}>{stat.label}</Typography>
+                            <Typography variant="h6" fontWeight="bold" color={stat.color}>{stat.value != null ? `${stat.value}${stat.unit ? ` ${stat.unit}` : ""}` : "-"}</Typography>
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                    {/* Error counters */}
+                    <Grid container spacing={1} mt={0.5}>
+                      {[
+                        { label: "UART Errors", value: healthData.uart_errors, color: "#f44336" },
+                        { label: "Relay Mismatches", value: healthData.relay_mismatches, color: "#ff9800" },
+                        { label: "Power Anomalies", value: healthData.power_anomalies, color: "#ab47bc" },
+                      ].map((err) => (
+                        <Grid item xs={4} key={err.label}>
+                          <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 1, p: 1.5, border: `1px solid ${colors.primary[600]}`, textAlign: "center" }}>
+                            <Typography variant="caption" color={colors.grey[400]}>{err.label}</Typography>
+                            <Typography variant="h5" fontWeight="bold" color={err.value > 0 ? err.color : colors.grey[300]}>{err.value ?? 0}</Typography>
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Grid>
+                </Grid>
+
+                {/* Health trend chart */}
+                {healthHistory.length > 1 && (
+                  <Box mt={3} sx={{ backgroundColor: colors.primary[500], borderRadius: 2, p: 2, border: `1px solid ${colors.primary[600]}` }}>
+                    <Typography variant="subtitle2" color={colors.grey[300]} mb={1}>Health Score Trend</Typography>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={healthHistory.slice().reverse().map((h) => ({ time: new Date(h.created_at).toLocaleDateString("en-ZA", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }), score: h.health_score }))}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={colors.primary[600]} />
+                        <XAxis dataKey="time" tick={{ fill: colors.grey[400], fontSize: 10 }} />
+                        <YAxis domain={[0, 100]} tick={{ fill: colors.grey[400], fontSize: 10 }} />
+                        <RechartsTooltip contentStyle={{ backgroundColor: colors.primary[400], border: "none", color: colors.grey[100] }} />
+                        <Line type="monotone" dataKey="score" stroke="#4cceac" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </Box>
+                )}
+
+                {healthData.created_at && (
+                  <Typography variant="caption" color={colors.grey[400]} mt={2} display="block">
+                    Last updated: {new Date(healthData.created_at).toLocaleString("en-ZA")}
+                  </Typography>
+                )}
+              </Box>
+            );
+          })() : !healthLoading && (
+            <Typography color={colors.grey[400]} sx={{ textAlign: "center", py: 6 }}>
+              No health data received yet. The meter sends health reports every hour via SIM800.
+            </Typography>
+          )}
+        </Box>
+      )}
+
+      {/* ================================================================ */}
+      {/* TAB 10: Relay Events                                             */}
+      {/* ================================================================ */}
+      {tab === 10 && (() => {
+        const REASON_COLORS = ["#868dfb","#4cceac","#f44336","#ff9800","#2196f3","#ab47bc","#78909c","#e91e63","#ff5722"];
+        const REASON_LABELS = ["Unknown","Manual Control","Credit Expired","Power Limit","Scheduled","Remote Command","System Startup","Tamper Detected","Overcurrent"];
+        const fmtTime = (ts) => ts ? new Date(ts).toLocaleString("en-ZA", { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "-";
+
+        // Pie chart data from summary
+        const pieData = relaySummary?.summary ? Object.entries(
+          relaySummary.summary.reduce((acc, s) => {
+            const label = s.reason_name || REASON_LABELS[s.reason_code] || "Unknown";
+            acc[label] = (acc[label] || 0) + s.event_count;
+            return acc;
+          }, {})
+        ).map(([name, value]) => ({ name, value })) : [];
+
+        return (
+          <Box>
+            {/* Header */}
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={1}>
+              <Box display="flex" alignItems="center" gap={1}>
+                <SwapVertOutlined sx={{ color: "#4cceac", fontSize: 28 }} />
+                <Typography variant="h5" fontWeight="bold" color={colors.grey[100]}>Relay Event Log</Typography>
+                {relayTotal > 0 && <Chip label={`${relayTotal} events`} size="small" sx={{ backgroundColor: colors.primary[500], color: colors.grey[100] }} />}
+              </Box>
+              <Box display="flex" gap={1} flexWrap="wrap">
+                <ToggleButtonGroup size="small" value={relayFilter} exclusive onChange={(_, v) => { setRelayFilter(v === null ? "" : v); setRelayPage(0); }}
+                  sx={{ "& .MuiToggleButton-root": { color: colors.grey[300], borderColor: colors.primary[600], textTransform: "none", "&.Mui-selected": { backgroundColor: colors.primary[500], color: colors.greenAccent[500] } } }}>
+                  <ToggleButton value="">All</ToggleButton>
+                  <ToggleButton value="0"><PowerOutlined sx={{ fontSize: 14, mr: 0.5 }} />Mains</ToggleButton>
+                  <ToggleButton value="1"><HotTub sx={{ fontSize: 14, mr: 0.5 }} />Geyser</ToggleButton>
+                </ToggleButtonGroup>
+                <ToggleButtonGroup size="small" value={relayTypeFilter} exclusive onChange={(_, v) => { setRelayTypeFilter(v === null ? "" : v); setRelayPage(0); }}
+                  sx={{ "& .MuiToggleButton-root": { color: colors.grey[300], borderColor: colors.primary[600], textTransform: "none", "&.Mui-selected": { backgroundColor: colors.primary[500], color: colors.greenAccent[500] } } }}>
+                  <ToggleButton value="">All</ToggleButton>
+                  <ToggleButton value="0"><SwapVertOutlined sx={{ fontSize: 14, mr: 0.5 }} />State</ToggleButton>
+                  <ToggleButton value="1"><TuneOutlined sx={{ fontSize: 14, mr: 0.5 }} />Control</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+            </Box>
+
+            {relayLoading && <LinearProgress sx={{ mb: 2 }} />}
+
+            {/* Summary charts */}
+            {pieData.length > 0 && (
+              <Grid container spacing={2} mb={2}>
+                <Grid item xs={12} md={6}>
+                  <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 2, p: 2, border: `1px solid ${colors.primary[600]}` }}>
+                    <Typography variant="subtitle2" color={colors.grey[300]} mb={1}>Event Reasons (Last 7 Days)</Typography>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={3} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} >
+                          {pieData.map((_, i) => <Cell key={i} fill={REASON_COLORS[i % REASON_COLORS.length]} />)}
+                        </Pie>
+                        <RechartsTooltip contentStyle={{ backgroundColor: colors.primary[400], border: "none", color: colors.grey[100] }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </Box>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 2, p: 2, border: `1px solid ${colors.primary[600]}` }}>
+                    <Typography variant="subtitle2" color={colors.grey[300]} mb={1}>Event Breakdown</Typography>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={[
+                        { name: "Mains", count: relaySummary?.summary?.filter(s => s.relay_index === 0).reduce((sum, s) => sum + s.event_count, 0) || 0 },
+                        { name: "Geyser", count: relaySummary?.summary?.filter(s => s.relay_index === 1).reduce((sum, s) => sum + s.event_count, 0) || 0 },
+                      ]}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={colors.primary[600]} />
+                        <XAxis dataKey="name" tick={{ fill: colors.grey[400] }} />
+                        <YAxis tick={{ fill: colors.grey[400] }} />
+                        <RechartsTooltip contentStyle={{ backgroundColor: colors.primary[400], border: "none", color: colors.grey[100] }} />
+                        <Bar dataKey="count" fill="#4cceac" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </Box>
+                </Grid>
+              </Grid>
+            )}
+
+            {/* Events table */}
+            <TableContainer sx={{ backgroundColor: colors.primary[500], borderRadius: 2, border: `1px solid ${colors.primary[600]}` }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    {["Time", "Relay", "Type", "Action", "Reason", "Detail"].map((h) => (
+                      <TableCell key={h} sx={{ color: colors.grey[300], fontWeight: 600, borderBottom: `1px solid ${colors.primary[600]}` }}>{h}</TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {relayEvents.length === 0 && !relayLoading ? (
+                    <TableRow><TableCell colSpan={6} align="center"><Typography color={colors.grey[400]} py={3}>No relay events recorded yet</Typography></TableCell></TableRow>
+                  ) : relayEvents.map((evt, i) => (
+                    <TableRow key={evt.id || i} sx={{ "&:hover": { backgroundColor: colors.primary[600] }, "& td": { borderBottom: `1px solid ${colors.primary[600]}` } }}>
+                      <TableCell sx={{ color: colors.grey[100], fontSize: 12, whiteSpace: "nowrap" }}>{fmtTime(evt.meter_timestamp || evt.received_at)}</TableCell>
+                      <TableCell>
+                        <Box display="flex" alignItems="center" gap={0.5}>
+                          {evt.relay_index === 0 ? <PowerOutlined sx={{ fontSize: 16, color: "#4cceac" }} /> : <HotTub sx={{ fontSize: 16, color: "#f4a261" }} />}
+                          <Typography variant="body2" color={colors.grey[100]} fontWeight={500}>{evt.relay_name || (evt.relay_index === 0 ? "Mains" : "Geyser")}</Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Chip label={evt.entry_type === 0 ? "State" : "Control"} size="small" variant="outlined"
+                          sx={{ color: evt.entry_type === 0 ? "#4cceac" : "#ab47bc", borderColor: evt.entry_type === 0 ? "#4cceac" : "#ab47bc", fontSize: 11 }} />
+                      </TableCell>
+                      <TableCell>
+                        {evt.entry_type === 0 ? (
+                          <Chip icon={evt.state ? <ToggleOn /> : <ToggleOff />} label={evt.state ? "ON" : "OFF"} size="small"
+                            sx={{ backgroundColor: evt.state ? "#1b5e20" : "#b71c1c", color: "#fff", fontWeight: 600 }} />
+                        ) : (
+                          <Chip icon={evt.control ? <ToggleOn /> : <ToggleOff />} label={evt.control ? "ENABLED" : "DISABLED"} size="small"
+                            sx={{ backgroundColor: evt.control ? "#0d47a1" : "#4a148c", color: "#fff", fontWeight: 600 }} />
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Chip label={evt.reason_name || REASON_LABELS[evt.reason_code] || "Unknown"} size="small"
+                          sx={{ backgroundColor: REASON_COLORS[evt.reason_code] || "#868dfb", color: "#fff", fontSize: 11, fontWeight: 500 }} />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color={colors.grey[200]} sx={{ fontSize: 12, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {evt.reason_text || "-"}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            {relayTotal > 0 && (
+              <TablePagination component="div" count={relayTotal} page={relayPage} onPageChange={(_, p) => setRelayPage(p)}
+                rowsPerPage={relayRowsPerPage} onRowsPerPageChange={(e) => { setRelayRowsPerPage(parseInt(e.target.value, 10)); setRelayPage(0); }}
+                rowsPerPageOptions={[10, 25, 50, 100]} sx={{ color: colors.grey[100] }} />
+            )}
+          </Box>
+        );
+      })()}
 
       {/* ---- Confirmation Dialog ---- */}
       <Dialog
