@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Box,
   Typography,
@@ -16,6 +16,7 @@ import {
   InputAdornment,
   Button,
   Divider,
+  CircularProgress,
   useTheme,
 } from "@mui/material";
 import {
@@ -36,7 +37,8 @@ import {
 } from "@mui/icons-material";
 import { tokens } from "../theme";
 import Header from "../components/Header";
-import { customers } from "../services/mockData";
+import { vendingAPI } from "../services/api";
+import { customers as mockCustomers } from "../services/mockData";
 
 // ---- Helpers ----------------------------------------------------------------
 
@@ -118,6 +120,14 @@ export default function Customers() {
   const [search, setSearch] = useState("");
   const [areaFilter, setAreaFilter] = useState("All Areas");
   const [selectedId, setSelectedId] = useState(null);
+  const [customers, setCustomers] = useState(mockCustomers);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    vendingAPI.getCustomers().then(r => {
+      if (r.success && r.data?.length > 0) setCustomers(r.data);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
 
   // Filtered list
   const filtered = useMemo(() => {
@@ -125,15 +135,15 @@ export default function Customers() {
       if (search) {
         const q = search.toLowerCase();
         const match =
-          c.name.toLowerCase().includes(q) ||
-          c.accountNo.toLowerCase().includes(q) ||
-          c.meterNo.toLowerCase().includes(q);
+          (c.name || '').toLowerCase().includes(q) ||
+          (c.accountNo || '').toLowerCase().includes(q) ||
+          (c.meterNo || '').toLowerCase().includes(q);
         if (!match) return false;
       }
       if (areaFilter !== "All Areas" && c.area !== areaFilter) return false;
       return true;
     });
-  }, [search, areaFilter]);
+  }, [search, areaFilter, customers]);
 
   const selected = customers.find((c) => c.id === selectedId) || null;
 

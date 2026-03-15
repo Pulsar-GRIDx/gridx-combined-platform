@@ -59,6 +59,7 @@ const mqttRoutes = require('./routes/mqttRoutes');
 let otaRoutes;
 try { otaRoutes = require('./routes/otaRoutes'); } catch (e) { /* optional */ }
 const groupControlRoutes = require('./routes/groupControlRoutes');
+const vendingRoutes = require('./vending/vendingRoutes');
 
 // Initialize MQTT handler (subscribes to meter telemetry topics)
 const mqttHandler = require('./services/mqttHandler');
@@ -90,6 +91,7 @@ apiRouter.use('/billing', billingNotificationRoutes);
 apiRouter.use('/', meterDataRoutes);
 apiRouter.use('/', mqttRoutes);
 apiRouter.use('/', groupControlRoutes);
+apiRouter.use('/vending', vendingRoutes);
 
 // Fast meters-list endpoint (avoids slow JOINs in meterService)
 const db = require('./config/db');

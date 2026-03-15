@@ -250,6 +250,77 @@ export const suburbAPI = {
   getEnergy: (suburbs) => post('/suburbEnergy', { suburbs }),
 };
 
+// ===== VENDING (NamPower STS) =====
+export const vendingAPI = {
+  // Dashboard
+  getDashboard: () => get('/vending/dashboard'),
+  // Customers
+  getCustomers: (params) => {
+    const q = new URLSearchParams(params).toString();
+    return get(`/vending/customers${q ? '?' + q : ''}`);
+  },
+  getCustomerByMeter: (meterNo) => get(`/vending/customers/${meterNo}`),
+  createCustomer: (data) => post('/vending/customers', data),
+  updateCustomer: (id, data) => put(`/vending/customers/${id}`, data),
+  getAreas: () => get('/vending/customers/areas/list'),
+  // Vending
+  vendToken: (data) => post('/vending/vend', data),
+  issueFreeToken: (data) => post('/vending/free-token', data),
+  // Transactions
+  getTransactions: (params) => {
+    const q = new URLSearchParams(params).toString();
+    return get(`/vending/transactions${q ? '?' + q : ''}`);
+  },
+  getTransaction: (id) => get(`/vending/transactions/${id}`),
+  reverseTransaction: (id, reason) => post(`/vending/transactions/${id}/reverse`, { reason }),
+  reprintToken: (id) => post(`/vending/transactions/${id}/reprint`, {}),
+  // Vendors
+  getVendors: () => get('/vending/vendors'),
+  getVendor: (id) => get(`/vending/vendors/${id}`),
+  createVendor: (data) => post('/vending/vendors', data),
+  updateVendor: (id, data) => put(`/vending/vendors/${id}`, data),
+  deleteVendor: (id) => del(`/vending/vendors/${id}`),
+  getVendorCommission: (id) => get(`/vending/vendors/${id}/commission`),
+  // Batches
+  getSalesBatches: (params) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return get(`/vending/batches/sales${q ? '?' + q : ''}`);
+  },
+  createSalesBatch: (data) => post('/vending/batches/sales', data),
+  closeSalesBatch: (id) => post(`/vending/batches/sales/${id}/close`, {}),
+  getBankingBatches: () => get('/vending/batches/banking'),
+  createBankingBatch: (data) => post('/vending/batches/banking', data),
+  reconcileBankingBatch: (id) => post(`/vending/batches/banking/${id}/reconcile`, {}),
+  // Tariffs
+  getTariffConfig: () => get('/vending/tariffs/config'),
+  updateTariffConfig: (data) => put('/vending/tariffs/config', data),
+  getTariffGroups: () => get('/vending/tariffs/groups'),
+  createTariffGroup: (data) => post('/vending/tariffs/groups', data),
+  updateTariffGroup: (id, data) => put(`/vending/tariffs/groups/${id}`, data),
+  // Arrears
+  getArrears: () => get('/vending/arrears'),
+  setArrears: (meterNo, amount) => post(`/vending/arrears/${meterNo}`, { amount }),
+  getArrearsSummary: () => get('/vending/arrears/summary'),
+  // Audit
+  getAuditLog: (params) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return get(`/vending/audit${q ? '?' + q : ''}`);
+  },
+  // Reports
+  getDailySalesReport: (params) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return get(`/vending/reports/daily-sales${q ? '?' + q : ''}`);
+  },
+  getRevenueByAreaReport: () => get('/vending/reports/revenue-by-area'),
+  getVendorPerformanceReport: () => get('/vending/reports/vendor-performance'),
+  getMeterStatusReport: () => get('/vending/reports/meter-status'),
+  getTokenAnalysisReport: () => get('/vending/reports/token-analysis'),
+  getSystemAuditReport: (params) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return get(`/vending/reports/system-audit${q ? '?' + q : ''}`);
+  },
+};
+
 export default {
   auth: authAPI,
   meter: meterAPI,
@@ -269,4 +340,5 @@ export default {
   homeClassification: homeClassificationAPI,
   meterHealth: meterHealthAPI,
   relayEvents: relayEventsAPI,
+  vending: vendingAPI,
 };

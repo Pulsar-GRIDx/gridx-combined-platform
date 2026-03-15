@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   Typography,
@@ -18,6 +18,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Snackbar,
+  Alert,
   useTheme,
 } from "@mui/material";
 import {
@@ -31,7 +33,8 @@ import {
 } from "@mui/icons-material";
 import { tokens } from "../theme";
 import Header from "../components/Header";
-import { salesBatches, bankingBatches, vendors } from "../services/mockData";
+import { vendingAPI } from "../services/api";
+import { salesBatches as mockSalesBatches, bankingBatches as mockBankingBatches, vendors as mockVendors } from "../services/mockData";
 
 // ---- Helpers ----------------------------------------------------------------
 
@@ -68,25 +71,39 @@ export default function Batches() {
   const [bankDialogOpen, setBankDialogOpen] = useState(false);
   const [bankSalesBatch, setBankSalesBatch] = useState("");
   const [bankRef, setBankRef] = useState("");
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
 
-  // Local copies for demo mutations
-  const [localSalesBatches, setLocalSalesBatches] = useState(salesBatches);
-  const [localBankingBatches, setLocalBankingBatches] =
-    useState(bankingBatches);
+  // Local copies
+  const [localSalesBatches, setLocalSalesBatches] = useState(mockSalesBatches);
+  const [localBankingBatches, setLocalBankingBatches] = useState(mockBankingBatches);
+  const [vendors, setVendors] = useState(mockVendors);
+
+  // Load from API
+  useEffect(() => {
+    vendingAPI.getSalesBatches().then(r => {
+      if (r.success && r.data?.length > 0) setLocalSalesBatches(r.data);
+    }).catch(() => {});
+    vendingAPI.getBankingBatches().then(r => {
+      if (r.success && r.data?.length > 0) setLocalBankingBatches(r.data);
+    }).catch(() => {});
+    vendingAPI.getVendors().then(r => {
+      if (r.success && r.data?.length > 0) setVendors(r.data);
+    }).catch(() => {});
+  }, []);
 
   // Derived stats
   const openBatches = localSalesBatches.filter(
     (b) => b.status === "Open"
   ).length;
   const totalSalesRevenue = localSalesBatches.reduce(
-    (s, b) => s + b.totalAmount,
+    (s, b) => s + Number(b.totalAmount || 0),
     0
   );
   const closedSalesBatches = localSalesBatches.filter(
     (b) => b.status === "Closed"
   );
   const selectedClosedBatch = closedSalesBatches.find(
-    (b) => b.id === bankSalesBatch
+    (b) => String(b.id) === String(bankSalesBatch)
   );
 
   // Handlers
@@ -96,36 +113,50 @@ export default function Batches() {
     setSalesDialogOpen(true);
   };
 
-  const handleCreateSalesBatch = () => {
-    const vendor = vendors.find((v) => v.id === newBatchVendor);
-    if (!vendor) return;
-    const newBatch = {
-      id: `SB-${String(localSalesBatches.length + 1).padStart(3, "0")}`,
-      batchNo: `BATCH-${String(localSalesBatches.length + 1).padStart(
-        3,
-        "0"
-      )}`,
-      vendorId: vendor.id,
-      vendorName: vendor.name,
-      status: "Open",
-      transactionCount: 0,
-      totalAmount: 0,
-      openedAt: new Date().toISOString(),
-      closedAt: null,
-      notes: newBatchNotes,
-    };
-    setLocalSalesBatches((prev) => [...prev, newBatch]);
+  const handleCreateSalesBatch = async () => {
+    if (!newBatchVendor) return;
+    try {
+      const res = await vendingAPI.createSalesBatch({ vendorId: newBatchVendor, notes: newBatchNotes });
+      if (res.success) {
+        setSnackbar({ open: true, message: "Sales batch created", severity: "success" });
+        // Refresh
+        const r = await vendingAPI.getSalesBatches();
+        if (r.success) setLocalSalesBatches(r.data);
+      }
+    } catch {
+      // Fallback local
+      const vendor = vendors.find((v) => String(v.id) === String(newBatchVendor));
+      const newBatch = {
+        id: `SB-${String(localSalesBatches.length + 1).padStart(3, "0")}`,
+        batchNo: `BATCH-${String(localSalesBatches.length + 1).padStart(3, "0")}`,
+        vendorId: newBatchVendor,
+        vendorName: vendor?.name || 'Unknown',
+        status: "Open",
+        transactionCount: 0,
+        totalAmount: 0,
+        openedAt: new Date().toISOString(),
+        closedAt: null,
+        notes: newBatchNotes,
+      };
+      setLocalSalesBatches((prev) => [...prev, newBatch]);
+    }
     setSalesDialogOpen(false);
   };
 
-  const handleCloseBatch = (batchId) => {
-    setLocalSalesBatches((prev) =>
-      prev.map((b) =>
-        b.id === batchId
-          ? { ...b, status: "Closed", closedAt: new Date().toISOString() }
-          : b
-      )
-    );
+  const handleCloseBatch = async (batchId) => {
+    try {
+      await vendingAPI.closeSalesBatch(batchId);
+      const r = await vendingAPI.getSalesBatches();
+      if (r.success) setLocalSalesBatches(r.data);
+    } catch {
+      setLocalSalesBatches((prev) =>
+        prev.map((b) =>
+          String(b.id) === String(batchId)
+            ? { ...b, status: "Closed", closedAt: new Date().toISOString() }
+            : b
+        )
+      );
+    }
   };
 
   const handleOpenBankDialog = () => {
@@ -134,21 +165,27 @@ export default function Batches() {
     setBankDialogOpen(true);
   };
 
-  const handleCreateBankingBatch = () => {
-    if (!selectedClosedBatch || !bankRef) return;
-    const newBank = {
-      id: `BB-${String(localBankingBatches.length + 1).padStart(3, "0")}`,
-      batchNo: `BANK-2026-${String(localBankingBatches.length + 1).padStart(
-        3,
-        "0"
-      )}`,
-      salesBatchId: selectedClosedBatch.id,
-      bankRef,
-      status: "Pending",
-      totalAmount: selectedClosedBatch.totalAmount,
-      createdAt: new Date().toISOString(),
-    };
-    setLocalBankingBatches((prev) => [...prev, newBank]);
+  const handleCreateBankingBatch = async () => {
+    if (!bankSalesBatch || !bankRef) return;
+    try {
+      const res = await vendingAPI.createBankingBatch({ salesBatchId: bankSalesBatch, bankRef });
+      if (res.success) {
+        setSnackbar({ open: true, message: "Banking batch created", severity: "success" });
+        const r = await vendingAPI.getBankingBatches();
+        if (r.success) setLocalBankingBatches(r.data);
+      }
+    } catch {
+      const newBank = {
+        id: `BB-${String(localBankingBatches.length + 1).padStart(3, "0")}`,
+        batchNo: `BANK-2026-${String(localBankingBatches.length + 1).padStart(3, "0")}`,
+        salesBatchId: bankSalesBatch,
+        bankRef,
+        status: "Pending",
+        totalAmount: selectedClosedBatch?.totalAmount || 0,
+        createdAt: new Date().toISOString(),
+      };
+      setLocalBankingBatches((prev) => [...prev, newBank]);
+    }
     setBankDialogOpen(false);
   };
 

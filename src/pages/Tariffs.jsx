@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   Typography,
@@ -16,12 +16,15 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Snackbar,
+  Alert,
   useTheme,
 } from "@mui/material";
 import { SaveOutlined } from "@mui/icons-material";
 import { tokens } from "../theme";
 import Header from "../components/Header";
-import { tariffGroups, tariffConfig } from "../services/mockData";
+import { vendingAPI } from "../services/api";
+import { tariffGroups as mockTariffGroups, tariffConfig as mockTariffConfig } from "../services/mockData";
 
 // ---- Block tier colors ----
 const blockColors = ["#4cceac", "#00b4d8", "#f2b705", "#db4f4a"];
@@ -31,16 +34,43 @@ export default function Tariffs() {
   const colors = tokens(theme.palette.mode);
 
   const [selectedTab, setSelectedTab] = useState(0);
+  const [tariffGroups, setTariffGroups] = useState(mockTariffGroups);
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
 
   const [config, setConfig] = useState({
-    vatRate: tariffConfig.vatRate,
-    fixedCharge: tariffConfig.fixedCharge,
-    relLevy: tariffConfig.relLevy,
-    minPurchase: tariffConfig.minPurchase,
+    vatRate: mockTariffConfig.vatRate,
+    fixedCharge: mockTariffConfig.fixedCharge,
+    relLevy: mockTariffConfig.relLevy,
+    minPurchase: mockTariffConfig.minPurchase,
   });
+
+  useEffect(() => {
+    vendingAPI.getTariffConfig().then(r => {
+      if (r.success && r.data) {
+        setConfig({
+          vatRate: r.data.vatRate ?? mockTariffConfig.vatRate,
+          fixedCharge: r.data.fixedCharge ?? mockTariffConfig.fixedCharge,
+          relLevy: r.data.relLevy ?? mockTariffConfig.relLevy,
+          minPurchase: r.data.minPurchase ?? mockTariffConfig.minPurchase,
+        });
+      }
+    }).catch(() => {});
+    vendingAPI.getTariffGroups().then(r => {
+      if (r.success && r.data?.length > 0) setTariffGroups(r.data);
+    }).catch(() => {});
+  }, []);
 
   const handleChange = (field) => (e) => {
     setConfig((prev) => ({ ...prev, [field]: e.target.value }));
+  };
+
+  const handleSaveConfig = async () => {
+    try {
+      await vendingAPI.updateTariffConfig(config);
+      setSnackbar({ open: true, message: "Configuration saved", severity: "success" });
+    } catch (err) {
+      setSnackbar({ open: true, message: err.message || "Save failed", severity: "error" });
+    }
   };
 
   const selectedGroup = tariffGroups[selectedTab] || tariffGroups[0];
@@ -116,6 +146,7 @@ export default function Tariffs() {
           <Button
             variant="contained"
             startIcon={<SaveOutlined />}
+            onClick={handleSaveConfig}
             sx={{
               mt: "10px",
               backgroundColor: colors.greenAccent[500],
@@ -334,6 +365,9 @@ export default function Tariffs() {
           </TableContainer>
         </Box>
       </Box>
+      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>{snackbar.message}</Alert>
+      </Snackbar>
     </Box>
   );
 }

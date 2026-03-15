@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Box,
   Typography,
@@ -23,6 +23,9 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  CircularProgress,
+  Snackbar,
+  Alert,
   useTheme,
 } from "@mui/material";
 import {
@@ -37,7 +40,8 @@ import {
 } from "@mui/icons-material";
 import { tokens } from "../theme";
 import Header from "../components/Header";
-import { transactions } from "../services/mockData";
+import { vendingAPI } from "../services/api";
+import { transactions as mockTransactions } from "../services/mockData";
 
 // ---- Helpers ----
 const fmtCurrency = (n) =>
@@ -75,6 +79,31 @@ export default function Transactions() {
   const [dateTo, setDateTo] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [transactions, setTransactions] = useState(mockTransactions);
+  const [loading, setLoading] = useState(true);
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
+
+  // Load transactions from API
+  const fetchTransactions = async () => {
+    setLoading(true);
+    try {
+      const params = {};
+      if (search) params.search = search;
+      if (typeFilter !== "All") params.type = typeFilter;
+      if (statusFilter !== "All") params.status = statusFilter;
+      if (dateFrom) params.from = dateFrom;
+      if (dateTo) params.to = dateTo;
+      const res = await vendingAPI.getTransactions(params);
+      if (res.success && res.data?.length > 0) {
+        setTransactions(res.data);
+      }
+    } catch {
+      // Keep mock data as fallback
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchTransactions(); }, []);
 
   // Reversal dialog state
   const [reverseDialogOpen, setReverseDialogOpen] = useState(false);
@@ -87,9 +116,9 @@ export default function Transactions() {
       if (search) {
         const q = search.toLowerCase();
         const match =
-          t.refNo.toLowerCase().includes(q) ||
-          t.customerName.toLowerCase().includes(q) ||
-          t.meterNo.toLowerCase().includes(q);
+          (t.refNo || '').toLowerCase().includes(q) ||
+          (t.customerName || '').toLowerCase().includes(q) ||
+          (t.meterNo || '').toLowerCase().includes(q);
         if (!match) return false;
       }
       if (dateFrom) {
@@ -107,13 +136,13 @@ export default function Transactions() {
       if (statusFilter !== "All" && t.status !== statusFilter) return false;
       return true;
     });
-  }, [search, dateFrom, dateTo, typeFilter, statusFilter]);
+  }, [search, dateFrom, dateTo, typeFilter, statusFilter, transactions]);
 
   // ---- Summary stats (from filtered) ----
   const totalCount = filtered.length;
   const grossSales = filtered
     .filter((t) => t.type === "Vend" && t.status === "Completed")
-    .reduce((s, t) => s + t.amount, 0);
+    .reduce((s, t) => s + Number(t.amount), 0);
   const todayTokens = filtered.filter(
     (t) => t.status === "Completed" && t.kWh > 0
   ).length;
@@ -128,7 +157,17 @@ export default function Transactions() {
     setReverseDialogOpen(true);
   };
 
-  const handleReverseConfirm = () => {
+  const handleReverseConfirm = async () => {
+    if (!reverseTarget || !reverseReason) return;
+    try {
+      const res = await vendingAPI.reverseTransaction(reverseTarget.id, reverseReason);
+      if (res.success) {
+        setSnackbar({ open: true, message: "Transaction reversed successfully", severity: "success" });
+        fetchTransactions();
+      }
+    } catch (err) {
+      setSnackbar({ open: true, message: err.message || "Reversal failed", severity: "error" });
+    }
     setReverseDialogOpen(false);
     setReverseTarget(null);
     setReverseReason("");

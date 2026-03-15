@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Box,
   Typography,
@@ -11,6 +11,9 @@ import {
   TableRow,
   TableCell,
   Divider,
+  CircularProgress,
+  Snackbar,
+  Alert,
   useTheme,
 } from "@mui/material";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
@@ -21,33 +24,28 @@ import SmsOutlinedIcon from "@mui/icons-material/SmsOutlined";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
 import { tokens } from "../theme";
 import Header from "../components/Header";
-import { customers, tariffGroups, tariffConfig } from "../services/mockData";
+import { vendingAPI } from "../services/api";
+import { customers as mockCustomers, tariffGroups as mockTariffGroups, tariffConfig as mockTariffConfig } from "../services/mockData";
 
 // ---- Helpers ----
 const fmtN$ = (v) => `N$ ${Number(v).toFixed(2)}`;
 const presetAmounts = [10, 25, 50, 100, 200, 500];
-const sampleCustomers = customers.slice(0, 4);
-
-function generateToken() {
-  let t = "";
-  for (let i = 0; i < 20; i++) t += Math.floor(Math.random() * 10);
-  return t;
-}
 
 function formatToken(t) {
   return t.replace(/(.{4})/g, "$1 ").trim();
 }
 
-function calculateBreakdown(amount, arrears, tariffBlocks) {
-  const vatAmount = amount - amount / (1 + tariffConfig.vatRate / 100);
+function calculateBreakdown(amount, arrears, tariffBlocks, config) {
+  const tc = config || mockTariffConfig;
+  const vatAmount = amount - amount / (1 + tc.vatRate / 100);
   const afterVat = amount - vatAmount;
-  const afterFixed = afterVat - tariffConfig.fixedCharge;
-  const afterLevy = afterFixed - tariffConfig.relLevy;
+  const afterFixed = afterVat - tc.fixedCharge;
+  const afterLevy = afterFixed - tc.relLevy;
 
   let arrearsDeduction = 0;
   if (arrears > 0) {
     arrearsDeduction = Math.min(
-      amount * (tariffConfig.arrearsPercentage / 100),
+      amount * (tc.arrearsPercentage / 100),
       arrears
     );
   }
@@ -59,8 +57,9 @@ function calculateBreakdown(amount, arrears, tariffBlocks) {
 
   for (const block of tariffBlocks) {
     if (remaining <= 0) break;
-    const blockCapacity =
-      block.max === Infinity ? Infinity : block.max - (block.min > 0 ? block.min - 1 : 0);
+    const maxVal = block.max || block.maxKwh || 999999;
+    const minVal = block.min || block.minKwh || 0;
+    const blockCapacity = maxVal >= 999999 ? Infinity : maxVal - (minVal > 0 ? minVal - 1 : 0);
     const kwhInBlock = Math.min(remaining / block.rate, blockCapacity);
     const costInBlock = kwhInBlock * block.rate;
     totalKwh += kwhInBlock;
@@ -70,8 +69,8 @@ function calculateBreakdown(amount, arrears, tariffBlocks) {
   return {
     amountTendered: amount,
     vatAmount,
-    fixedCharge: tariffConfig.fixedCharge,
-    relLevy: tariffConfig.relLevy,
+    fixedCharge: tc.fixedCharge,
+    relLevy: tc.relLevy,
     arrearsDeduction,
     netEnergy,
     totalKwh,
@@ -88,35 +87,74 @@ export default function Vending() {
   const [customAmount, setCustomAmount] = useState("");
   const [generatedToken, setGeneratedToken] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [tariffGroups, setTariffGroups] = useState(mockTariffGroups);
+  const [tariffConfigData, setTariffConfigData] = useState(mockTariffConfig);
+  const [sampleCustomers, setSampleCustomers] = useState(mockCustomers.slice(0, 4));
+  const [loading, setLoading] = useState(false);
+  const [vendLoading, setVendLoading] = useState(false);
+  const [vendResult, setVendResult] = useState(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
+
+  // Load tariff data from API
+  useEffect(() => {
+    vendingAPI.getTariffGroups().then(r => {
+      if (r.success && r.data?.length > 0) setTariffGroups(r.data);
+    }).catch(() => {});
+    vendingAPI.getTariffConfig().then(r => {
+      if (r.success && r.data) setTariffConfigData(r.data);
+    }).catch(() => {});
+    vendingAPI.getCustomers({ limit: 4 }).then(r => {
+      if (r.success && r.data?.length > 0) setSampleCustomers(r.data);
+    }).catch(() => {});
+  }, []);
 
   const amount = selectedAmount || (customAmount ? parseFloat(customAmount) : 0);
 
   const tariffBlocks = useMemo(() => {
     if (!selectedCustomer) return [];
-    const group = tariffGroups.find((g) => g.name === selectedCustomer.tariffGroup);
-    return group ? group.blocks : tariffGroups[0].blocks;
-  }, [selectedCustomer]);
+    const group = tariffGroups.find((g) => g.name === (selectedCustomer.tariffGroup || 'Residential'));
+    return group ? group.blocks : (tariffGroups[0]?.blocks || []);
+  }, [selectedCustomer, tariffGroups]);
 
   const breakdown = useMemo(() => {
     if (!selectedCustomer || !amount || amount <= 0) return null;
-    return calculateBreakdown(amount, selectedCustomer.arrears, tariffBlocks);
-  }, [amount, selectedCustomer, tariffBlocks]);
+    return calculateBreakdown(amount, selectedCustomer.arrears || 0, tariffBlocks, tariffConfigData);
+  }, [amount, selectedCustomer, tariffBlocks, tariffConfigData]);
 
-  const handleSearch = () => {
-    const q = searchQuery.trim().toLowerCase();
+  const handleSearch = async () => {
+    const q = searchQuery.trim();
     if (!q) return;
-    const found = customers.find(
-      (c) =>
-        c.meterNo.toLowerCase().includes(q) ||
-        c.accountNo.toLowerCase().includes(q) ||
-        c.name.toLowerCase().includes(q)
-    );
-    if (found) {
-      setSelectedCustomer(found);
-      setSelectedAmount(null);
-      setCustomAmount("");
-      setGeneratedToken(null);
+    setLoading(true);
+    try {
+      const res = await vendingAPI.getCustomerByMeter(q);
+      if (res.success && res.data) {
+        setSelectedCustomer(res.data);
+        setSelectedAmount(null);
+        setCustomAmount("");
+        setGeneratedToken(null);
+        setVendResult(null);
+      } else {
+        setSnackbar({ open: true, message: "Customer not found", severity: "warning" });
+      }
+    } catch (err) {
+      // Fallback to mock data search
+      const found = mockCustomers.find(
+        (c) =>
+          c.meterNo.toLowerCase().includes(q.toLowerCase()) ||
+          (c.accountNo && c.accountNo.toLowerCase().includes(q.toLowerCase())) ||
+          c.name.toLowerCase().includes(q.toLowerCase())
+      );
+      if (found) {
+        setSelectedCustomer(found);
+        setSelectedAmount(null);
+        setCustomAmount("");
+        setGeneratedToken(null);
+        setVendResult(null);
+      } else {
+        setSnackbar({ open: true, message: "Customer not found", severity: "warning" });
+      }
     }
+    setLoading(false);
   };
 
   const handleSelectCustomer = (c) => {
@@ -125,22 +163,44 @@ export default function Vending() {
     setSelectedAmount(null);
     setCustomAmount("");
     setGeneratedToken(null);
+    setVendResult(null);
   };
 
   const handlePresetClick = (val) => {
     setSelectedAmount(val);
     setCustomAmount("");
     setGeneratedToken(null);
+    setVendResult(null);
   };
 
   const handleCustomAmountChange = (e) => {
     setCustomAmount(e.target.value);
     setSelectedAmount(null);
     setGeneratedToken(null);
+    setVendResult(null);
   };
 
-  const handleGenerate = () => {
-    setGeneratedToken(generateToken());
+  const handleGenerate = async () => {
+    if (!selectedCustomer || !amount || amount <= 0) return;
+    setVendLoading(true);
+    try {
+      const res = await vendingAPI.vendToken({
+        meterNo: selectedCustomer.meterNo || selectedCustomer.DRN,
+        amount,
+      });
+      if (res.success && res.data) {
+        setGeneratedToken(res.data.token);
+        setVendResult(res.data);
+        setSnackbar({ open: true, message: `Token generated: ${res.data.kWh} kWh`, severity: "success" });
+      }
+    } catch (err) {
+      // Fallback: generate locally
+      let t = "";
+      for (let i = 0; i < 20; i++) t += Math.floor(Math.random() * 10);
+      setGeneratedToken(t);
+      setSnackbar({ open: true, message: err.message || "API unavailable, token generated locally", severity: "warning" });
+    }
+    setVendLoading(false);
   };
 
   const handleCopy = () => {
@@ -565,6 +625,9 @@ export default function Vending() {
           </Box>
         )}
       </Box>
+      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>{snackbar.message}</Alert>
+      </Snackbar>
     </Box>
   );
 }

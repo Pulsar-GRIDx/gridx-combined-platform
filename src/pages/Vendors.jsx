@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   Typography,
@@ -15,6 +15,7 @@ import {
   IconButton,
   Tooltip,
   keyframes,
+  CircularProgress,
 } from "@mui/material";
 import {
   StorefrontOutlined,
@@ -33,7 +34,8 @@ import {
 } from "@mui/icons-material";
 import { tokens } from "../theme";
 import Header from "../components/Header";
-import { vendors } from "../services/mockData";
+import { vendingAPI } from "../services/api";
+import { vendors as mockVendors } from "../services/mockData";
 
 // ---- Animations ----
 const pulseGlow = keyframes`
@@ -109,19 +111,27 @@ export default function Vendors() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const [expandedVendor, setExpandedVendor] = useState(null);
+  const [vendors, setVendors] = useState(mockVendors);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    vendingAPI.getVendors().then(r => {
+      if (r.success && r.data?.length > 0) setVendors(r.data);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
 
   // Derived stats
   const totalVendors = vendors.length;
   const activeVendors = vendors.filter((v) => v.status === "Active").length;
-  const totalSales = vendors.reduce((s, v) => s + v.totalSales, 0);
+  const totalSales = vendors.reduce((s, v) => s + Number(v.totalSales || 0), 0);
   const avgCommission =
     vendors.length > 0
       ? (
-          vendors.reduce((s, v) => s + v.commissionRate, 0) / vendors.length
+          vendors.reduce((s, v) => s + Number(v.commissionRate || 0), 0) / vendors.length
         ).toFixed(1)
       : "0";
-  const totalTransactions = vendors.reduce((s, v) => s + v.transactionCount, 0);
-  const maxSales = Math.max(...vendors.map((v) => v.totalSales));
+  const totalTransactions = vendors.reduce((s, v) => s + Number(v.transactionCount || 0), 0);
+  const maxSales = Math.max(...vendors.map((v) => Number(v.totalSales || 0)), 1);
 
   const headerCellSx = {
     color: colors.grey[300],

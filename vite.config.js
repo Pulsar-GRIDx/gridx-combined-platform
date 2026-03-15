@@ -60,6 +60,7 @@ export default defineConfig({
       '/suburbEnergy': 'http://localhost:4200',
       '/meter-registration': 'http://localhost:4200',
       '/healthCheck': 'http://localhost:4200',
+      '/cb/vending': 'http://localhost:4200',
       '/api/v1/meter-health': 'http://localhost:3000',
       '/api/v1/relay-events': 'http://localhost:3000',
       '/api': 'http://localhost:4200',
