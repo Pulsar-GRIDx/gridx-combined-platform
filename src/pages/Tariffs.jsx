@@ -227,7 +227,7 @@ export default function Tariffs() {
                   SGC: {selectedGroup.sgc}
                 </Typography>
                 <Typography variant="body2" color={colors.grey[400]}>
-                  {selectedGroup.customerCount.toLocaleString()} meters
+                  {Number(selectedGroup.customerCount || 0).toLocaleString()} meters
                 </Typography>
               </Box>
             </Box>
@@ -356,7 +356,7 @@ export default function Tariffs() {
                         borderBottom: `1px solid ${colors.grey[800]}`,
                       }}
                     >
-                      N$ {block.rate.toFixed(2)}/kWh
+                      N$ {Number(block.rate).toFixed(2)}/kWh
                     </TableCell>
                   </TableRow>
                 ))}
