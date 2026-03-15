@@ -1,270 +1,372 @@
 import { useState, useEffect } from "react";
-import { vendingAPI } from "../services/api";
+import {
+  Box,
+  Typography,
+  Chip,
+  Button,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Divider,
+  useTheme,
+  CircularProgress,
+} from "@mui/material";
+import {
+  PersonOutlined,
+  PersonAddOutlined,
+  EditOutlined,
+  CheckCircle,
+  Cancel,
+  FiberManualRecord,
+  AdminPanelSettingsOutlined,
+  LoginOutlined,
+} from "@mui/icons-material";
+import Header from "../components/Header";
+import StatBox from "../components/StatBox";
+import { tokens } from "../theme";
+import { operators as mockOperators, auditLog as mockAuditLog } from "../services/mockData";
+import { authAPI } from "../services/api";
 
-/* ---- Mock Data ---- */
-const MOCK_OPERATORS = [
-  { name: 'System Admin', username: 'admin', role: 'ADMIN', lastLogin: '2026-03-12 08:01', status: 'Online' },
-  { name: 'Johannes Amukoto', username: 'j.amukoto', role: 'OPERATOR', lastLogin: '2026-03-12 07:45', status: 'Online' },
-  { name: 'Maria Nghidi', username: 'm.nghidi', role: 'OPERATOR', lastLogin: '2026-03-12 07:58', status: 'Online' },
-  { name: 'Thomas Hamutenya', username: 't.hamutenya', role: 'SUPERVISOR', lastLogin: '2026-03-12 06:30', status: 'Online' },
-  { name: 'Anna Uahengo', username: 'a.uahengo', role: 'VIEWER', lastLogin: '2026-03-11 16:22', status: 'Offline' },
-  { name: 'Frans Nghifikepunye', username: 'f.nghifikep', role: 'OPERATOR', lastLogin: '2026-03-10 09:10', status: 'Suspended' },
-];
+/* ---- role chip color map ---- */
+const roleColor = {
+  ADMIN: { bg: "rgba(0,180,216,0.15)", text: "#00b4d8" },
+  SUPERVISOR: { bg: "rgba(104,112,250,0.15)", text: "#6870fa" },
+  OPERATOR: { bg: "rgba(76,206,172,0.15)", text: "#4cceac" },
+  VIEWER: { bg: "rgba(158,158,158,0.15)", text: "#9e9e9e" },
+};
 
-const MOCK_AUDIT = [
-  { type: 'vend', time: '2026-03-12 08:47:22', desc: 'Token vended: N$200.00 → 01234567890 (Johannes Shikongo)', user: 'admin • IP: 10.0.1.55' },
-  { type: 'login', time: '2026-03-12 08:01:00', desc: 'Admin login successful', user: 'admin • IP: 10.0.1.55 • Session: SES-0847' },
-  { type: 'delete', time: '2026-03-11 16:30:00', desc: 'Reversed transaction TXN-2026031100189', user: 'admin • Reason: Customer dispute' },
-  { type: 'update', time: '2026-03-11 14:15:00', desc: 'Updated vendor commission rate: Grunau Post 1.0% → 1.2%', user: 't.hamutenya • Approved by: admin' },
-  { type: 'create', time: '2026-03-11 10:00:00', desc: 'New customer registered: ACC-2023-009001 (Lahja Uusiku)', user: 'j.amukoto • Area: Groot Aub' },
-  { type: 'vend', time: '2026-03-11 09:30:00', desc: 'Token vended: N$500.00 → 01234568001 (Thomas Amukoto)', user: 'j.amukoto • IP: 10.0.1.42' },
-  { type: 'login', time: '2026-03-11 07:45:00', desc: 'Failed login attempt for user: unknown_user', user: 'IP: 203.0.113.42 • Blocked after 5 attempts' },
-  { type: 'update', time: '2026-03-10 15:00:00', desc: 'System backup completed successfully', user: 'System • Size: 2.4 GB • Duration: 4m 12s' },
-];
+/* ---- audit type border colors ---- */
+const auditTypeColor = {
+  VEND: "#00b4d8",
+  LOGIN: "#4cceac",
+  CREATE: "#6870fa",
+  UPDATE: "#f2b705",
+  DELETE: "#db4f4a",
+  SYSTEM: "#9e9e9e",
+};
 
-const PERMISSIONS = [
-  { name: 'Vend Tokens', admin: '\u2713', supervisor: '\u2713', operator: '\u2713', viewer: '\u2717' },
-  { name: 'View Transactions', admin: '\u2713', supervisor: '\u2713', operator: '\u2713', viewer: '\u2713' },
-  { name: 'Reverse Transactions', admin: '\u2713', supervisor: '\u2713', operator: '\u2717', viewer: '\u2717' },
-  { name: 'Customer Management', admin: '\u2713', supervisor: '\u2713', operator: 'R/O', viewer: 'R/O' },
-  { name: 'Vendor Management', admin: '\u2713', supervisor: '\u2713', operator: '\u2717', viewer: '\u2717' },
-  { name: 'Tariff Configuration', admin: '\u2713', supervisor: '\u2717', operator: '\u2717', viewer: '\u2717' },
-  { name: 'Reports Access', admin: '\u2713', supervisor: '\u2713', operator: 'Own', viewer: '\u2713' },
-  { name: 'System Admin', admin: '\u2713', supervisor: '\u2717', operator: '\u2717', viewer: '\u2717' },
-  { name: 'API Access', admin: '\u2713', supervisor: '\u2713', operator: '\u2717', viewer: '\u2717' },
-];
-
-/* ---- Helpers ---- */
-function roleBadgeClass(role) {
-  switch (role) {
-    case 'ADMIN': return 'role-badge role-admin';
-    case 'OPERATOR': return 'role-badge role-operator';
-    case 'SUPERVISOR': return 'role-badge role-supervisor';
-    case 'VIEWER': return 'role-badge role-viewer';
-    default: return 'role-badge role-viewer';
-  }
+/* ---- helpers ---- */
+function formatDateTime(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return (
+    d.toLocaleDateString("en-NA", { year: "numeric", month: "short", day: "numeric" }) +
+    " " +
+    d.toLocaleTimeString("en-NA", { hour: "2-digit", minute: "2-digit" })
+  );
 }
 
-function statusBadgeClass(status) {
-  switch (status) {
-    case 'Online': return 'badge badge-success';
-    case 'Offline': return 'badge badge-muted';
-    case 'Suspended': return 'badge badge-danger';
-    default: return 'badge badge-muted';
-  }
-}
-
-function permCellStyle(val) {
-  if (val === '\u2713') return { color: '#16a34a', fontWeight: 700, fontSize: 16 };
-  if (val === '\u2717') return { color: '#dc2626', fontWeight: 700, fontSize: 16 };
-  if (val === 'R/O') return { color: '#2563eb', fontWeight: 600, fontSize: 12 };
-  if (val === 'Own') return { color: '#64748b', fontWeight: 600, fontSize: 12 };
-  return {};
+function formatTimestamp(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return (
+    d.toLocaleDateString("en-NA", { year: "numeric", month: "short", day: "numeric" }) +
+    " " +
+    d.toLocaleTimeString("en-NA", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+  );
 }
 
 /* ==================================================================== */
 /* Admin Page                                                           */
 /* ==================================================================== */
 export default function Admin() {
-  const [operators, setOperators] = useState(MOCK_OPERATORS);
-  const [auditLog, setAuditLog] = useState(MOCK_AUDIT);
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
+
+  const [operators, setOperators] = useState(mockOperators);
+  const [auditLog, setAuditLog] = useState(mockAuditLog);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    vendingAPI.getAuditLog()
-      .then((r) => {
-        if (r.success && r.data?.length > 0) setAuditLog(r.data);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    const fetchAdmins = async () => {
+      try {
+        const res = await authAPI.getAllAdmins();
+        if (res?.users && res.users.length > 0) {
+          const mapped = res.users.map((a) => ({
+            id: a.Admin_ID,
+            name: `${a.FirstName || ""} ${a.LastName || ""}`.trim() || a.Username,
+            username: a.Username || a.Email,
+            role: (a.AccessLevel || "OPERATOR").toUpperCase(),
+            lastLogin: a.lastLoginTime || null,
+            status: a.IsActive === 1 ? "Online" : "Offline",
+          }));
+          setOperators(mapped);
+        }
+      } catch (err) {
+        console.error("Failed to fetch admins:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAdmins();
   }, []);
 
-  if (loading) {
-    return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>
-        <div className="spinner" />
-      </div>
-    );
-  }
+  /* ---- counts ---- */
+  const totalOperators = operators.length;
+  const onlineOperators = operators.filter((o) => o.status === "Online").length;
+  const recentLogins = operators
+    .filter((o) => {
+      if (!o.lastLogin) return false;
+      const d = new Date(o.lastLogin);
+      const now = new Date();
+      return now - d < 24 * 60 * 60 * 1000;
+    }).length;
 
   return (
-    <div>
-      {/* ===== Page Header ===== */}
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--text-primary)" }}>
-          System Administration
-        </h2>
-        <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-muted)" }}>
-          Operator management, permissions, configuration, and audit trail
-        </p>
-      </div>
+    <Box m="20px">
+      <Header
+        title="SYSTEM ADMINISTRATION"
+        subtitle="Operator management, permissions, and audit trail"
+      />
 
-      {/* ===== Top Section — 2 columns ===== */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ---- Stat Boxes ---- */}
+        <Box
+          gridColumn="span 4"
+          backgroundColor={colors.primary[400]}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <StatBox
+            title={String(onlineOperators)}
+            subtitle="Operators Online"
+            progress={onlineOperators / totalOperators}
+            increase={`${((onlineOperators / totalOperators) * 100).toFixed(0)}%`}
+            icon={<PersonOutlined sx={{ color: colors.greenAccent[600], fontSize: "26px" }} />}
+            link="/admin"
+          />
+        </Box>
 
-        {/* ---- LEFT: Operator Management ---- */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">{"\uD83D\uDC65"} Operator Management</div>
-              <div className="card-subtitle">Role-based access control</div>
-            </div>
-            <button className="btn btn-primary btn-sm">+ Add Operator</button>
-          </div>
-          <div className="card-body" style={{ padding: 0 }}>
-            <div className="table-wrap">
-              <table className="vend-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Username</th>
-                    <th>Role</th>
-                    <th>Last Login</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {operators.map((op, idx) => (
-                    <tr key={idx}>
-                      <td style={{ fontWeight: 600 }}>{op.name}</td>
-                      <td style={{ fontFamily: "'Space Mono', monospace", fontSize: 12, color: "var(--text-secondary)" }}>
+        <Box
+          gridColumn="span 4"
+          backgroundColor={colors.primary[400]}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <StatBox
+            title={String(totalOperators)}
+            subtitle="Total Operators"
+            progress={1}
+            increase="100%"
+            icon={<AdminPanelSettingsOutlined sx={{ color: colors.greenAccent[600], fontSize: "26px" }} />}
+            link="/admin"
+          />
+        </Box>
+
+        <Box
+          gridColumn="span 4"
+          backgroundColor={colors.primary[400]}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <StatBox
+            title={String(recentLogins)}
+            subtitle="Recent Logins (24h)"
+            progress={recentLogins / totalOperators}
+            increase={`${((recentLogins / totalOperators) * 100).toFixed(0)}%`}
+            icon={<LoginOutlined sx={{ color: colors.greenAccent[600], fontSize: "26px" }} />}
+            link="/admin"
+          />
+        </Box>
+
+        {/* ---- Operators Table (span 7, span 4) ---- */}
+        <Box
+          gridColumn="span 7"
+          gridRow="span 4"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+          p="15px"
+        >
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+            <Typography variant="h6" color={colors.grey[100]} fontWeight={600}>
+              Operators
+            </Typography>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<PersonAddOutlined />}
+              sx={{
+                backgroundColor: colors.greenAccent[700],
+                "&:hover": { backgroundColor: colors.greenAccent[600] },
+                textTransform: "none",
+              }}
+            >
+              Add Operator
+            </Button>
+          </Box>
+
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  {["Name", "Username", "Role", "Last Login", "Status", "Actions"].map((col) => (
+                    <TableCell
+                      key={col}
+                      sx={{
+                        color: colors.greenAccent[500],
+                        fontWeight: 600,
+                        fontSize: "0.75rem",
+                        borderBottom: `2px solid rgba(255,255,255,0.08)`,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {col}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {operators.map((op) => {
+                  const rc = roleColor[op.role] || roleColor.VIEWER;
+                  const dotColor =
+                    op.status === "Online"
+                      ? colors.greenAccent[500]
+                      : op.status === "Suspended"
+                      ? "#db4f4a"
+                      : colors.grey[400];
+                  return (
+                    <TableRow
+                      key={op.id}
+                      sx={{
+                        "&:hover": { bgcolor: "rgba(0,180,216,0.06)" },
+                        "& td": {
+                          borderBottom: "1px solid rgba(255,255,255,0.05)",
+                          color: colors.grey[100],
+                          fontSize: "0.8rem",
+                          py: 1.2,
+                        },
+                      }}
+                    >
+                      <TableCell sx={{ fontWeight: 500 }}>{op.name}</TableCell>
+                      <TableCell sx={{ fontFamily: "monospace", fontSize: "0.78rem" }}>
                         {op.username}
-                      </td>
-                      <td>
-                        <span className={roleBadgeClass(op.role)}>{op.role}</span>
-                      </td>
-                      <td style={{ fontSize: 13, color: "var(--text-secondary)" }}>{op.lastLogin}</td>
-                      <td>
-                        <span className={statusBadgeClass(op.status)}>{op.status}</span>
-                      </td>
-                      <td>
-                        <button className="btn btn-secondary btn-sm">Edit</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={op.role}
+                          size="small"
+                          sx={{
+                            bgcolor: rc.bg,
+                            color: rc.text,
+                            fontWeight: 600,
+                            fontSize: "0.7rem",
+                            height: 24,
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell>{formatDateTime(op.lastLogin)}</TableCell>
+                      <TableCell>
+                        <Box display="flex" alignItems="center" gap={0.8}>
+                          <FiberManualRecord sx={{ fontSize: 10, color: dotColor }} />
+                          <Typography variant="body2" color={dotColor} fontWeight={500} fontSize="0.78rem">
+                            {op.status}
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<EditOutlined sx={{ fontSize: 16 }} />}
+                          sx={{
+                            fontSize: "0.7rem",
+                            textTransform: "none",
+                            color: colors.greenAccent[500],
+                            borderColor: colors.greenAccent[500],
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
 
-        {/* ---- RIGHT: Role Permissions Matrix ---- */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">{"\uD83D\uDD12"} Role Permissions Matrix</div>
-              <div className="card-subtitle">Access control by role</div>
-            </div>
-          </div>
-          <div className="card-body" style={{ padding: 0 }}>
-            <div className="table-wrap">
-              <table className="vend-table">
-                <thead>
-                  <tr>
-                    <th>Permission</th>
-                    <th style={{ textAlign: "center" }}>Admin</th>
-                    <th style={{ textAlign: "center" }}>Supervisor</th>
-                    <th style={{ textAlign: "center" }}>Operator</th>
-                    <th style={{ textAlign: "center" }}>Viewer</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {PERMISSIONS.map((perm, idx) => (
-                    <tr key={idx}>
-                      <td style={{ fontWeight: 600 }}>{perm.name}</td>
-                      <td style={{ textAlign: "center", ...permCellStyle(perm.admin) }}>{perm.admin}</td>
-                      <td style={{ textAlign: "center", ...permCellStyle(perm.supervisor) }}>{perm.supervisor}</td>
-                      <td style={{ textAlign: "center", ...permCellStyle(perm.operator) }}>{perm.operator}</td>
-                      <td style={{ textAlign: "center", ...permCellStyle(perm.viewer) }}>{perm.viewer}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
+        {/* ---- Audit Log (span 5, span 4) ---- */}
+        <Box
+          gridColumn="span 5"
+          gridRow="span 4"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+          p="15px"
+        >
+          <Typography variant="h6" color={colors.grey[100]} fontWeight={600} mb={2}>
+            Audit Log
+          </Typography>
 
-      {/* ===== Bottom Section — 2 columns ===== */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-
-        {/* ---- LEFT: System Configuration ---- */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">{"\u2699\uFE0F"} System Configuration</div>
-            </div>
-          </div>
-          <div className="card-body">
-            <div className="form-row col-2">
-              <div className="field">
-                <label>STS Gateway Host</label>
-                <input type="text" defaultValue="sts-gateway.nampower.com.na" readOnly />
-              </div>
-              <div className="field">
-                <label>Port</label>
-                <input type="text" defaultValue="8583" readOnly />
-              </div>
-            </div>
-            <div className="form-row col-2">
-              <div className="field">
-                <label>Token Algorithm</label>
-                <input type="text" defaultValue="STS Standard (IEC 62055-41)" readOnly />
-              </div>
-              <div className="field">
-                <label>Encryption Standard</label>
-                <input type="text" defaultValue="DES/3DES with DKGA04" readOnly />
-              </div>
-            </div>
-            <div className="form-row col-2">
-              <div className="field">
-                <label>Session Timeout</label>
-                <input type="text" defaultValue="30 minutes" />
-              </div>
-              <div className="field">
-                <label>Max Login Attempts</label>
-                <input type="number" defaultValue="5" />
-              </div>
-            </div>
-            <div className="form-row col-2">
-              <div className="field">
-                <label>Backup Schedule</label>
-                <input type="text" defaultValue="Daily at 02:00 AM" />
-              </div>
-              <div className="field">
-                <label>Retention</label>
-                <input type="text" defaultValue="90 days" />
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-              <button className="btn btn-primary">Save Settings</button>
-              <button className="btn btn-secondary">Test Gateway</button>
-              <button className="btn btn-danger btn-sm">Restart Services</button>
-            </div>
-          </div>
-        </div>
-
-        {/* ---- RIGHT: Audit Log ---- */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">{"\uD83D\uDCCB"} Audit Log</div>
-              <div className="card-subtitle">Recent system activity</div>
-            </div>
-          </div>
-          <div className="card-body" style={{ maxHeight: 420, overflowY: "auto", padding: "16px 24px" }}>
-            {auditLog.map((entry, idx) => (
-              <div key={idx} className={`audit-item ${entry.type}`}>
-                <div className="audit-time">{entry.time}</div>
-                <div className="audit-desc">{entry.desc}</div>
-                <div className="audit-user">{entry.user}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
+          {auditLog.map((entry, idx) => {
+            const borderColor = auditTypeColor[entry.type] || "#9e9e9e";
+            return (
+              <Box key={entry.id}>
+                <Box
+                  sx={{
+                    borderLeft: `3px solid ${borderColor}`,
+                    pl: 2,
+                    py: 1.2,
+                    "&:hover": { bgcolor: "rgba(0,180,216,0.04)" },
+                  }}
+                >
+                  <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={0.3}>
+                    <Typography variant="body2" color={colors.grey[100]} fontWeight={600} fontSize="0.82rem">
+                      {entry.event}
+                    </Typography>
+                    <Chip
+                      label={entry.type}
+                      size="small"
+                      sx={{
+                        bgcolor: `${borderColor}20`,
+                        color: borderColor,
+                        fontWeight: 600,
+                        fontSize: "0.65rem",
+                        height: 20,
+                        ml: 1,
+                        flexShrink: 0,
+                      }}
+                    />
+                  </Box>
+                  <Typography
+                    variant="caption"
+                    color={colors.grey[400]}
+                    fontSize="0.75rem"
+                    display="block"
+                    mb={0.3}
+                  >
+                    {entry.detail}
+                  </Typography>
+                  <Box display="flex" justifyContent="space-between" alignItems="center">
+                    <Typography variant="caption" color="rgba(255,255,255,0.35)" fontSize="0.7rem">
+                      {formatTimestamp(entry.timestamp)}
+                    </Typography>
+                    <Typography variant="caption" color={colors.grey[400]} fontSize="0.7rem">
+                      by {entry.user}
+                    </Typography>
+                  </Box>
+                </Box>
+                {idx < auditLog.length - 1 && (
+                  <Divider sx={{ borderColor: "rgba(255,255,255,0.05)" }} />
+                )}
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
+    </Box>
   );
 }

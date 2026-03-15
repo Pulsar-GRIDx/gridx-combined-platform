@@ -1,58 +1,132 @@
 import { useState, useEffect, useMemo } from "react";
+import {
+  Box,
+  Typography,
+  Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  InputAdornment,
+  Button,
+  Divider,
+  CircularProgress,
+  useTheme,
+} from "@mui/material";
+import {
+  SearchOutlined,
+  PersonOutlined,
+  ConfirmationNumberOutlined,
+  EditOutlined,
+  ReceiptLongOutlined,
+  SmsOutlined,
+  BlockOutlined,
+  CheckCircleOutlined,
+  PeopleOutlined,
+  PhoneOutlined,
+  EmailOutlined,
+  LocationOnOutlined,
+  GpsFixedOutlined,
+  SpeedOutlined,
+} from "@mui/icons-material";
+import { tokens } from "../theme";
+import Header from "../components/Header";
 import { vendingAPI } from "../services/api";
+import { customers as mockCustomers } from "../services/mockData";
 
-// ---- Mock Data ----
-const MOCK = [
-  { accountId: 'ACC-2019-004521', name: 'Johannes Shikongo', meterNo: '01234567890', area: 'Grunau', tariff: 'R1', arrears: 0, status: 'Active', phone: '+264 81 234 5678', idNumber: '8201015012083', address: 'Erf 142, Main Road, Grunau', supplyGroupCode: 'SG-GRN-001', keyRevision: '1', tokenTech: 'STS', meterMake: 'Conlog', gpsLat: '-28.0486', gpsLng: '18.3642' },
-  { accountId: 'ACC-2020-005102', name: 'Maria Nghidishange', meterNo: '01234567912', area: 'Grunau', tariff: 'R1', arrears: 0, status: 'Active', phone: '+264 81 345 6789', idNumber: '9005024012087', address: 'Erf 88, Church St, Grunau', supplyGroupCode: 'SG-GRN-001', keyRevision: '1', tokenTech: 'STS', meterMake: 'Hexing', gpsLat: '-28.0502', gpsLng: '18.3615' },
-  { accountId: 'ACC-2018-002876', name: 'Thomas Amukoto', meterNo: '01234568001', area: 'Noordoewer', tariff: 'R2', arrears: 0, status: 'Active', phone: '+264 81 456 7890', idNumber: '7603125012085', address: 'Plot 23, River Drive, Noordoewer', supplyGroupCode: 'SG-NRD-002', keyRevision: '2', tokenTech: 'STS', meterMake: 'Landis+Gyr', gpsLat: '-28.7683', gpsLng: '17.6108' },
-  { accountId: 'ACC-2021-006340', name: 'Anna Hamunyela', meterNo: '01234568112', area: 'Groot Aub', tariff: 'R1', arrears: 0, status: 'Active', phone: '+264 81 567 8901', idNumber: '8808104012089', address: 'Erf 310, Jacaranda Ave, Groot Aub', supplyGroupCode: 'SG-GAB-001', keyRevision: '1', tokenTech: 'STS', meterMake: 'Conlog', gpsLat: '-22.6317', gpsLng: '17.1294' },
-  { accountId: 'ACC-2017-001204', name: 'Simon Iiyambo', meterNo: '01234568230', area: 'Dordabis', tariff: 'R1', arrears: 0, status: 'Active', phone: '+264 81 678 9012', idNumber: '7210215012081', address: 'Farm 45, Dordabis Settlement', supplyGroupCode: 'SG-DRD-001', keyRevision: '1', tokenTech: 'STS', meterMake: 'Hexing', gpsLat: '-22.9658', gpsLng: '17.6875' },
-  { accountId: 'ACC-2016-000892', name: 'Selma Nakamhela', meterNo: '01234568341', area: 'Seeis', tariff: 'C1', arrears: 345.60, status: 'Arrears', phone: '+264 81 789 0123', idNumber: '8505104012082', address: 'Erf 17, Industrial Area, Seeis', supplyGroupCode: 'SG-SEE-003', keyRevision: '1', tokenTech: 'STS', meterMake: 'Landis+Gyr', gpsLat: '-22.5214', gpsLng: '17.3401' },
-  { accountId: 'ACC-2022-007815', name: 'David Hashiyana', meterNo: '01234568455', area: 'Stampriet', tariff: 'R1', arrears: 0, status: 'Active', phone: '+264 81 890 1234', idNumber: '9907085012086', address: 'Erf 62, Palm Lane, Stampriet', supplyGroupCode: 'SG-STP-001', keyRevision: '1', tokenTech: 'STS', meterMake: 'Conlog', gpsLat: '-24.0833', gpsLng: '18.1333' },
-  { accountId: 'ACC-2019-004788', name: 'Hilka Nambinga', meterNo: '01234568567', area: 'Grunau', tariff: 'R1', arrears: 0, status: 'Active', phone: '+264 81 901 2345', idNumber: '9203054012088', address: 'Erf 201, Station Rd, Grunau', supplyGroupCode: 'SG-GRN-001', keyRevision: '1', tokenTech: 'STS', meterMake: 'Hexing', gpsLat: '-28.0491', gpsLng: '18.3639' },
-  { accountId: 'ACC-2015-000312', name: 'Frans Nghifikepunye', meterNo: '01234568678', area: 'Noordoewer', tariff: 'R2', arrears: 1280.00, status: 'Suspended', phone: '+264 81 012 3456', idNumber: '6811085012084', address: 'Plot 8, Border Rd, Noordoewer', supplyGroupCode: 'SG-NRD-002', keyRevision: '2', tokenTech: 'STS', meterMake: 'Landis+Gyr', gpsLat: '-28.7701', gpsLng: '17.6095' },
-  { accountId: 'ACC-2023-009001', name: 'Lahja Uusiku', meterNo: '01234568789', area: 'Groot Aub', tariff: 'R1', arrears: 0, status: 'Active', phone: '+264 81 123 4567', idNumber: '0102054012080', address: 'Erf 415, Baobab Cres, Groot Aub', supplyGroupCode: 'SG-GAB-001', keyRevision: '1', tokenTech: 'STS', meterMake: 'Conlog', gpsLat: '-22.6330', gpsLng: '17.1281' },
-];
+// ---- Helpers ----------------------------------------------------------------
 
-const AREAS = ['All Areas', 'Grunau', 'Noordoewer', 'Groot Aub', 'Dordabis', 'Seeis', 'Stampriet'];
-const STATUSES = ['All Statuses', 'Active', 'Suspended', 'Arrears'];
-const PAGE_SIZE = 15;
-
-// ---- Helpers ----
 const fmtCurrency = (n) =>
   `N$ ${Number(n).toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 
-function statusBadgeClass(status) {
-  switch (status) {
-    case 'Active': return 'badge badge-success';
-    case 'Arrears': return 'badge badge-warning';
-    case 'Suspended': return 'badge badge-danger';
-    default: return 'badge badge-muted';
-  }
+function formatDateTime(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return (
+    d.toLocaleDateString("en-NA", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }) +
+    " " +
+    d.toLocaleTimeString("en-NA", { hour: "2-digit", minute: "2-digit" })
+  );
 }
 
-// ---- Component ----
-export default function Customers() {
-  const [search, setSearch] = useState('');
-  const [areaFilter, setAreaFilter] = useState('All Areas');
-  const [statusFilter, setStatusFilter] = useState('All Statuses');
-  const [customers, setCustomers] = useState(MOCK);
-  const [loading, setLoading] = useState(true);
-  const [selectedIdx, setSelectedIdx] = useState(null);
-  const [page, setPage] = useState(1);
+const areas = [
+  "All Areas",
+  "Grunau",
+  "Noordoewer",
+  "Groot Aub",
+  "Dordabis",
+  "Seeis",
+  "Stampriet",
+  "Windhoek West",
+  "Khomasdal",
+  "Katutura",
+];
 
-  // Fetch from API, fallback to mock
+// ---- Detail Row helper ------------------------------------------------------
+
+function DetailRow({ label, value, mono, icon, colors }) {
+  return (
+    <Box
+      display="flex"
+      justifyContent="space-between"
+      alignItems="center"
+      mb="6px"
+    >
+      <Box display="flex" alignItems="center" gap="4px">
+        {icon && (
+          <Box sx={{ color: colors.grey[300], display: "flex" }}>{icon}</Box>
+        )}
+        <Typography variant="caption" color={colors.grey[300]}>
+          {label}
+        </Typography>
+      </Box>
+      <Typography
+        variant="body2"
+        sx={{
+          color: colors.grey[100],
+          fontWeight: 500,
+          fontSize: "0.8rem",
+          ...(mono ? { fontFamily: "monospace" } : {}),
+          textAlign: "right",
+          maxWidth: "60%",
+          wordBreak: "break-word",
+        }}
+      >
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
+// ---- Main Component ---------------------------------------------------------
+
+export default function Customers() {
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
+
+  const [search, setSearch] = useState("");
+  const [areaFilter, setAreaFilter] = useState("All Areas");
+  const [selectedId, setSelectedId] = useState(null);
+  const [customers, setCustomers] = useState(mockCustomers);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    vendingAPI.getCustomers()
-      .then((r) => {
-        if (r.success && r.data?.length > 0) setCustomers(r.data);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    vendingAPI.getCustomers().then(r => {
+      if (r.success && r.data?.length > 0) setCustomers(r.data);
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   // Filtered list
@@ -62,394 +136,540 @@ export default function Customers() {
         const q = search.toLowerCase();
         const match =
           (c.name || '').toLowerCase().includes(q) ||
-          (c.meterNo || '').toLowerCase().includes(q) ||
-          (c.accountId || '').toLowerCase().includes(q) ||
-          (c.area || '').toLowerCase().includes(q);
+          (c.accountNo || '').toLowerCase().includes(q) ||
+          (c.meterNo || '').toLowerCase().includes(q);
         if (!match) return false;
       }
-      if (areaFilter !== 'All Areas' && c.area !== areaFilter) return false;
-      if (statusFilter !== 'All Statuses' && c.status !== statusFilter) return false;
+      if (areaFilter !== "All Areas" && c.area !== areaFilter) return false;
       return true;
     });
-  }, [search, areaFilter, statusFilter, customers]);
+  }, [search, areaFilter, customers]);
 
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageStart = (page - 1) * PAGE_SIZE;
-  const pageEnd = Math.min(pageStart + PAGE_SIZE, filtered.length);
-  const paged = filtered.slice(pageStart, pageEnd);
+  const selected = customers.find((c) => c.id === selectedId) || null;
 
-  // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, areaFilter, statusFilter]);
+  // Area stats -- top 4 areas by meter count
+  const areaCounts = {};
+  customers.forEach((c) => {
+    areaCounts[c.area] = (areaCounts[c.area] || 0) + 1;
+  });
+  const topAreas = Object.entries(areaCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
 
-  // Selected customer
-  const selected = selectedIdx !== null ? customers.find((_, i) => i === selectedIdx) || null : null;
+  const areaColors = [
+    colors.greenAccent[500],
+    colors.blueAccent[500],
+    colors.yellowAccent[500],
+    colors.redAccent[500],
+  ];
 
-  // Total arrears
-  const totalArrears = customers.reduce((s, c) => s + Number(c.arrears || 0), 0);
-
-  // Export CSV
-  const handleExport = () => {
-    const header = ['Account', 'Name', 'Meter No', 'Area', 'Tariff', 'Arrears', 'Status'];
-    const rows = filtered.map((c) => [
-      c.accountId, c.name, c.meterNo, c.area, c.tariff, c.arrears, c.status,
-    ]);
-    const csv = [header, ...rows].map((r) => r.map((v) => `"${v}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `customers_export_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const statusColor = {
+    Active: {
+      bg: colors.greenAccent[900],
+      text: colors.greenAccent[500],
+    },
+    Arrears: {
+      bg: colors.yellowAccent[900],
+      text: colors.yellowAccent[500],
+    },
+    Suspended: {
+      bg: colors.redAccent[900],
+      text: colors.redAccent[500],
+    },
   };
 
-  // Vend button handler
-  const handleVend = (meterNo) => {
-    // Navigate to vending with meter param, or just alert if router not available
-    if (window.location.pathname !== '/vending') {
-      window.location.href = `/vending?meter=${encodeURIComponent(meterNo)}`;
-    } else {
-      alert(`Navigate to vending for meter: ${meterNo}`);
-    }
+  const headerCellSx = {
+    color: colors.grey[300],
+    fontWeight: 600,
+    fontSize: "0.75rem",
+    textTransform: "uppercase",
+    borderBottom: `1px solid ${colors.primary[300]}`,
   };
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-        <div className="spinner" />
-      </div>
-    );
-  }
+  const bodyCellSx = {
+    color: colors.grey[100],
+    borderBottom: `1px solid ${colors.primary[300]}`,
+    fontSize: "0.85rem",
+  };
+
+  const textFieldSx = {
+    "& .MuiOutlinedInput-root": {
+      color: colors.grey[100],
+      backgroundColor: "rgba(0,0,0,0.2)",
+      "& fieldset": { borderColor: colors.primary[300] },
+      "&:hover fieldset": { borderColor: colors.greenAccent[700] },
+      "&.Mui-focused fieldset": { borderColor: colors.greenAccent[500] },
+    },
+    "& .MuiInputLabel-root": { color: colors.grey[300] },
+    "& .MuiInputLabel-root.Mui-focused": { color: colors.greenAccent[500] },
+  };
 
   return (
-    <div>
-      {/* ===== Filter Bar ===== */}
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
-        <div className="search-bar" style={{ flex: 1, minWidth: '240px' }}>
-          <input
-            type="text"
-            placeholder="Search name, meter, account, or area..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <button>Search</button>
-        </div>
+    <Box m="20px">
+      <Header
+        title="CUSTOMER REGISTRY"
+        subtitle="Registered Meters Across All Areas"
+      />
 
-        <div className="field" style={{ marginBottom: 0 }}>
-          <select
-            value={areaFilter}
-            onChange={(e) => setAreaFilter(e.target.value)}
-            style={{
-              padding: '10px 14px',
-              border: '1px solid var(--border)',
-              borderRadius: '7px',
-              fontFamily: "'DM Sans', sans-serif",
-              fontSize: '14px',
-              color: 'var(--text-primary)',
-              background: '#fff',
-              outline: 'none',
-              cursor: 'pointer',
-              minWidth: '150px',
-            }}
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ---- Area stat boxes: span 3 each ---- */}
+        {topAreas.map(([area, count], i) => (
+          <Box
+            key={area}
+            gridColumn="span 3"
+            backgroundColor={colors.primary[400]}
+            borderRadius="4px"
+            display="flex"
+            alignItems="center"
+            justifyContent="center"
+            flexDirection="column"
+            p="15px"
           >
-            {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </div>
+            <LocationOnOutlined
+              sx={{ color: areaColors[i], fontSize: 28, mb: "6px" }}
+            />
+            <Typography variant="h4" fontWeight="700" color={colors.grey[100]}>
+              {count}
+            </Typography>
+            <Typography variant="body2" color={areaColors[i]}>
+              {area}
+            </Typography>
+          </Box>
+        ))}
 
-        <div className="field" style={{ marginBottom: 0 }}>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            style={{
-              padding: '10px 14px',
-              border: '1px solid var(--border)',
-              borderRadius: '7px',
-              fontFamily: "'DM Sans', sans-serif",
-              fontSize: '14px',
-              color: 'var(--text-primary)',
-              background: '#fff',
-              outline: 'none',
-              cursor: 'pointer',
-              minWidth: '140px',
-            }}
+        {/* ---- Customer Table (span 8, span 5) ---- */}
+        <Box
+          gridColumn="span 8"
+          gridRow="span 5"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+        >
+          {/* Search & filter bar */}
+          <Box
+            display="flex"
+            gap="10px"
+            p="15px"
+            borderBottom={`1px solid ${colors.primary[300]}`}
+            flexWrap="wrap"
           >
-            {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
+            <TextField
+              size="small"
+              placeholder="Search name, account, meter..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              sx={{ ...textFieldSx, flex: 1, minWidth: 200 }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchOutlined sx={{ color: colors.grey[300] }} />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel
+                sx={{
+                  color: colors.grey[300],
+                  "&.Mui-focused": { color: colors.greenAccent[500] },
+                }}
+              >
+                Area
+              </InputLabel>
+              <Select
+                value={areaFilter}
+                label="Area"
+                onChange={(e) => setAreaFilter(e.target.value)}
+                sx={{
+                  color: colors.grey[100],
+                  "& fieldset": { borderColor: colors.primary[300] },
+                  "&:hover fieldset": {
+                    borderColor: colors.greenAccent[700],
+                  },
+                  "&.Mui-focused fieldset": {
+                    borderColor: colors.greenAccent[500],
+                  },
+                  "& .MuiSelect-icon": { color: colors.grey[300] },
+                }}
+                MenuProps={{
+                  PaperProps: {
+                    sx: {
+                      backgroundColor: colors.primary[400],
+                      color: colors.grey[100],
+                    },
+                  },
+                }}
+              >
+                {areas.map((a) => (
+                  <MenuItem key={a} value={a}>
+                    {a}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
 
-        <button className="btn btn-primary" onClick={() => alert('Add Customer dialog coming soon')}>
-          + Add Customer
-        </button>
-        <button className="btn btn-secondary" onClick={handleExport}>
-          Export
-        </button>
-      </div>
-
-      {/* ===== Customer Management Layout ===== */}
-      <div className="cust-mgmt-layout">
-        {/* LEFT: Customer Registry Card */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Customer Registry</div>
-              <div className="card-subtitle">
-                {customers.length.toLocaleString()} registered meters &mdash; showing {pageStart + 1}&ndash;{pageEnd}
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Total Arrears</div>
-              <div className="mono" style={{ fontSize: '18px', fontWeight: 700, color: totalArrears > 0 ? 'var(--danger)' : 'var(--success)' }}>
-                {fmtCurrency(totalArrears)}
-              </div>
-            </div>
-          </div>
-          <div className="card-body" style={{ padding: 0 }}>
-            <div className="table-wrap">
-              <table className="vend-table">
-                <thead>
-                  <tr>
-                    <th>Account</th>
-                    <th>Customer Name</th>
-                    <th>Meter No.</th>
-                    <th>Area</th>
-                    <th>Tariff</th>
-                    <th style={{ textAlign: 'right' }}>Arrears</th>
-                    <th>Status</th>
-                    <th style={{ textAlign: 'center' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paged.map((c, idx) => {
-                    const globalIdx = customers.indexOf(c);
-                    const isSelected = globalIdx === selectedIdx;
-                    return (
-                      <tr
-                        key={c.accountId}
-                        onClick={() => setSelectedIdx(globalIdx)}
-                        style={{
-                          cursor: 'pointer',
-                          background: isSelected ? 'var(--accent-glow)' : undefined,
-                          borderLeft: isSelected ? '3px solid var(--accent)' : '3px solid transparent',
-                        }}
-                      >
-                        <td className="mono ref-cell">{c.accountId}</td>
-                        <td style={{ fontWeight: 500 }}>{c.name}</td>
-                        <td className="mono ref-cell">{c.meterNo}</td>
-                        <td>{c.area}</td>
-                        <td>{c.tariff}</td>
-                        <td style={{ textAlign: 'right' }}>
-                          <span className="mono amount-cell" style={{ color: c.arrears > 0 ? 'var(--danger)' : 'var(--success)' }}>
-                            {fmtCurrency(c.arrears)}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={statusBadgeClass(c.status)}>{c.status}</span>
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <button
-                            className="btn btn-primary btn-sm"
-                            onClick={(e) => { e.stopPropagation(); handleVend(c.meterNo); }}
-                          >
-                            Vend
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {paged.length === 0 && (
-                    <tr>
-                      <td colSpan={8} style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-muted)' }}>
-                        No customers match the current filters.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Showing {pageStart + 1}&ndash;{pageEnd} of {filtered.length} customers
-                </span>
-                <div className="pagination">
-                  <button
-                    className="page-btn"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={headerCellSx}>Account No</TableCell>
+                <TableCell sx={headerCellSx}>Customer Name</TableCell>
+                <TableCell sx={headerCellSx}>Meter No</TableCell>
+                <TableCell sx={headerCellSx}>Area</TableCell>
+                <TableCell sx={headerCellSx}>Tariff</TableCell>
+                <TableCell sx={headerCellSx} align="right">
+                  Arrears
+                </TableCell>
+                <TableCell sx={headerCellSx}>Status</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filtered.map((c) => (
+                <TableRow
+                  key={c.id}
+                  hover
+                  selected={selectedId === c.id}
+                  onClick={() => setSelectedId(c.id)}
+                  sx={{
+                    cursor: "pointer",
+                    "&.Mui-selected": {
+                      backgroundColor: `${colors.blueAccent[900]}`,
+                    },
+                    "&.Mui-selected:hover": {
+                      backgroundColor: `${colors.blueAccent[800]}`,
+                    },
+                    "&:hover": {
+                      backgroundColor: `${colors.primary[300]}44`,
+                    },
+                  }}
+                >
+                  <TableCell
+                    sx={{
+                      ...bodyCellSx,
+                      fontFamily: "monospace",
+                      fontSize: "0.8rem",
+                    }}
                   >
-                    &lsaquo;
-                  </button>
-                  {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-                    let pageNum;
-                    if (totalPages <= 7) {
-                      pageNum = i + 1;
-                    } else if (page <= 4) {
-                      pageNum = i + 1;
-                    } else if (page >= totalPages - 3) {
-                      pageNum = totalPages - 6 + i;
-                    } else {
-                      pageNum = page - 3 + i;
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        className={`page-btn${page === pageNum ? ' active' : ''}`}
-                        onClick={() => setPage(pageNum)}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                  <button
-                    className="page-btn"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
+                    {c.accountNo}
+                  </TableCell>
+                  <TableCell
+                    sx={{ ...bodyCellSx, fontWeight: 500 }}
                   >
-                    &rsaquo;
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+                    {c.name}
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      ...bodyCellSx,
+                      fontFamily: "monospace",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    {c.meterNo}
+                  </TableCell>
+                  <TableCell sx={bodyCellSx}>{c.area}</TableCell>
+                  <TableCell sx={bodyCellSx}>{c.tariffGroup}</TableCell>
+                  <TableCell sx={bodyCellSx} align="right">
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        color:
+                          c.arrears > 0
+                            ? colors.redAccent[500]
+                            : colors.greenAccent[500],
+                        fontWeight: 600,
+                        fontSize: "0.8rem",
+                      }}
+                    >
+                      {fmtCurrency(c.arrears)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={bodyCellSx}>
+                    <Chip
+                      label={c.status}
+                      size="small"
+                      sx={{
+                        backgroundColor:
+                          statusColor[c.status]?.bg || colors.primary[300],
+                        color: statusColor[c.status]?.text || colors.grey[100],
+                        fontWeight: 600,
+                        fontSize: "0.7rem",
+                      }}
+                    />
+                  </TableCell>
+                </TableRow>
+              ))}
+              {filtered.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    align="center"
+                    sx={{ py: 4, color: colors.grey[400] }}
+                  >
+                    No customers match the current filters.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </Box>
 
-        {/* RIGHT: Selected Customer Detail Panel */}
-        <div className="meter-info-panel">
+        {/* ---- Customer Detail Panel (span 4, span 5) ---- */}
+        <Box
+          gridColumn="span 4"
+          gridRow="span 5"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          p="20px"
+          overflow="auto"
+        >
           {selected ? (
             <>
-              {/* Name + Status */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <div style={{ fontSize: '20px', fontWeight: 700, color: '#fff', lineHeight: 1.3 }}>
-                  {selected.name}
-                </div>
-                <span className={statusBadgeClass(selected.status)}>
-                  {selected.status}
-                </span>
-              </div>
-
-              {/* Meter Badge */}
-              <div className="meter-badge">
-                <span>&#9889;</span>
-                {selected.meterNo}
-              </div>
-
-              {/* Detail Rows */}
-              <div style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '12px', marginBottom: '12px' }}>
-                <div className="cust-detail-row">
-                  <span className="cust-detail-label">Address</span>
-                  <span className="cust-detail-value">{selected.address || '-'}</span>
-                </div>
-                <div className="cust-detail-row">
-                  <span className="cust-detail-label">ID Number</span>
-                  <span className="cust-detail-value mono">{selected.idNumber || '-'}</span>
-                </div>
-                <div className="cust-detail-row">
-                  <span className="cust-detail-label">Phone</span>
-                  <span className="cust-detail-value">{selected.phone || '-'}</span>
-                </div>
-              </div>
-
-              <div style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '12px', marginBottom: '12px' }}>
-                <div className="cust-detail-row">
-                  <span className="cust-detail-label">Tariff Group</span>
-                  <span className="cust-detail-value">{selected.tariff}</span>
-                </div>
-                <div className="cust-detail-row">
-                  <span className="cust-detail-label">Supply Group Code</span>
-                  <span className="cust-detail-value mono">{selected.supplyGroupCode || '-'}</span>
-                </div>
-                <div className="cust-detail-row">
-                  <span className="cust-detail-label">Key Revision</span>
-                  <span className="cust-detail-value">{selected.keyRevision || '-'}</span>
-                </div>
-                <div className="cust-detail-row">
-                  <span className="cust-detail-label">Token Technology</span>
-                  <span className="cust-detail-value">{selected.tokenTech || 'STS'}</span>
-                </div>
-                <div className="cust-detail-row">
-                  <span className="cust-detail-label">Meter Make</span>
-                  <span className="cust-detail-value">{selected.meterMake || '-'}</span>
-                </div>
-              </div>
-
-              {/* GPS */}
-              {selected.gpsLat && selected.gpsLng && (
-                <div className="gps-display" style={{ marginBottom: '16px' }}>
-                  <span>&#128205;</span>
-                  {selected.gpsLat}, {selected.gpsLng}
-                </div>
-              )}
-
-              {/* Arrears Display */}
-              <div style={{ textAlign: 'center', margin: '16px 0', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
-                <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1.5px', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>
-                  Outstanding Arrears
-                </div>
-                <div className="mono" style={{
-                  fontSize: '24px',
-                  fontWeight: 700,
-                  color: selected.arrears > 0 ? '#f59e0b' : '#22c55e',
-                }}>
-                  {fmtCurrency(selected.arrears)}
-                </div>
-              </div>
-
-              {/* Quick Actions */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
-                <button
-                  className="btn btn-primary"
-                  style={{ width: '100%', justifyContent: 'center' }}
-                  onClick={() => handleVend(selected.meterNo)}
+              {/* Name + status */}
+              <Box
+                display="flex"
+                justifyContent="space-between"
+                alignItems="flex-start"
+                mb="15px"
+              >
+                <Typography
+                  variant="h5"
+                  color={colors.grey[100]}
+                  fontWeight="700"
+                  sx={{ lineHeight: 1.3 }}
                 >
-                  <span>&#9889;</span> Vend Token
-                </button>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ flex: 1, justifyContent: 'center', color: '#fff', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
-                    onClick={() => alert('Edit details coming soon')}
-                  >
-                    Edit Details
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ flex: 1, justifyContent: 'center', color: '#fff', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
-                    onClick={() => alert('Transaction history coming soon')}
-                  >
-                    History
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ flex: 1, justifyContent: 'center', color: '#fff', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
-                    onClick={() => alert('Send SMS coming soon')}
-                  >
-                    Send SMS
-                  </button>
-                  <button
-                    className="btn btn-danger"
-                    style={{ flex: 1, justifyContent: 'center' }}
-                    onClick={() => alert(`${selected.status === 'Suspended' ? 'Activate' : 'Suspend'} account coming soon`)}
-                  >
-                    {selected.status === 'Suspended' ? 'Activate' : 'Suspend Account'}
-                  </button>
-                </div>
-              </div>
+                  {selected.name}
+                </Typography>
+                <Chip
+                  label={selected.status}
+                  size="small"
+                  sx={{
+                    backgroundColor: statusColor[selected.status]?.bg,
+                    color: statusColor[selected.status]?.text,
+                    fontWeight: 600,
+                    fontSize: "0.7rem",
+                  }}
+                />
+              </Box>
+
+              {/* Account / Meter */}
+              <DetailRow
+                label="Account No"
+                value={selected.accountNo}
+                mono
+                colors={colors}
+              />
+              <DetailRow
+                label="Meter No"
+                value={selected.meterNo}
+                mono
+                colors={colors}
+              />
+
+              <Divider
+                sx={{
+                  borderColor: colors.primary[300],
+                  my: "12px",
+                }}
+              />
+
+              {/* Contact */}
+              <DetailRow
+                label="Phone"
+                value={selected.phone}
+                icon={<PhoneOutlined sx={{ fontSize: 15 }} />}
+                colors={colors}
+              />
+              <DetailRow
+                label="Email"
+                value={selected.email}
+                icon={<EmailOutlined sx={{ fontSize: 15 }} />}
+                colors={colors}
+              />
+
+              <Divider
+                sx={{
+                  borderColor: colors.primary[300],
+                  my: "12px",
+                }}
+              />
+
+              {/* Location */}
+              <DetailRow
+                label="Area"
+                value={selected.area}
+                icon={<LocationOnOutlined sx={{ fontSize: 15 }} />}
+                colors={colors}
+              />
+              <DetailRow
+                label="Address"
+                value={selected.address}
+                colors={colors}
+              />
+              <DetailRow
+                label="GPS"
+                value={`${selected.gpsLat}, ${selected.gpsLng}`}
+                icon={<GpsFixedOutlined sx={{ fontSize: 15 }} />}
+                mono
+                colors={colors}
+              />
+
+              <Divider
+                sx={{
+                  borderColor: colors.primary[300],
+                  my: "12px",
+                }}
+              />
+
+              {/* Tariff */}
+              <DetailRow
+                label="Tariff Group"
+                value={selected.tariffGroup}
+                icon={<SpeedOutlined sx={{ fontSize: 15 }} />}
+                colors={colors}
+              />
+              <DetailRow
+                label="Meter Make"
+                value={selected.meterMake}
+                colors={colors}
+              />
+
+              <Divider
+                sx={{
+                  borderColor: colors.primary[300],
+                  my: "12px",
+                }}
+              />
+
+              {/* Arrears */}
+              <Box textAlign="center" my="15px">
+                <Typography variant="caption" color={colors.grey[300]}>
+                  Outstanding Arrears
+                </Typography>
+                <Typography
+                  variant="h4"
+                  sx={{
+                    fontWeight: 700,
+                    color:
+                      selected.arrears > 0
+                        ? colors.redAccent[500]
+                        : colors.greenAccent[500],
+                    mt: "4px",
+                  }}
+                >
+                  {fmtCurrency(selected.arrears)}
+                </Typography>
+              </Box>
+
+              {/* Last purchase */}
+              <DetailRow
+                label="Last Purchase"
+                value={formatDateTime(selected.lastPurchaseDate)}
+                colors={colors}
+              />
+              <DetailRow
+                label="Last Amount"
+                value={fmtCurrency(selected.lastPurchaseAmount)}
+                colors={colors}
+              />
+
+              <Divider
+                sx={{
+                  borderColor: colors.primary[300],
+                  my: "12px",
+                }}
+              />
+
+              {/* Action buttons */}
+              <Box display="flex" flexWrap="wrap" gap="8px" mt="8px">
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<ConfirmationNumberOutlined />}
+                  sx={{
+                    backgroundColor: colors.greenAccent[600],
+                    color: colors.primary[500],
+                    "&:hover": {
+                      backgroundColor: colors.greenAccent[700],
+                    },
+                  }}
+                >
+                  Vend Token
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<EditOutlined />}
+                  sx={{
+                    color: colors.grey[100],
+                    borderColor: colors.primary[300],
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<ReceiptLongOutlined />}
+                  sx={{
+                    color: colors.grey[100],
+                    borderColor: colors.primary[300],
+                  }}
+                >
+                  Transactions
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<SmsOutlined />}
+                  sx={{
+                    color: colors.grey[100],
+                    borderColor: colors.primary[300],
+                  }}
+                >
+                  SMS
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={
+                    selected.status === "Suspended" ? (
+                      <CheckCircleOutlined />
+                    ) : (
+                      <BlockOutlined />
+                    )
+                  }
+                  sx={{
+                    color:
+                      selected.status === "Suspended"
+                        ? colors.greenAccent[500]
+                        : colors.redAccent[500],
+                    borderColor:
+                      selected.status === "Suspended"
+                        ? colors.greenAccent[700]
+                        : colors.redAccent[700],
+                  }}
+                >
+                  {selected.status === "Suspended" ? "Activate" : "Suspend"}
+                </Button>
+              </Box>
             </>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '400px', textAlign: 'center' }}>
-              <div style={{ fontSize: '48px', opacity: 0.15, marginBottom: '12px' }}>&#128100;</div>
-              <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.35)' }}>
+            <Box textAlign="center" py="80px">
+              <PersonOutlined
+                sx={{ fontSize: 48, color: colors.grey[400], mb: "8px" }}
+              />
+              <Typography variant="body2" color={colors.grey[400]}>
                 Select a customer from the table to view details.
-              </div>
-            </div>
+              </Typography>
+            </Box>
           )}
-        </div>
-      </div>
-    </div>
+        </Box>
+      </Box>
+    </Box>
   );
 }

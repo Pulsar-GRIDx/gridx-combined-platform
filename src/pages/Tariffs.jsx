@@ -1,266 +1,373 @@
 import { useState, useEffect } from "react";
+import {
+  Box,
+  Typography,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Button,
+  Tabs,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Snackbar,
+  Alert,
+  useTheme,
+} from "@mui/material";
+import { SaveOutlined } from "@mui/icons-material";
+import { tokens } from "../theme";
+import Header from "../components/Header";
 import { vendingAPI } from "../services/api";
+import { tariffGroups as mockTariffGroups, tariffConfig as mockTariffConfig } from "../services/mockData";
 
-// ---- Mock Data ----
-const MOCK_GROUPS = [
-  { id: 1, name: 'R1 — Residential Block Tariff', sgc: '000001', customerCount: 2241, type: 'Step', effectiveDate: '2025-07-01', blocks: [
-    { name: 'Block 1', rangeLabel: '0 – 50 kWh', rate: 1.28, minKwh: 0, maxKwh: 50 },
-    { name: 'Block 2', rangeLabel: '51 – 350 kWh', rate: 1.56, minKwh: 51, maxKwh: 350 },
-    { name: 'Block 3', rangeLabel: '351+ kWh', rate: 1.89, minKwh: 351, maxKwh: 999999 },
-  ]},
-  { id: 2, name: 'R2 — Residential High Consumption', sgc: '000002', customerCount: 512, type: 'Step', effectiveDate: '2025-07-01', blocks: [
-    { name: 'Block 1', rangeLabel: '0 – 100 kWh', rate: 1.45, minKwh: 0, maxKwh: 100 },
-    { name: 'Block 2', rangeLabel: '101 – 500 kWh', rate: 1.72, minKwh: 101, maxKwh: 500 },
-    { name: 'Block 3', rangeLabel: '501+ kWh', rate: 2.10, minKwh: 501, maxKwh: 999999 },
-  ]},
-  { id: 3, name: 'C1 — Commercial Tariff', sgc: '000003', customerCount: 247, type: 'Flat', effectiveDate: '2025-07-01', blocks: [
-    { name: 'Flat Rate', rangeLabel: 'All usage', rate: 1.98, minKwh: 0, maxKwh: 999999 },
-  ]},
-];
-
-const MOCK_CONFIG = {
-  vatRate: 15.0,
-  fixedCharge: 8.50,
-  relLevy: 2.40,
-  minPurchase: 10.00,
-  arrearsMode: 'auto-deduct',
-  arrearsThreshold: 500.00,
-};
-
-const MOCK_LOG = [
-  { type: 'update', time: '2026-01-01 00:00:00', desc: 'R1 Block 1 rate updated: N$1.22 → N$1.28/kWh', detail: 'Approved by: NamPower Tariff Division • Ref: TAR-2026-001' },
-  { type: 'update', time: '2025-07-01 00:00:00', desc: 'VAT rate maintained at 15.0% — Annual Review', detail: 'No change required • Ref: VAT-2025-R' },
-  { type: 'create', time: '2025-01-15 00:00:00', desc: 'New tariff group C1 created for commercial meters', detail: 'Approved by: Board Resolution BR-2025-003' },
-];
-
-function blockBorderClass(idx) {
-  if (idx === 0) return 'tariff-block';
-  if (idx === 1) return 'tariff-block b2';
-  return 'tariff-block b3';
-}
-
-function auditItemClass(type) {
-  return `audit-item ${type}`;
-}
+// ---- Block tier colors ----
+const blockColors = ["#4cceac", "#00b4d8", "#f2b705", "#db4f4a"];
 
 export default function Tariffs() {
-  const [tariffGroups, setTariffGroups] = useState(MOCK_GROUPS);
-  const [config, setConfig] = useState({ ...MOCK_CONFIG });
-  const [changeLog] = useState(MOCK_LOG);
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState('');
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
+
+  const [selectedTab, setSelectedTab] = useState(0);
+  const [tariffGroups, setTariffGroups] = useState(mockTariffGroups);
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
+
+  const [config, setConfig] = useState({
+    vatRate: mockTariffConfig.vatRate,
+    fixedCharge: mockTariffConfig.fixedCharge,
+    relLevy: mockTariffConfig.relLevy,
+    minPurchase: mockTariffConfig.minPurchase,
+  });
 
   useEffect(() => {
-    vendingAPI.getTariffGroups()
-      .then((r) => {
-        if (r.success && r.data?.length > 0) setTariffGroups(r.data);
-      })
-      .catch(() => {});
-
-    vendingAPI.getTariffConfig()
-      .then((r) => {
-        if (r.success && r.data) {
-          setConfig({
-            vatRate: r.data.vatRate ?? MOCK_CONFIG.vatRate,
-            fixedCharge: r.data.fixedCharge ?? MOCK_CONFIG.fixedCharge,
-            relLevy: r.data.relLevy ?? MOCK_CONFIG.relLevy,
-            minPurchase: r.data.minPurchase ?? MOCK_CONFIG.minPurchase,
-            arrearsMode: r.data.arrearsMode ?? MOCK_CONFIG.arrearsMode,
-            arrearsThreshold: r.data.arrearsThreshold ?? MOCK_CONFIG.arrearsThreshold,
-          });
-        }
-      })
-      .catch(() => {});
+    vendingAPI.getTariffConfig().then(r => {
+      if (r.success && r.data) {
+        setConfig({
+          vatRate: r.data.vatRate ?? mockTariffConfig.vatRate,
+          fixedCharge: r.data.fixedCharge ?? mockTariffConfig.fixedCharge,
+          relLevy: r.data.relLevy ?? mockTariffConfig.relLevy,
+          minPurchase: r.data.minPurchase ?? mockTariffConfig.minPurchase,
+        });
+      }
+    }).catch(() => {});
+    vendingAPI.getTariffGroups().then(r => {
+      if (r.success && r.data?.length > 0) setTariffGroups(r.data);
+    }).catch(() => {});
   }, []);
 
   const handleChange = (field) => (e) => {
     setConfig((prev) => ({ ...prev, [field]: e.target.value }));
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    setSaveMsg('');
+  const handleSaveConfig = async () => {
     try {
       await vendingAPI.updateTariffConfig(config);
-      setSaveMsg('Configuration saved successfully.');
+      setSnackbar({ open: true, message: "Configuration saved", severity: "success" });
     } catch (err) {
-      setSaveMsg(err.message || 'Save failed.');
+      setSnackbar({ open: true, message: err.message || "Save failed", severity: "error" });
     }
-    setSaving(false);
-    setTimeout(() => setSaveMsg(''), 4000);
   };
 
+  const selectedGroup = tariffGroups[selectedTab] || tariffGroups[0];
+
   return (
-    <div>
-      {/* ===== Page Header ===== */}
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--text-primary)" }}>
-          Tariff Management
-        </h2>
-        <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-muted)" }}>
-          Step tariff configuration per IEC 62055-41
-        </p>
-      </div>
+    <Box m="20px">
+      <Header
+        title="TARIFF MANAGEMENT"
+        subtitle="Step Tariff Configuration"
+      />
 
-      {/* ===== Two-Column Layout ===== */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-        {/* LEFT - Tariff Groups */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Tariff Groups</div>
-              <div className="card-subtitle">Step tariff configuration per IEC 62055-41</div>
-            </div>
-            <button className="btn btn-primary btn-sm">+ Add Group</button>
-          </div>
-          <div className="card-body">
-            {tariffGroups.map((group) => (
-              <div key={group.id} style={{ marginBottom: 24 }}>
-                {/* Group header */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)" }}>
-                      {group.name}
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                      SGC: <span className="mono" style={{ color: "var(--accent)" }}>{group.sgc}</span>
-                      &nbsp;&middot;&nbsp;
-                      {Number(group.customerCount).toLocaleString()} customers
-                    </div>
-                  </div>
-                  <span className="badge badge-success">Active</span>
-                </div>
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ---- System config card (span 4, span 2) ---- */}
+        <Box
+          gridColumn="span 4"
+          gridRow="span 2"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          p="20px"
+          display="flex"
+          flexDirection="column"
+          justifyContent="space-between"
+        >
+          <Typography
+            variant="h5"
+            color={colors.grey[100]}
+            fontWeight="bold"
+            mb="10px"
+          >
+            System Configuration
+          </Typography>
 
-                {/* Tariff blocks */}
-                {group.blocks.map((block, idx) => (
-                  <div key={idx} className={blockBorderClass(idx)}>
-                    <div className="tariff-range">
-                      {block.name}: {block.rangeLabel}
-                    </div>
-                    <div className="tariff-rate">
-                      N${Number(block.rate).toFixed(2)}
-                      <span className="tariff-unit">/kWh</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          <Box display="flex" flexDirection="column" gap="12px" flex="1">
+            <TextField
+              label="VAT Rate (%)"
+              type="number"
+              size="small"
+              fullWidth
+              value={config.vatRate}
+              onChange={handleChange("vatRate")}
+            />
+            <TextField
+              label="Fixed Charge (N$)"
+              type="number"
+              size="small"
+              fullWidth
+              value={config.fixedCharge}
+              onChange={handleChange("fixedCharge")}
+            />
+            <TextField
+              label="REL Levy (N$)"
+              type="number"
+              size="small"
+              fullWidth
+              value={config.relLevy}
+              onChange={handleChange("relLevy")}
+            />
+            <TextField
+              label="Min Purchase (N$)"
+              type="number"
+              size="small"
+              fullWidth
+              value={config.minPurchase}
+              onChange={handleChange("minPurchase")}
+            />
+          </Box>
+
+          <Button
+            variant="contained"
+            startIcon={<SaveOutlined />}
+            onClick={handleSaveConfig}
+            sx={{
+              mt: "10px",
+              backgroundColor: colors.greenAccent[500],
+              color: "#000",
+              fontWeight: 600,
+              "&:hover": { backgroundColor: colors.greenAccent[600] },
+            }}
+          >
+            Save Configuration
+          </Button>
+        </Box>
+
+        {/* ---- Tariff groups tabs (span 8, span 2) ---- */}
+        <Box
+          gridColumn="span 8"
+          gridRow="span 2"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          p="20px"
+          display="flex"
+          flexDirection="column"
+        >
+          <Typography
+            variant="h5"
+            color={colors.grey[100]}
+            fontWeight="bold"
+            mb="10px"
+          >
+            Tariff Groups
+          </Typography>
+
+          <Tabs
+            value={selectedTab}
+            onChange={(_, v) => setSelectedTab(v)}
+            sx={{
+              mb: "15px",
+              "& .MuiTab-root": {
+                color: colors.grey[300],
+                textTransform: "none",
+                fontWeight: 600,
+                "&.Mui-selected": { color: colors.greenAccent[500] },
+              },
+              "& .MuiTabs-indicator": {
+                backgroundColor: colors.greenAccent[500],
+              },
+            }}
+          >
+            {tariffGroups.map((g) => (
+              <Tab key={g.id} label={g.name} />
             ))}
-          </div>
-        </div>
+          </Tabs>
 
-        {/* RIGHT - Stacked: Config + Change Log */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {/* Fixed Charges & Levies */}
-          <div className="card">
-            <div className="card-header">
-              <div className="card-title">Fixed Charges & Levies</div>
-            </div>
-            <div className="card-body">
-              <div className="form-row col-2">
-                <div className="field">
-                  <label>VAT Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={config.vatRate}
-                    onChange={handleChange('vatRate')}
-                  />
-                </div>
-                <div className="field">
-                  <label>Fixed Monthly Charge (N$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={config.fixedCharge}
-                    onChange={handleChange('fixedCharge')}
-                  />
-                </div>
-              </div>
-              <div className="form-row col-2">
-                <div className="field">
-                  <label>REL Levy (N$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={config.relLevy}
-                    onChange={handleChange('relLevy')}
-                  />
-                </div>
-                <div className="field">
-                  <label>Min. Purchase Amount (N$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={config.minPurchase}
-                    onChange={handleChange('minPurchase')}
-                  />
-                </div>
-              </div>
-              <div className="form-row col-2">
-                <div className="field">
-                  <label>Arrears Collection Mode</label>
-                  <select value={config.arrearsMode} onChange={handleChange('arrearsMode')}>
-                    <option value="auto-deduct">Auto-Deduct</option>
-                    <option value="manual">Manual</option>
-                    <option value="disabled">Disabled</option>
-                  </select>
-                </div>
-                <div className="field">
-                  <label>Arrears Threshold (N$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={config.arrearsThreshold}
-                    onChange={handleChange('arrearsThreshold')}
-                  />
-                </div>
-              </div>
-
-              {saveMsg && (
-                <div style={{
-                  padding: "10px 14px",
-                  borderRadius: 8,
-                  marginBottom: 12,
-                  fontSize: 13,
-                  background: saveMsg.includes('fail') ? "rgba(239,68,68,0.1)" : "rgba(34,197,94,0.1)",
-                  color: saveMsg.includes('fail') ? "var(--danger)" : "var(--success)",
-                  border: `1px solid ${saveMsg.includes('fail') ? "rgba(239,68,68,0.2)" : "rgba(34,197,94,0.2)"}`,
-                }}>
-                  {saveMsg}
-                </div>
+          <Box flex="1" overflow="auto">
+            <Box
+              display="flex"
+              justifyContent="space-between"
+              alignItems="flex-start"
+              mb="8px"
+            >
+              <Box>
+                <Typography
+                  variant="h6"
+                  color={colors.grey[100]}
+                  fontWeight="bold"
+                >
+                  {selectedGroup.name}
+                </Typography>
+                <Typography variant="body2" color={colors.grey[300]}>
+                  {selectedGroup.description}
+                </Typography>
+              </Box>
+              <Box textAlign="right">
+                <Typography
+                  variant="body2"
+                  color={colors.greenAccent[500]}
+                  fontWeight="600"
+                >
+                  SGC: {selectedGroup.sgc}
+                </Typography>
+                <Typography variant="body2" color={colors.grey[400]}>
+                  {Number(selectedGroup.customerCount || 0).toLocaleString()} meters
+                </Typography>
+              </Box>
+            </Box>
+            <Typography
+              variant="caption"
+              sx={{
+                display: "inline-block",
+                px: 1.5,
+                py: 0.3,
+                borderRadius: 1,
+                backgroundColor: `${colors.blueAccent[500]}22`,
+                color: colors.blueAccent[500],
+                fontWeight: 600,
+                mb: "8px",
+              }}
+            >
+              {selectedGroup.type === "Block"
+                ? "Step Tariff Blocks"
+                : selectedGroup.type === "Flat"
+                ? "Flat Rate Tariff"
+                : "Time-of-Use Tariff"}
+            </Typography>
+            <Typography variant="caption" color={colors.grey[400]} display="block">
+              Effective from:{" "}
+              {new Date(selectedGroup.effectiveDate).toLocaleDateString(
+                "en-ZA",
+                { year: "numeric", month: "long", day: "numeric" }
               )}
+            </Typography>
+          </Box>
+        </Box>
 
-              <div style={{ display: "flex", gap: 10 }}>
-                <button className="btn btn-success" onClick={handleSave} disabled={saving}>
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </button>
-                <button className="btn btn-secondary">Tariff History</button>
-              </div>
-            </div>
-          </div>
-
-          {/* Tariff Change Log */}
-          <div className="card">
-            <div className="card-header">
-              <div className="card-title">Tariff Change Log</div>
-            </div>
-            <div className="card-body">
-              {changeLog.map((item, idx) => (
-                <div key={idx} className={auditItemClass(item.type)}>
-                  <div className="audit-time">{item.time}</div>
-                  <div className="audit-desc">{item.desc}</div>
-                  <div className="audit-user">{item.detail}</div>
-                </div>
-              ))}
-              {changeLog.length === 0 && (
-                <p style={{ textAlign: "center", color: "var(--text-muted)", padding: "20px 0" }}>
-                  No tariff changes recorded.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+        {/* ---- Selected tariff blocks table (span 12, span 3) ---- */}
+        <Box
+          gridColumn="span 12"
+          gridRow="span 3"
+          backgroundColor={colors.primary[400]}
+          borderRadius="4px"
+          overflow="auto"
+        >
+          <Box p="20px" pb="0">
+            <Typography
+              variant="h5"
+              color={colors.grey[100]}
+              fontWeight="bold"
+              mb="10px"
+            >
+              {selectedGroup.name} - Rate Blocks
+            </Typography>
+          </Box>
+          <TableContainer sx={{ px: "20px", pb: "20px" }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell
+                    sx={{
+                      color: colors.grey[100],
+                      fontWeight: 700,
+                      borderBottom: `1px solid ${colors.grey[700]}`,
+                    }}
+                  >
+                    Block Name
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      color: colors.grey[100],
+                      fontWeight: 700,
+                      borderBottom: `1px solid ${colors.grey[700]}`,
+                    }}
+                  >
+                    Range
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{
+                      color: colors.grey[100],
+                      fontWeight: 700,
+                      borderBottom: `1px solid ${colors.grey[700]}`,
+                    }}
+                  >
+                    Rate per kWh
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {selectedGroup.blocks.map((block, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell
+                      sx={{
+                        borderBottom: `1px solid ${colors.grey[800]}`,
+                      }}
+                    >
+                      <Box display="flex" alignItems="center" gap="10px">
+                        <Box
+                          sx={{
+                            width: 5,
+                            height: 36,
+                            borderRadius: "2px",
+                            backgroundColor:
+                              blockColors[idx % blockColors.length],
+                            flexShrink: 0,
+                          }}
+                        />
+                        <Typography
+                          color={colors.grey[100]}
+                          fontWeight="600"
+                        >
+                          {block.name}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        color: colors.grey[300],
+                        borderBottom: `1px solid ${colors.grey[800]}`,
+                      }}
+                    >
+                      {block.range}
+                    </TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{
+                        color: blockColors[idx % blockColors.length],
+                        fontWeight: 700,
+                        fontSize: "1rem",
+                        borderBottom: `1px solid ${colors.grey[800]}`,
+                      }}
+                    >
+                      N$ {Number(block.rate).toFixed(2)}/kWh
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      </Box>
+      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>{snackbar.message}</Alert>
+      </Snackbar>
+    </Box>
   );
 }

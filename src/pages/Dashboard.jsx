@@ -1,423 +1,986 @@
 import { useState, useEffect } from "react";
-import { vendingAPI } from "../services/api";
-import { useNavigate } from "react-router-dom";
+import { Box, Typography, useTheme, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress } from "@mui/material";
+import { tokens } from "../theme";
+import Header from "../components/Header";
+import DataBadge from "../components/DataBadge";
+import StatBox from "../components/StatBox";
+import { meterAPI, tokenAPI, financeAPI, energyAPI } from "../services/api";
+import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
+import { dashboardData as mockDashboard, notifications as mockNotifications } from "../services/mockData";
+import ElectricBoltOutlinedIcon from "@mui/icons-material/ElectricBoltOutlined";
+import BatteryChargingFullIcon from "@mui/icons-material/BatteryChargingFull";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import BoltIcon from "@mui/icons-material/Bolt";
+import ElectricMeterOutlinedIcon from "@mui/icons-material/ElectricMeterOutlined";
+import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
+import PowerOutlinedIcon from "@mui/icons-material/PowerOutlined";
+import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import TrendingDownIcon from "@mui/icons-material/TrendingDown";
+import BarChartIcon from "@mui/icons-material/BarChart";
+import SettingsInputCompositeIcon from "@mui/icons-material/SettingsInputComposite";
+import ElectricalServicesIcon from "@mui/icons-material/ElectricalServices";
+import FlashOnIcon from "@mui/icons-material/FlashOn";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import {
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+  Cell,
+  ReferenceLine,
+} from "recharts";
+
+// All suburbs list for regional chart (ensures all regions shown even with 0 consumption)
+const ALL_SUBURBS = [
+  "Academia", "Auasblick", "Avis", "Cimbebasia", "Dorado Park", "Donkerhoek",
+  "Elisenheim", "Eros", "Eros Park", "Freedom Land", "Goreangab", "Groot Aub",
+  "Greenwell", "Hakahana", "Havana", "Hochland Park", "Katutura", "Khomasdal",
+  "Kleine Kuppe", "Klein Windhoek", "Lafrenz", "Ludwigsdorf", "Luxury Hill",
+  "Maxuilili", "Northern Industrial", "Okuryangava", "Olympia", "Ombili",
+  "Otjomuise", "Pionierspark", "Prosperita", "Rocky Crest", "Southern Industria",
+  "Suiderhof", "Tauben Glen", "Wanaheda", "Windhoek Central", "Windhoek North",
+  "Windhoek West",
+];
 
 // ---- Helpers ----
 const fmt = (n) => Number(n || 0).toLocaleString();
-const fmtCurrency = (n) =>
-  `N$ ${Number(n || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  })}`;
+const fmtCurrency = (n) => `N$ ${Number(n || 0).toLocaleString()}`;
 
-function formatTime(iso) {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  return d.toLocaleTimeString("en-NA", { hour: "2-digit", minute: "2-digit" });
+function formatTime(isoStr) {
+  if (!isoStr) return "";
+  const d = new Date(isoStr);
+  return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
-function getDayLabel(dateStr) {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  return days[d.getDay()] || "";
-}
-
-// Mock fallback data
-const MOCK_DASHBOARD = {
-  todayRevenue: 18742,
-  todayTokens: 247,
-  activeCustomers: 2984,
-  monthRevenue: 412580,
-  salesTrend: [
-    { day: "Thu", revenue: 9840 },
-    { day: "Fri", revenue: 13200 },
-    { day: "Sat", revenue: 8420 },
-    { day: "Sun", revenue: 6100 },
-    { day: "Mon", revenue: 15600 },
-    { day: "Tue", revenue: 14380 },
-    { day: "Today", revenue: 18742 },
-  ],
+// Status chip color map
+const statusColor = {
+  Completed: "#4cceac",
+  Failed: "#db4f4a",
+  Reversed: "#f2b705",
+  Pending: "#6870fa",
 };
 
-const MOCK_TRANSACTIONS = [
-  {
-    id: 1,
-    time: new Date().toISOString(),
-    customer: "Martha Shilongo",
-    meterNo: "04040512345",
-    amount: 250.0,
-    kwh: 58.2,
-    status: "Success",
-  },
-  {
-    id: 2,
-    time: new Date(Date.now() - 300000).toISOString(),
-    customer: "Jonas Amupanda",
-    meterNo: "04040598765",
-    amount: 100.0,
-    kwh: 23.1,
-    status: "Success",
-  },
-  {
-    id: 3,
-    time: new Date(Date.now() - 600000).toISOString(),
-    customer: "Selma Kapunda",
-    meterNo: "04040534567",
-    amount: 500.0,
-    kwh: 116.8,
-    status: "Arrears",
-  },
-  {
-    id: 4,
-    time: new Date(Date.now() - 900000).toISOString(),
-    customer: "Petrus Hamutenya",
-    meterNo: "04040523456",
-    amount: 50.0,
-    kwh: 11.5,
-    status: "Success",
-  },
-  {
-    id: 5,
-    time: new Date(Date.now() - 1200000).toISOString(),
-    customer: "Maria Nangolo",
-    meterNo: "04040567890",
-    amount: 200.0,
-    kwh: 46.4,
-    status: "Success",
-  },
-  {
-    id: 6,
-    time: new Date(Date.now() - 1800000).toISOString(),
-    customer: "David Nghifikwa",
-    meterNo: "04040545678",
-    amount: 75.0,
-    kwh: 17.3,
-    status: "Failed",
-  },
-  {
-    id: 7,
-    time: new Date(Date.now() - 2400000).toISOString(),
-    customer: "Anna Shikongo",
-    meterNo: "04040578901",
-    amount: 300.0,
-    kwh: 69.8,
-    status: "Success",
-  },
-  {
-    id: 8,
-    time: new Date(Date.now() - 3000000).toISOString(),
-    customer: "Thomas Iipumbu",
-    meterNo: "04040589012",
-    amount: 150.0,
-    kwh: 34.7,
-    status: "Success",
-  },
-  {
-    id: 9,
-    time: new Date(Date.now() - 3600000).toISOString(),
-    customer: "Elizabeth Kandji",
-    meterNo: "04040556789",
-    amount: 100.0,
-    kwh: 23.1,
-    status: "Arrears",
-  },
-  {
-    id: 10,
-    time: new Date(Date.now() - 4200000).toISOString(),
-    customer: "Simon Nghidishange",
-    meterNo: "04040590123",
-    amount: 400.0,
-    kwh: 93.2,
-    status: "Success",
-  },
-];
-
-// Status badge class map
-function statusBadgeClass(status) {
-  switch (status) {
-    case "Success":
-    case "Completed":
-      return "badge badge-success";
-    case "Arrears":
+// Notification icon by type
+const notifIcon = (type) => {
+  switch (type) {
+    case "Critical":
+      return <ErrorOutlineIcon sx={{ color: "#db4f4a", fontSize: 18 }} />;
     case "Warning":
-    case "Reversed":
-      return "badge badge-warning";
-    case "Failed":
-      return "badge badge-danger";
+      return <WarningAmberIcon sx={{ color: "#f2b705", fontSize: 18 }} />;
+    case "Success":
+      return <CheckCircleOutlineIcon sx={{ color: "#4cceac", fontSize: 18 }} />;
     default:
-      return "badge badge-info";
+      return <InfoOutlinedIcon sx={{ color: "#6870fa", fontSize: 18 }} />;
   }
-}
+};
 
 export default function Dashboard() {
-  const navigate = useNavigate();
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
 
+  const [kpis, setKpis] = useState(mockDashboard.kpis);
+  const [salesTrend, setSalesTrend] = useState(mockDashboard.salesTrend);
+  const [recentTxns, setRecentTxns] = useState(mockDashboard.recentTransactions);
+  const [notifs, setNotifs] = useState(mockNotifications);
+  const [areaPower, setAreaPower] = useState([]);
+  const [areaRevenue, setAreaRevenue] = useState([]);
+  const [hourlyData, setHourlyData] = useState([]);
+  const [hourlyTotals, setHourlyTotals] = useState({ averagePower: 0, peakPower: 0 });
+  const [suburbEnergy, setSuburbEnergy] = useState({});
   const [loading, setLoading] = useState(true);
-  const [dashData, setDashData] = useState(MOCK_DASHBOARD);
-  const [transactions, setTransactions] = useState(MOCK_TRANSACTIONS);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await vendingAPI.getDashboard();
-        if (res.success) setDashData(res.data);
-      } catch (e) {
-        console.error("Dashboard fetch error:", e);
+        // Fetch multiple endpoints in parallel
+        const results = await Promise.allSettled([
+          meterAPI.getDashboard(),
+          tokenAPI.getAmount(),
+          tokenAPI.getCount(),
+          financeAPI.getPastWeekTokens(),
+          energyAPI.getCurrentDay(),
+          tokenAPI.getAllProcessed(),
+          meterAPI.getAreaSummary(),
+          energyAPI.getHourlyPower(),
+          energyAPI.getWeeklyAmount(),
+          energyAPI.getSuburbHourlyEnergy(ALL_SUBURBS),
+        ]);
+
+        const [meterDash, tokenAmt, tokenCnt, weekTokens, dayEnergy, processedTokens, areaSummaryResult, hourlyPowerResult, weeklyAmountResult, suburbEnergyResult] = results;
+
+        // Build KPIs from meter dashboard
+        if (meterDash.status === "fulfilled" && meterDash.value?.data) {
+          const d = meterDash.value.data;
+          setKpis((prev) => ({
+            ...prev,
+            totalMeters: d.totalMeters || d.total || prev.totalMeters,
+            activeMeters: d.activeMeters || d.active || prev.activeMeters,
+            inactiveMeters: d.inactiveMeters || d.inactive || prev.inactiveMeters,
+            systemLoad: d.systemLoad || prev.systemLoad,
+          }));
+        }
+
+        // Token amount = today's revenue
+        if (tokenAmt.status === "fulfilled") {
+          const data = tokenAmt.value;
+          setKpis((prev) => ({
+            ...prev,
+            todayRevenue: parseFloat(data?.grandTotal) || prev.todayRevenue,
+          }));
+        }
+
+        // Token count
+        if (tokenCnt.status === "fulfilled") {
+          const data = tokenCnt.value;
+          setKpis((prev) => ({
+            ...prev,
+            todayTokens: data?.grandTotal || prev.todayTokens,
+          }));
+        }
+
+        // Current day energy
+        if (dayEnergy.status === "fulfilled") {
+          const data = dayEnergy.value;
+          setKpis((prev) => ({
+            ...prev,
+            avgConsumption: data?.totalEnergy || prev.avgConsumption,
+          }));
+        }
+
+        // Past week tokens for trend chart
+        if (weekTokens.status === "fulfilled" && Array.isArray(weekTokens.value)) {
+          const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+          const trend = weekTokens.value.map((item) => {
+            const d = new Date(item.date || item.Date);
+            return {
+              day: dayNames[d.getDay()] || "?",
+              revenue: parseFloat(item.total_amount || item.amount || 0),
+              tokens: parseInt(item.token_count || item.count || 0, 10),
+              kWh: parseFloat(item.total_kwh || item.kwh || 0),
+            };
+          });
+          if (trend.length > 0) setSalesTrend(trend);
+        }
+
+        // Area summary (power + revenue)
+        if (areaSummaryResult.status === "fulfilled" && areaSummaryResult.value) {
+          const { areaPower: ap, areaRevenue: ar } = areaSummaryResult.value;
+          if (Array.isArray(ap)) setAreaPower(ap);
+          if (Array.isArray(ar)) setAreaRevenue(ar);
+        }
+
+        // Hourly power consumption (24-hour data)
+        if (hourlyPowerResult.status === "fulfilled" && hourlyPowerResult.value) {
+          const hData = hourlyPowerResult.value;
+          if (Array.isArray(hData.sums)) {
+            const chartData = hData.sums.map((val, i) => ({
+              hour: `${i < 10 ? '0' + i : i}:00`,
+              kWh: Number(val) || 0,
+            }));
+            setHourlyData(chartData);
+          }
+        }
+
+        // Weekly data with average/peak power
+        if (weeklyAmountResult.status === "fulfilled" && weeklyAmountResult.value) {
+          const wData = weeklyAmountResult.value;
+          const avgPower = typeof wData?.averagePower === "number"
+            ? wData.averagePower
+            : wData?.enhancedSystemPowerAnalysis?.daily_analysis?.overall_average_power || 0;
+          const peakPower = typeof wData?.peakPower === "number"
+            ? wData.peakPower
+            : wData?.enhancedSystemPowerAnalysis?.daily_analysis?.overall_peak_power || 0;
+          setHourlyTotals({ averagePower: avgPower, peakPower: peakPower });
+        }
+
+        // Suburb hourly energy (for regional consumption chart)
+        if (suburbEnergyResult.status === "fulfilled" && suburbEnergyResult.value) {
+          const sData = suburbEnergyResult.value?.data || suburbEnergyResult.value;
+          if (typeof sData === "object" && !Array.isArray(sData)) {
+            // Ensure all suburbs are present (even with 0)
+            const fullData = {};
+            ALL_SUBURBS.forEach((s) => { fullData[s] = Number(sData[s]) || 0; });
+            setSuburbEnergy(fullData);
+          }
+        }
+
+        // Processed tokens as recent transactions
+        if (processedTokens.status === "fulfilled" && processedTokens.value?.data) {
+          const txns = processedTokens.value.data.slice(0, 10).map((t, i) => ({
+            id: t.token_id || `TXN-${i}`,
+            time: t.date_time || t.createdAt || new Date().toISOString(),
+            customer: t.customer || t.DRN || `Meter ${t.DRN || ""}`,
+            meterNo: t.DRN || t.meter_number || "-",
+            amount: parseFloat(t.token_amount || t.amount || 0),
+            kWh: parseFloat(t.kwh || 0),
+            token: t.sts_token || t.token || "-",
+            operator: t.operator || "-",
+            status: "Completed",
+          }));
+          if (txns.length > 0) setRecentTxns(txns);
+        }
+      } catch (err) {
+        console.error("Dashboard fetch error:", err);
+      } finally {
+        setLoading(false);
       }
-      try {
-        const res = await vendingAPI.getTransactions({ limit: 10 });
-        if (res.success) setTransactions(res.data || []);
-      } catch (e) {
-        console.error("Transactions fetch error:", e);
-      }
-      setLoading(false);
     };
+
     fetchData();
   }, []);
 
-  // Sales trend chart helpers
-  const salesTrend = dashData.salesTrend || MOCK_DASHBOARD.salesTrend;
-  const maxRevenue = Math.max(...salesTrend.map((d) => d.revenue), 1);
-
   if (loading) {
     return (
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          height: "60vh",
-        }}
-      >
-        <div className="spinner" />
-      </div>
+      <Box m="20px" display="flex" justifyContent="center" alignItems="center" height="60vh">
+        <CircularProgress sx={{ color: colors.greenAccent[500] }} />
+      </Box>
     );
   }
 
   return (
-    <div>
-      {/* ===== KPI Grid ===== */}
-      <div className="kpi-grid">
-        {/* Today's Sales */}
-        <div className="kpi-card blue">
-          <div className="kpi-icon">&#9889;</div>
-          <div className="kpi-label">Today's Sales</div>
-          <div className="kpi-value">
-            {fmtCurrency(dashData.todayRevenue ?? MOCK_DASHBOARD.todayRevenue)}
-          </div>
-          <div className="kpi-change up">
-            <span>&#9650;</span> +12.5% vs yesterday
-          </div>
-        </div>
+    <Box m="20px">
+      <Box display="flex" justifyContent="space-between" alignItems="center">
+        <Header title="DASHBOARD" subtitle="Meters Network Summary" />
+        <Box display="flex" gap={0.5}>
+          <DataBadge live />
+          <DataBadge />
+        </Box>
+      </Box>
 
-        {/* Tokens Generated */}
-        <div className="kpi-card green">
-          <div className="kpi-icon">&#129682;</div>
-          <div className="kpi-label">Tokens Generated</div>
-          <div className="kpi-value">
-            {fmt(dashData.todayTokens ?? MOCK_DASHBOARD.todayTokens)}
-          </div>
-          <div className="kpi-change up">
-            <span>&#9650;</span> +8.3% vs yesterday
-          </div>
-        </div>
+      <Box
+        display="grid"
+        gridTemplateColumns="repeat(12, 1fr)"
+        gridAutoRows="140px"
+        gap="5px"
+      >
+        {/* ROW 1: 4 Stat Boxes */}
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <StatBox
+            title={fmt(kpis.totalMeters)}
+            subtitle="Total Meters"
+            progress="0.75"
+            increase="+2.4%"
+            link="/meters"
+            icon={
+              <ElectricMeterOutlinedIcon
+                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
+              />
+            }
+          />
+        </Box>
 
-        {/* Active Meters */}
-        <div className="kpi-card amber">
-          <div className="kpi-icon">&#128161;</div>
-          <div className="kpi-label">Active Meters</div>
-          <div className="kpi-value">
-            {fmt(dashData.activeCustomers ?? MOCK_DASHBOARD.activeCustomers)}
-          </div>
-          <div className="kpi-change up">
-            <span>&#9650;</span> +2.1% this month
-          </div>
-        </div>
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <StatBox
+            title={fmt(kpis.activeMeters)}
+            subtitle="Active Meters"
+            progress="0.89"
+            increase="+1.2%"
+            link="/meters"
+            icon={
+              <ElectricBoltOutlinedIcon
+                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
+              />
+            }
+          />
+        </Box>
 
-        {/* Revenue This Month */}
-        <div className="kpi-card purple">
-          <div className="kpi-icon">&#128184;</div>
-          <div className="kpi-label">Revenue This Month</div>
-          <div className="kpi-value">
-            {fmtCurrency(dashData.monthRevenue ?? MOCK_DASHBOARD.monthRevenue)}
-          </div>
-          <div className="kpi-change up">
-            <span>&#9650;</span> +15.7% vs last month
-          </div>
-        </div>
-      </div>
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <StatBox
+            title={fmt(kpis.inactiveMeters)}
+            subtitle="Inactive Meters"
+            progress="0.11"
+            increase="-0.8%"
+            link="/meters"
+            icon={
+              <BatteryChargingFullIcon
+                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
+              />
+            }
+          />
+        </Box>
 
-      {/* ===== Dashboard Grid ===== */}
-      <div className="dash-grid">
-        {/* LEFT COLUMN: Recent Transactions */}
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Recent Transactions</div>
-              <div className="card-subtitle">
-                Last 10 vending transactions
-              </div>
-            </div>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => navigate("/transactions")}
+        <Box
+          gridColumn="span 3"
+          backgroundColor={colors.primary[400]}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <StatBox
+            title={`${kpis.systemLoad}%`}
+            subtitle="Current System Load"
+            progress={String(kpis.systemLoad / 100)}
+            increase="+3.1%"
+            link="/"
+            icon={
+              <BoltIcon
+                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
+              />
+            }
+          />
+        </Box>
+
+        {/* ROW 2: Regional Consumption Chart (Suburban Energy Analytics) */}
+        {(() => {
+          const suburbEntries = Object.entries(suburbEnergy);
+          const suburbValues = suburbEntries.map(([, v]) => Number(v) || 0);
+          const suburbTotal = suburbValues.reduce((a, v) => a + v, 0);
+          const suburbAvg = suburbValues.length ? suburbTotal / suburbValues.length : 0;
+          const maxEntry = suburbEntries.length
+            ? suburbEntries.reduce((p, c) => ((Number(c[1]) || 0) > (Number(p[1]) || 0) ? c : p))
+            : null;
+          const minEntry = suburbEntries.length
+            ? suburbEntries.reduce((p, c) => ((Number(c[1]) || 0) < (Number(p[1]) || 0) ? c : p))
+            : null;
+          const suburbChartData = suburbEntries.map(([name, value]) => ({
+            suburb: name,
+            kWh: Number(value) || 0,
+          }));
+
+          return (
+            <Box
+              gridColumn="span 12"
+              gridRow="span 4"
+              backgroundColor={colors.primary[400]}
+              p="15px"
             >
-              View All
-            </button>
-          </div>
-          <div className="card-body" style={{ padding: 0 }}>
-            <div className="table-wrap">
-              <table className="vend-table">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Customer</th>
-                    <th>Meter No.</th>
-                    <th>Amount</th>
-                    <th>kWh</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((txn) => (
-                    <tr key={txn.id}>
-                      <td>{formatTime(txn.time || txn.createdAt)}</td>
-                      <td>{txn.customer || txn.customerName || "-"}</td>
-                      <td className="mono ref-cell">
-                        {txn.meterNo || txn.meter_number || "-"}
-                      </td>
-                      <td className="mono amount-cell">
-                        N$ {Number(txn.amount || 0).toFixed(2)}
-                      </td>
-                      <td className="mono">
-                        {Number(txn.kwh || txn.kWh || 0).toFixed(1)}
-                      </td>
-                      <td>
-                        <span className={statusBadgeClass(txn.status)}>
-                          {txn.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {transactions.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        style={{
-                          textAlign: "center",
-                          padding: "32px 16px",
-                          color: "var(--text-muted)",
+              <Box display="flex" alignItems="center" gap={1} mb="10px">
+                <MapOutlinedIcon sx={{ color: colors.greenAccent[500], fontSize: 20 }} />
+                <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+                  Suburban Energy Analytics
+                </Typography>
+                <DataBadge live sx={{ ml: "auto" }} />
+              </Box>
+
+              {/* Stats Header */}
+              <Box sx={{
+                display: "flex",
+                justifyContent: "space-around",
+                backgroundColor: colors.primary[500],
+                borderRadius: "8px",
+                p: 1.5,
+                mb: 2,
+                gap: 2,
+                flexWrap: "wrap",
+              }}>
+                <Box sx={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <TrendingUpIcon sx={{ color: colors.greenAccent[500], fontSize: "2rem", mb: 0.5 }} />
+                  <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                    {maxEntry ? `${Number(maxEntry[1]).toFixed(2)} kWh` : "—"}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: colors.grey[300] }}>Highest usage area</Typography>
+                  <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                    {maxEntry ? maxEntry[0] : ""}
+                  </Typography>
+                </Box>
+                <Box sx={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <TrendingDownIcon sx={{ color: colors.greenAccent[500], fontSize: "2rem", mb: 0.5 }} />
+                  <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                    {minEntry ? `${Number(minEntry[1]).toFixed(2)} kWh` : "—"}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: colors.grey[300] }}>Lowest usage area</Typography>
+                  <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                    {minEntry ? minEntry[0] : ""}
+                  </Typography>
+                </Box>
+                <Box sx={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <BarChartIcon sx={{ color: colors.greenAccent[500], fontSize: "2rem", mb: 0.5 }} />
+                  <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                    {suburbValues.length ? `${suburbAvg.toFixed(2)} kWh` : "—"}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: colors.grey[300] }}>Average usage</Typography>
+                  <Typography variant="caption" sx={{ color: colors.grey[400] }}>
+                    {suburbValues.length ? `${suburbValues.length} suburbs` : ""}
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box height="350px">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={suburbChartData} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                    <XAxis
+                      dataKey="suburb"
+                      stroke={colors.grey[300]}
+                      tick={{ fontSize: 10 }}
+                      angle={-45}
+                      textAnchor="end"
+                      interval={0}
+                      height={80}
+                    />
+                    <YAxis
+                      stroke={colors.grey[300]}
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(v) => `${v.toFixed(1)}`}
+                      label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fill: colors.grey[400], fontSize: 11 } }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: colors.primary[400],
+                        border: `1px solid ${colors.grey[700]}`,
+                        borderRadius: 4,
+                        color: colors.grey[100],
+                      }}
+                      formatter={(value) => [`${Number(value).toFixed(2)} kWh`, "Consumption"]}
+                    />
+                    <Bar dataKey="kWh" name="kWh" radius={[4, 4, 0, 0]}>
+                      {suburbChartData.map((entry, index) => (
+                        <Cell key={index} fill={index % 2 === 0 ? colors.greenAccent[500] : colors.blueAccent[400]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </Box>
+            </Box>
+          );
+        })()}
+
+        {/* ROW 2b: Hourly Energy Consumption Chart */}
+        {(() => {
+          const hourlyValues = hourlyData.map((d) => d.kWh);
+          const hourlySum = hourlyValues.reduce((a, b) => a + b, 0);
+          const hourlyAvg = hourlyValues.length ? hourlySum / hourlyValues.length : 0;
+
+          return (
+            <Box
+              gridColumn="span 12"
+              gridRow="span 4"
+              backgroundColor={colors.primary[400]}
+              p="15px"
+            >
+              <Box display="flex" alignItems="center" gap={1} mb="10px">
+                <AccessTimeIcon sx={{ color: colors.greenAccent[500], fontSize: 20 }} />
+                <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+                  Hourly Energy Consumption
+                </Typography>
+                <DataBadge live sx={{ ml: "auto" }} />
+              </Box>
+
+              {/* Power Stats Header */}
+              <Box sx={{
+                display: "flex",
+                justifyContent: "space-around",
+                backgroundColor: colors.primary[500],
+                borderRadius: "8px",
+                p: 1.5,
+                mb: 2,
+                gap: 2,
+                flexWrap: "wrap",
+              }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <SettingsInputCompositeIcon sx={{ color: colors.greenAccent[500], fontSize: "1.8rem" }} />
+                  <Box>
+                    <Typography variant="body2" color={colors.grey[300]}>Today's System Load</Typography>
+                    <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                      {hourlySum.toFixed(2)} kWh
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <ElectricalServicesIcon sx={{ color: colors.greenAccent[500], fontSize: "1.8rem" }} />
+                  <Box>
+                    <Typography variant="body2" color={colors.grey[300]}>Today's Average Power</Typography>
+                    <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                      {isNaN(hourlyTotals.averagePower) ? "0.00" : (hourlyTotals.averagePower / 1000).toFixed(2)} KW
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <FlashOnIcon sx={{ color: colors.greenAccent[500], fontSize: "1.8rem" }} />
+                  <Box>
+                    <Typography variant="body2" color={colors.grey[300]}>Today's Peak Power</Typography>
+                    <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                      {isNaN(hourlyTotals.peakPower) ? "0.00" : (hourlyTotals.peakPower / 1000).toFixed(2)} KW
+                    </Typography>
+                  </Box>
+                </Box>
+              </Box>
+
+              <Box height="350px">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={hourlyData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradHourly" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={colors.greenAccent[500]} stopOpacity={0.4} />
+                        <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                    <XAxis
+                      dataKey="hour"
+                      stroke={colors.grey[300]}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <YAxis
+                      stroke={colors.grey[300]}
+                      tick={{ fontSize: 11 }}
+                      label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fill: colors.grey[400], fontSize: 11 } }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: colors.primary[400],
+                        border: `1px solid ${colors.grey[700]}`,
+                        borderRadius: 4,
+                        color: colors.grey[100],
+                      }}
+                      formatter={(value) => [`${Number(value).toFixed(2)} kWh`, "Energy"]}
+                    />
+                    {hourlyAvg > 0 && (
+                      <ReferenceLine
+                        y={hourlyAvg}
+                        stroke={colors.blueAccent[400]}
+                        strokeDasharray="5 5"
+                        label={{
+                          value: `Avg: ${hourlyAvg.toFixed(2)} kWh`,
+                          fill: colors.blueAccent[400],
+                          fontSize: 11,
+                          fontWeight: 600,
+                          position: "insideTopRight",
+                        }}
+                      />
+                    )}
+                    <Area
+                      type="monotone"
+                      dataKey="kWh"
+                      stroke={colors.greenAccent[500]}
+                      strokeWidth={2}
+                      fill="url(#gradHourly)"
+                      name="Energy (kWh)"
+                      dot={{ r: 3, fill: colors.greenAccent[500] }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </Box>
+            </Box>
+          );
+        })()}
+
+        {/* ROW 3: Revenue & Energy Chart (span 9) + Notifications (span 3) */}
+        <Box
+          gridColumn="span 9"
+          gridRow="span 3"
+          backgroundColor={colors.primary[400]}
+          p="15px"
+        >
+          <Typography
+            variant="h5"
+            fontWeight="600"
+            color={colors.grey[100]}
+            mb="10px"
+          >
+            Revenue & Energy Trend
+          </Typography>
+          <Box height="calc(100% - 40px)">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={salesTrend}
+                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="gradRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={colors.greenAccent[500]} stopOpacity={0.4} />
+                    <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradKwh" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={colors.blueAccent[400]} stopOpacity={0.4} />
+                    <stop offset="95%" stopColor={colors.blueAccent[400]} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                <XAxis dataKey="day" stroke={colors.grey[300]} tick={{ fontSize: 12 }} />
+                <YAxis
+                  yAxisId="left"
+                  stroke={colors.grey[300]}
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => `N$${(v / 1000).toFixed(0)}k`}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  stroke={colors.grey[300]}
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: colors.primary[400],
+                    border: `1px solid ${colors.grey[700]}`,
+                    borderRadius: 4,
+                    color: colors.grey[100],
+                  }}
+                />
+                <Area
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke={colors.greenAccent[500]}
+                  strokeWidth={2}
+                  fill="url(#gradRevenue)"
+                  name="Revenue (N$)"
+                />
+                <Area
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="kWh"
+                  stroke={colors.blueAccent[400]}
+                  strokeWidth={2}
+                  fill="url(#gradKwh)"
+                  name="Energy (kWh)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </Box>
+        </Box>
+
+        <Box
+          gridColumn="span 3"
+          gridRow="span 3"
+          backgroundColor={colors.primary[400]}
+          p="15px"
+          overflow="auto"
+        >
+          <Box display="flex" alignItems="center" gap="8px" mb="15px">
+            <NotificationsOutlinedIcon sx={{ color: colors.greenAccent[500] }} />
+            <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+              Notifications
+            </Typography>
+          </Box>
+          {notifs.slice(0, 8).map((notif, i) => (
+            <Box
+              key={notif.id}
+              display="flex"
+              gap="10px"
+              py="10px"
+              borderBottom={
+                i < 7 ? `1px solid ${colors.grey[700]}` : "none"
+              }
+            >
+              <Box mt="3px">{notifIcon(notif.type)}</Box>
+              <Box flex={1}>
+                <Typography
+                  variant="h6"
+                  fontWeight="600"
+                  color={colors.grey[100]}
+                >
+                  {notif.title}
+                </Typography>
+                <Typography variant="body2" color={colors.grey[300]} sx={{ fontSize: "11px" }}>
+                  {notif.message && notif.message.length > 80
+                    ? notif.message.substring(0, 80) + "..."
+                    : notif.message || ""}
+                </Typography>
+                <Typography
+                  variant="caption"
+                  color={colors.greenAccent[400]}
+                  sx={{ fontSize: "10px" }}
+                >
+                  {formatTime(notif.timestamp)}
+                </Typography>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+
+        {/* ROW 3: Token Transactions Chart (span 9) + Timeline (span 3) */}
+        <Box
+          gridColumn="span 9"
+          gridRow="span 5"
+          backgroundColor={colors.primary[400]}
+          p="15px"
+        >
+          <Typography
+            variant="h5"
+            fontWeight="600"
+            color={colors.grey[100]}
+            mb="10px"
+          >
+            Token Transaction Revenue
+          </Typography>
+          <Box height="calc(100% - 40px)">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={salesTrend}
+                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="gradTokens" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={colors.greenAccent[500]} stopOpacity={0.35} />
+                    <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                <XAxis dataKey="day" stroke={colors.grey[300]} tick={{ fontSize: 12 }} />
+                <YAxis
+                  stroke={colors.grey[300]}
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => `${v}`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: colors.primary[400],
+                    border: `1px solid ${colors.grey[700]}`,
+                    borderRadius: 4,
+                    color: colors.grey[100],
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="tokens"
+                  stroke={colors.greenAccent[500]}
+                  strokeWidth={2}
+                  fill="url(#gradTokens)"
+                  name="Tokens Generated"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </Box>
+        </Box>
+
+        <Box
+          gridColumn="span 3"
+          gridRow="span 5"
+          backgroundColor={colors.primary[400]}
+          p="15px"
+          overflow="auto"
+        >
+          <Typography
+            variant="h5"
+            fontWeight="600"
+            color={colors.grey[100]}
+            mb="15px"
+          >
+            Token Timeline
+          </Typography>
+          {recentTxns.slice(0, 10).map((txn, i) => (
+            <Box
+              key={txn.id}
+              display="flex"
+              justifyContent="space-between"
+              alignItems="center"
+              py="10px"
+              borderBottom={
+                i < 9 ? `1px solid ${colors.grey[700]}` : "none"
+              }
+            >
+              <Box>
+                <Typography
+                  variant="h6"
+                  fontWeight="600"
+                  color={colors.grey[100]}
+                >
+                  {txn.customer}
+                </Typography>
+                <Typography variant="caption" color={colors.greenAccent[400]}>
+                  {formatTime(txn.time)} — {txn.meterNo}
+                </Typography>
+              </Box>
+              <Typography
+                variant="h6"
+                fontWeight="bold"
+                color={
+                  txn.status === "Completed"
+                    ? colors.greenAccent[500]
+                    : txn.status === "Failed"
+                    ? colors.redAccent[500]
+                    : colors.yellowAccent?.[500] || colors.grey[100]
+                }
+              >
+                {fmtCurrency(txn.amount)}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+
+        {/* ROW 4: Energy Overview Stat Boxes */}
+        <Box
+          gridColumn="span 4"
+          backgroundColor={colors.primary[400]}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <StatBox
+            title={fmtCurrency(kpis.todayRevenue)}
+            subtitle="Total Units Purchased"
+            progress="0.65"
+            increase="+8.3%"
+            link="/vending"
+            icon={
+              <ShoppingCartIcon
+                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
+              />
+            }
+          />
+        </Box>
+
+        <Box
+          gridColumn="span 4"
+          backgroundColor={colors.primary[400]}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <StatBox
+            title={`${fmt(kpis.avgConsumption)} kWh`}
+            subtitle="Units Available Balance"
+            progress="0.48"
+            increase="+2.1%"
+            link="/"
+            icon={
+              <AccountBalanceWalletOutlinedIcon
+                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
+              />
+            }
+          />
+        </Box>
+
+        <Box
+          gridColumn="span 4"
+          backgroundColor={colors.primary[400]}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <StatBox
+            title={fmt(kpis.todayTokens)}
+            subtitle="Total Energy Consumed"
+            progress="0.72"
+            increase="+5.7%"
+            link="/"
+            icon={
+              <PowerOutlinedIcon
+                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
+              />
+            }
+          />
+        </Box>
+
+        {/* ROW 5: Recent Transactions Table */}
+        <Box
+          gridColumn="span 12"
+          gridRow="span 4"
+          backgroundColor={colors.primary[400]}
+          p="15px"
+          overflow="auto"
+        >
+          <Typography
+            variant="h5"
+            fontWeight="600"
+            color={colors.grey[100]}
+            mb="15px"
+          >
+            Recent Transactions
+          </Typography>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  {["Time", "Customer", "Meter", "Amount (N$)", "kWh", "Token", "Status"].map(
+                    (col) => (
+                      <TableCell
+                        key={col}
+                        sx={{
+                          color: colors.greenAccent[500],
+                          fontWeight: 600,
+                          fontSize: "12px",
+                          borderBottom: `2px solid ${colors.grey[700]}`,
+                          backgroundColor: colors.primary[400],
                         }}
                       >
-                        No transactions found
-                      </td>
-                    </tr>
+                        {col}
+                      </TableCell>
+                    )
                   )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN (stacked) */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-          {/* Sales Trend Card */}
-          <div className="card">
-            <div className="card-header">
-              <div>
-                <div className="card-title">Sales Trend</div>
-                <div className="card-subtitle">Last 7 days revenue</div>
-              </div>
-            </div>
-            <div className="chart-area">
-              <div className="bar-chart">
-                {salesTrend.map((d, i) => {
-                  const heightPct = Math.max(
-                    (d.revenue / maxRevenue) * 100,
-                    4
-                  );
-                  return (
-                    <div className="bar-group" key={i}>
-                      <div
-                        className="bar"
-                        style={{ height: `${heightPct}%` }}
-                        title={`${d.day}: N$ ${fmt(d.revenue)}`}
-                      />
-                      <span className="bar-label">{d.day}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* System Status Card */}
-          <div className="card">
-            <div className="card-header">
-              <div>
-                <div className="card-title">System Status</div>
-                <div className="card-subtitle">All services operational</div>
-              </div>
-              <span className="badge badge-success">
-                <span
-                  className="status-dot online"
-                  style={{ marginRight: 4 }}
-                />
-                Healthy
-              </span>
-            </div>
-            <div className="system-status">
-              <div className="status-row">
-                <span className="status-label">
-                  <span>&#127760;</span> App Server
-                </span>
-                <span className="status-val online">Online</span>
-              </div>
-              <div className="status-row">
-                <span className="status-label">
-                  <span>&#128274;</span> STS Gateway
-                </span>
-                <span className="status-val online">Connected</span>
-              </div>
-              <div className="status-row">
-                <span className="status-label">
-                  <span>&#128451;</span> Database
-                </span>
-                <span className="status-val online">Healthy</span>
-              </div>
-              <div className="status-row">
-                <span className="status-label">
-                  <span>&#128172;</span> SMS Gateway
-                </span>
-                <span className="status-val online">Online</span>
-              </div>
-              <div className="status-row">
-                <span className="status-label">
-                  <span>&#128190;</span> Last Backup
-                </span>
-                <span className="status-val online">Today 02:00</span>
-              </div>
-              <div className="status-row">
-                <span className="status-label">
-                  <span>&#128100;</span> Active Operators
-                </span>
-                <span className="status-val online">3 Online</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Vend Button */}
-          <button
-            className="btn btn-primary btn-lg"
-            style={{ width: "100%", justifyContent: "center" }}
-            onClick={() => navigate("/vending")}
-          >
-            <span style={{ fontSize: 18 }}>&#9889;</span>
-            Quick Vend Token
-          </button>
-        </div>
-      </div>
-    </div>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {recentTxns.map((txn) => (
+                  <TableRow
+                    key={txn.id}
+                    sx={{
+                      "&:hover": {
+                        backgroundColor: `${colors.primary[500]} !important`,
+                      },
+                      "& td": {
+                        borderBottom: `1px solid ${colors.grey[700]}`,
+                        color: colors.grey[100],
+                        fontSize: "12px",
+                        py: 1.2,
+                      },
+                    }}
+                  >
+                    <TableCell>{formatTime(txn.time)}</TableCell>
+                    <TableCell>{txn.customer}</TableCell>
+                    <TableCell sx={{ fontFamily: "monospace", fontSize: "11px !important" }}>
+                      {txn.meterNo}
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>
+                      {fmt(Number(txn.amount).toFixed(2))}
+                    </TableCell>
+                    <TableCell>{fmt(Number(txn.kWh).toFixed(2))}</TableCell>
+                    <TableCell sx={{ fontFamily: "monospace", fontSize: "10px !important" }}>
+                      {txn.token}
+                    </TableCell>
+                    <TableCell>
+                      <Box
+                        sx={{
+                          display: "inline-block",
+                          px: 1,
+                          py: 0.3,
+                          borderRadius: "4px",
+                          backgroundColor:
+                            txn.status === "Completed"
+                              ? "rgba(76,206,172,0.15)"
+                              : txn.status === "Failed"
+                              ? "rgba(219,79,74,0.15)"
+                              : txn.status === "Reversed"
+                              ? "rgba(242,183,5,0.15)"
+                              : "rgba(104,112,250,0.15)",
+                          color: statusColor[txn.status] || colors.grey[100],
+                          fontWeight: 600,
+                          fontSize: "11px",
+                        }}
+                      >
+                        {txn.status}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      </Box>
+    </Box>
   );
 }
