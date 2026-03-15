@@ -21,6 +21,7 @@ import TuneIcon from "@mui/icons-material/Tune";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import SpeedIcon from "@mui/icons-material/Speed";
+import HubIcon from "@mui/icons-material/Hub";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
@@ -411,6 +412,13 @@ const Sidebar = () => {
           title="Vendors"
           to="/vendors"
           icon={<StorefrontIcon />}
+          isCollapsed={isCollapsed}
+          accentColor={colors.yellowAccent[500]}
+        />
+        <NavItem
+          title="Integrations"
+          to="/integrations"
+          icon={<HubIcon />}
           isCollapsed={isCollapsed}
           accentColor={colors.yellowAccent[500]}
         />

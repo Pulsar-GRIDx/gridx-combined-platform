@@ -321,6 +321,26 @@ export const vendingAPI = {
   },
 };
 
+// ===== INTEGRATION API GATEWAY =====
+export const integrationAPI = {
+  // Partners
+  getPartners: () => get('/integration/partners'),
+  getPartner: (id) => get(`/integration/partners/${id}`),
+  createPartner: (data) => post('/integration/partners', data),
+  updatePartner: (id, data) => put(`/integration/partners/${id}`, data),
+  approvePartner: (id, data) => post(`/integration/partners/${id}/approve`, data),
+  suspendPartner: (id, data) => post(`/integration/partners/${id}/suspend`, data),
+  revokePartner: (id) => post(`/integration/partners/${id}/revoke`, {}),
+  regenerateKeys: (id) => post(`/integration/partners/${id}/regenerate-keys`, {}),
+  // Logs & Stats
+  getApiLog: (params) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return get(`/integration/api-log${q ? '?' + q : ''}`);
+  },
+  getApiStats: () => get('/integration/api-stats'),
+  getWebhookLog: () => get('/integration/webhook-log'),
+};
+
 export default {
   auth: authAPI,
   meter: meterAPI,
@@ -341,4 +361,5 @@ export default {
   meterHealth: meterHealthAPI,
   relayEvents: relayEventsAPI,
   vending: vendingAPI,
+  integration: integrationAPI,
 };
