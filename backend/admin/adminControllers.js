@@ -104,6 +104,8 @@ exports.adminSignup = async function(req, res) {
     var RoleName = body.RoleName;
     var AccessLevel = body.AccessLevel;
     var accessType = body.access_type;
+    var companyName = body.company_name;
+    var installerType = body.installer_type;
 
     if (!Username || !Password || !Email) {
       return res.status(400).json({ error: 'Username, Password, and Email are required' });
@@ -114,7 +116,17 @@ exports.adminSignup = async function(req, res) {
       return res.status(403).json({ error: 'Only administrators can create new users' });
     }
 
-    await adminService.registerAdmin(Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel, accessType);
+    // Validate technician fields
+    if (AccessLevel === 'TECHNICIAN') {
+      if (!companyName) {
+        return res.status(400).json({ error: 'Company name is required for technician accounts' });
+      }
+      if (!installerType || ['INTERNAL', 'THIRD_PARTY'].indexOf(installerType) === -1) {
+        return res.status(400).json({ error: 'Installer type (INTERNAL or THIRD_PARTY) is required for technician accounts' });
+      }
+    }
+
+    await adminService.registerAdmin(Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel, accessType, companyName, installerType);
 
     // Audit log
     var ipAddress = resolveClientIp(req);
@@ -448,7 +460,7 @@ exports.updateAdminInfo = function(req, res) {
     return res.status(403).json({ error: 'Only administrators can update other users' });
   }
 
-  adminService.updateAdminInfo(Admin_ID, body.FirstName, body.Email, body.LastName, body.AccessLevel, body.Username, body.access_type)
+  adminService.updateAdminInfo(Admin_ID, body.FirstName, body.Email, body.LastName, body.AccessLevel, body.Username, body.access_type, body.company_name, body.installer_type)
     .then(function() {
       var ipAddress = resolveClientIp(req);
       var geoStr = adminService.getGeoString(ipAddress);

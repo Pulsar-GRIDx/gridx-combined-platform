@@ -52,6 +52,7 @@ const roleColor = {
   ADMIN: { bg: "rgba(0,180,216,0.15)", text: "#00b4d8" },
   SUPERVISOR: { bg: "rgba(104,112,250,0.15)", text: "#6870fa" },
   OPERATOR: { bg: "rgba(76,206,172,0.15)", text: "#4cceac" },
+  TECHNICIAN: { bg: "rgba(255,152,0,0.15)", text: "#ff9800" },
   VIEWER: { bg: "rgba(158,158,158,0.15)", text: "#9e9e9e" },
 };
 
@@ -89,7 +90,7 @@ function formatTimestamp(iso) {
   );
 }
 
-const initialForm = { Username: "", FirstName: "", LastName: "", Email: "", Password: "", AccessLevel: "OPERATOR", access_type: "PLATFORM" };
+const initialForm = { Username: "", FirstName: "", LastName: "", Email: "", Password: "", AccessLevel: "OPERATOR", access_type: "PLATFORM", company_name: "", installer_type: "" };
 
 /* ==================================================================== */
 /* Admin Page                                                           */
@@ -143,6 +144,8 @@ export default function Admin() {
           ipAddress: a.ip_address || "",
           status: a.IsActive == 1 ? "Active" : "Inactive",
           twofa: a.twofa_enabled == 1,
+          companyName: a.company_name || "",
+          installerType: a.installer_type || "",
         }));
         setOperators(mapped);
       }
@@ -195,6 +198,8 @@ export default function Admin() {
       Password: "",
       AccessLevel: op.role,
       access_type: op.accessType,
+      company_name: op.companyName || "",
+      installer_type: op.installerType || "",
     });
     setFormError("");
     setDialogOpen(true);
@@ -203,6 +208,10 @@ export default function Admin() {
   const handleSave = async () => {
     if (!form.Email || !form.Username) { setFormError("Username and Email are required"); return; }
     if (!editingId && !form.Password) { setFormError("Password is required for new users"); return; }
+    if (form.AccessLevel === "TECHNICIAN") {
+      if (!form.company_name) { setFormError("Company name is required for technician accounts"); return; }
+      if (!form.installer_type) { setFormError("Installer type is required for technician accounts"); return; }
+    }
     setFormLoading(true);
     setFormError("");
     try {
@@ -400,7 +409,14 @@ export default function Admin() {
                           },
                         }}
                       >
-                        <TableCell sx={{ fontWeight: 500 }}>{op.name}</TableCell>
+                        <TableCell sx={{ fontWeight: 500 }}>
+                          {op.name}
+                          {op.role === "TECHNICIAN" && op.companyName && (
+                            <Typography variant="caption" display="block" sx={{ color: "rgba(255,152,0,0.7)", fontSize: "0.65rem", lineHeight: 1.2 }}>
+                              {op.companyName} {op.installerType === "THIRD_PARTY" ? "(3rd Party)" : "(Internal)"}
+                            </Typography>
+                          )}
+                        </TableCell>
                         <TableCell sx={{ fontFamily: "monospace", fontSize: "0.74rem" }}>{op.email}</TableCell>
                         <TableCell>
                           <Chip label={op.role} size="small" sx={{ bgcolor: rc.bg, color: rc.text, fontWeight: 600, fontSize: "0.68rem", height: 22 }} />
@@ -605,12 +621,18 @@ export default function Admin() {
               label="Role"
               select
               value={form.AccessLevel}
-              onChange={(e) => setForm({ ...form, AccessLevel: e.target.value })}
+              onChange={(e) => {
+                const val = e.target.value;
+                const update = { ...form, AccessLevel: val };
+                if (val !== "TECHNICIAN") { update.company_name = ""; update.installer_type = ""; }
+                setForm(update);
+              }}
               sx={inputSx}
             >
               <MenuItem value="ADMIN">Admin</MenuItem>
               <MenuItem value="SUPERVISOR">Supervisor</MenuItem>
               <MenuItem value="OPERATOR">Operator</MenuItem>
+              <MenuItem value="TECHNICIAN">Technician</MenuItem>
               <MenuItem value="VIEWER">Viewer</MenuItem>
             </TextField>
             <TextField
@@ -624,6 +646,29 @@ export default function Admin() {
               <MenuItem value="VENDING">Vending Only</MenuItem>
               <MenuItem value="BOTH">Both</MenuItem>
             </TextField>
+            {form.AccessLevel === "TECHNICIAN" && (
+              <>
+                <TextField
+                  label="Company Name"
+                  value={form.company_name}
+                  onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                  required
+                  placeholder="e.g. Pulsar Electronic"
+                  sx={{ ...inputSx, gridColumn: "1 / -1" }}
+                />
+                <TextField
+                  label="Installer Type"
+                  select
+                  value={form.installer_type}
+                  onChange={(e) => setForm({ ...form, installer_type: e.target.value })}
+                  required
+                  sx={{ ...inputSx, gridColumn: "1 / -1" }}
+                >
+                  <MenuItem value="INTERNAL">Internal Personnel</MenuItem>
+                  <MenuItem value="THIRD_PARTY">Third-Party Installer</MenuItem>
+                </TextField>
+              </>
+            )}
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>

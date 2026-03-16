@@ -34,6 +34,10 @@ addColumnIfNotExists('SystemAdmins', 'twofa_secret', 'VARCHAR(64) DEFAULT NULL')
 addColumnIfNotExists('SystemAdmins', 'twofa_enabled', 'TINYINT DEFAULT 0');
 addColumnIfNotExists('SystemAdmins', 'access_type', "ENUM('PLATFORM','VENDING','BOTH') DEFAULT 'PLATFORM'");
 
+// Technician-specific columns
+addColumnIfNotExists('SystemAdmins', 'company_name', 'VARCHAR(200) DEFAULT NULL');
+addColumnIfNotExists('SystemAdmins', 'installer_type', "ENUM('INTERNAL','THIRD_PARTY') DEFAULT NULL");
+
 // Platform Audit Log table (separate from vending AuditLog)
 connection.query(
   "CREATE TABLE IF NOT EXISTS PlatformAuditLog (" +
@@ -102,12 +106,12 @@ function getGeoString(ip) {
 // REGISTER ADMIN (admin-only, no self-registration)
 // ═══════════════════════════════════════════════════════════════════════════
 
-exports.registerAdmin = async function(Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel, accessType) {
+exports.registerAdmin = async function(Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel, accessType, companyName, installerType) {
   var hashedPassword = await bcrypt.hash(Password, 12);
   return new Promise(function(resolve, reject) {
     connection.query(
-      'INSERT INTO SystemAdmins (Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel, access_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [Username, hashedPassword, FirstName, LastName, Email, IsActive || 1, RoleName || AccessLevel, AccessLevel || 'OPERATOR', accessType || 'PLATFORM'],
+      'INSERT INTO SystemAdmins (Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel, access_type, company_name, installer_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [Username, hashedPassword, FirstName, LastName, Email, IsActive || 1, RoleName || AccessLevel, AccessLevel || 'OPERATOR', accessType || 'PLATFORM', companyName || null, installerType || null],
       function(err, result) {
         if (err) {
           console.error('Registration error:', err);
@@ -302,7 +306,7 @@ exports.getAllUsers = function() {
 exports.getAllAdmins = function() {
   return new Promise(function(resolve, reject) {
     connection.query(
-      'SELECT Admin_ID, Username, FirstName, LastName, Email, IsActive, AccessLevel, access_type, twofa_enabled, lastLoginTime, ip_address, login_count FROM SystemAdmins',
+      'SELECT Admin_ID, Username, FirstName, LastName, Email, IsActive, AccessLevel, access_type, twofa_enabled, lastLoginTime, ip_address, login_count, company_name, installer_type FROM SystemAdmins',
       function(err, results) {
         if (err) reject(err); else resolve(results);
       }
@@ -319,7 +323,7 @@ exports.updateUserInfo = function(UserID, FirstName, Email, LastName, DRN) {
   });
 };
 
-exports.updateAdminInfo = function(Admin_ID, FirstName, Email, LastName, AccessLevel, Username, accessType) {
+exports.updateAdminInfo = function(Admin_ID, FirstName, Email, LastName, AccessLevel, Username, accessType, companyName, installerType) {
   return new Promise(function(resolve, reject) {
     var sql = 'UPDATE SystemAdmins SET FirstName = ?, Email = ?, LastName = ?, AccessLevel = ?, Username = ?';
     var params = [FirstName, Email, LastName, AccessLevel, Username];
@@ -327,6 +331,10 @@ exports.updateAdminInfo = function(Admin_ID, FirstName, Email, LastName, AccessL
       sql += ', access_type = ?';
       params.push(accessType);
     }
+    // Technician fields — always update (set to null if not TECHNICIAN)
+    sql += ', company_name = ?, installer_type = ?';
+    params.push(companyName || null);
+    params.push(installerType || null);
     sql += ' WHERE Admin_ID = ?';
     params.push(Admin_ID);
     connection.query(sql, params, function(err, results) {
@@ -370,7 +378,7 @@ exports.resetAdminPassword = function(Admin_ID, Password) {
 
 exports.getAdminData = function(Admin_ID) {
   return new Promise(function(resolve, reject) {
-    connection.query('SELECT Admin_ID, Username, FirstName, LastName, Email, IsActive, AccessLevel, access_type, twofa_enabled, lastLoginTime, ip_address FROM SystemAdmins WHERE Admin_ID = ?', [Admin_ID], function(err, results) {
+    connection.query('SELECT Admin_ID, Username, FirstName, LastName, Email, IsActive, AccessLevel, access_type, twofa_enabled, lastLoginTime, ip_address, company_name, installer_type FROM SystemAdmins WHERE Admin_ID = ?', [Admin_ID], function(err, results) {
       if (err) reject(err); else resolve(results[0]);
     });
   });
