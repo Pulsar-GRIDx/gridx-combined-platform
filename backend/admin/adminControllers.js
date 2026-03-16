@@ -11,15 +11,29 @@ var environment = process.env;
 var pinStore = {};
 
 // Configure nodemailer transporter
-var transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.zoho.com',
-  port: process.env.EMAIL_PORT || 587,
-  secure: process.env.EMAIL_SECURE === 'true',
-  auth: {
-    user: process.env.EMAIL,
-    pass: process.env.EMAIL_KEY,
-  },
-});
+// If SMTP credentials are set, use external SMTP; otherwise use local sendmail
+var transporter;
+if (process.env.EMAIL && process.env.EMAIL_KEY) {
+  transporter = nodemailer.createTransport({
+    host: process.env.EMAIL_HOST || 'smtp.zoho.com',
+    port: process.env.EMAIL_PORT || 587,
+    secure: process.env.EMAIL_SECURE === 'true',
+    auth: {
+      user: process.env.EMAIL,
+      pass: process.env.EMAIL_KEY,
+    },
+  });
+  console.log('[Email] Using SMTP transport:', process.env.EMAIL_HOST || 'smtp.zoho.com');
+} else {
+  transporter = nodemailer.createTransport({
+    sendmail: true,
+    newline: 'unix',
+    path: '/usr/sbin/sendmail',
+  });
+  console.log('[Email] Using local sendmail transport (no SMTP credentials configured)');
+}
+
+var EMAIL_FROM = process.env.EMAIL || 'noreply@gridx-meters.com';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helper: resolve client IP from request headers
@@ -337,7 +351,7 @@ exports.forgotPassword = async function(req, res) {
 
     // Send email
     await transporter.sendMail({
-      from: '"GridX Meters" <' + process.env.EMAIL + '>',
+      from: '"GridX Meters" <' + EMAIL_FROM + '>',
       to: Email,
       subject: 'GridX Meters Password Reset Verification',
       html: '<p>Your password reset verification code is: <b>' + pin + '</b></p><p>This code is valid for 10 minutes.</p>'
