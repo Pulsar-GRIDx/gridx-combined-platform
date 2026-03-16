@@ -75,6 +75,8 @@ const commissionReportPublicRoutes = require('./meterProfile/commissionReportPub
 apiRouter.use('/commission-report', commissionReportPublicRoutes);
 const homeClassificationPublicRoutes = require('./meterProfile/homeClassificationPublicRoutes');
 apiRouter.use('/home-classification', homeClassificationPublicRoutes);
+// Integration API (has own auth via API keys — must be before global auth routes)
+apiRouter.use('/integration', integrationRoutes);
 
 // Authenticated routes
 apiRouter.use('/', getRoutes);
@@ -93,7 +95,6 @@ apiRouter.use('/', meterDataRoutes);
 apiRouter.use('/', mqttRoutes);
 apiRouter.use('/', groupControlRoutes);
 apiRouter.use('/vending', vendingRoutes);
-apiRouter.use('/integration', integrationRoutes);
 
 // Fast meters-list endpoint (avoids slow JOINs in meterService)
 const db = require('./config/db');

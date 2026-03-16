@@ -869,6 +869,14 @@ router.post('/external/iso8583', authenticatePartner, checkRateLimit, function(r
   var msg = req.body;
   var partner = req.partner;
 
+  // Support both flat {mti, de2, de4, ...} and nested {mti, de: {de2, de4, ...}} formats
+  if (msg && msg.de && typeof msg.de === 'object') {
+    var deKeys = Object.keys(msg.de);
+    for (var dk = 0; dk < deKeys.length; dk++) {
+      if (!msg[deKeys[dk]]) msg[deKeys[dk]] = msg.de[deKeys[dk]];
+    }
+  }
+
   if (!msg || !msg.mti) {
     var errResp = { error: 'Invalid ISO 8583 message: MTI required', code: 'INVALID_ISO8583' };
     logApiResponse(req, res, 400, errResp);
@@ -948,7 +956,31 @@ router.post('/external/iso8583', authenticatePartner, checkRateLimit, function(r
 });
 
 function doIso8583Vend(meterNo, amount, partner, stan, rrn, terminalId, merchantId, req, res) {
-  // Simplified vend for ISO 8583 — uses same DB tables
+  // Sandbox mode — return simulated ISO 8583 response
+  if (partner.environment === 'Sandbox') {
+    var vatRate = 15;
+    var fixedCharge = 8.50;
+    var relLevy = 2.40;
+    var netAmount = amount - fixedCharge - relLevy;
+    var vat = netAmount * vatRate / (100 + vatRate);
+    var energyCost = netAmount - vat;
+    var kWh = parseFloat((energyCost / 1.68).toFixed(2));
+    var sbxToken = '';
+    for (var t = 0; t < 20; t++) sbxToken += String(Math.floor(Math.random() * 10));
+    var sbxRefNo = 'SBX-ISO-' + Date.now().toString(36).toUpperCase().substring(0, 8);
+    var sbxResp = {
+      mti: '0210', de2: meterNo, de4: String(Math.round(amount * 100)),
+      de7: new Date().toISOString().replace(/[-:T]/g, '').substring(0, 14),
+      de11: stan, de37: rrn, de39: '00', de42: merchantId,
+      de48: sbxToken, sandbox: true,
+      message: 'Sandbox: Approved — ' + kWh + ' kWh',
+      breakdown: { vat: parseFloat(vat.toFixed(2)), fixedCharge: fixedCharge, relLevy: relLevy, energyCost: parseFloat(energyCost.toFixed(2)), kWh: kWh }
+    };
+    logApiResponse(req, res, 200, sbxResp);
+    return res.json(sbxResp);
+  }
+
+  // Production — uses real DB tables
   db.query('SELECT * FROM TariffConfig LIMIT 1', function(err, configRows) {
     if (err) {
       return res.status(500).json({ mti: '0210', de39: '96', message: 'System error' });
