@@ -47,14 +47,14 @@ exports.registerMeter = (location, meterProfile) => {
           // Insert into MeterProfileReal
           const profileData = {
             DRN: meterProfile.drn,
-            SIMNumber: meterProfile.meter_number,
+            SIMNumber: meterProfile.sim_number || meterProfile.meter_number,
             UserCategory: 'Home',
             Region: location.region,
             City: location.city,
             StreetName: location.street,
-            HouseNumber: 'not defined',
-            Surname: 'not defined',
-            Name: 'not defined',
+            HouseNumber: meterProfile.erf_number || 'not defined',
+            Surname: meterProfile.homeowner_surname || 'not defined',
+            Name: meterProfile.homeowner_name || 'not defined',
             TransformerDRN: null,
           };
 
@@ -82,12 +82,32 @@ exports.registerMeter = (location, meterProfile) => {
                 success: true,
                 message: 'Meter registered successfully',
                 drn: meterProfile.drn,
-                meter_number: meterProfile.meter_number,
+                sim_number: profileData.SIMNumber,
               });
             });
           });
         });
       });
+    });
+  });
+};
+
+/**
+ * Get distinct locations from existing meter data for commissioning dropdown
+ * @returns {Promise} - Resolves with array of location objects
+ */
+exports.getDistinctLocations = () => {
+  return new Promise((resolve, reject) => {
+    const query = `SELECT DISTINCT LocationName, Suburb
+                   FROM MeterLocationInfoTable
+                   WHERE LocationName IS NOT NULL AND LocationName != ''
+                   ORDER BY LocationName, Suburb`;
+
+    db.query(query, (err, results) => {
+      if (err) {
+        return reject(err);
+      }
+      resolve(results || []);
     });
   });
 };

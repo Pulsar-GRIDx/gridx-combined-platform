@@ -80,3 +80,19 @@ exports.registerMeter = async (req, res) => {
     });
   }
 };
+
+/**
+ * Get distinct locations for commissioning dropdown
+ */
+exports.getLocations = async (req, res) => {
+  try {
+    const locations = await meterRegistrationService.getDistinctLocations();
+    res.json({ success: true, data: locations });
+  } catch (error) {
+    console.error('Error fetching locations:', error);
+    res.status(500).json({
+      error: 'Failed to fetch locations',
+      details: error.message,
+    });
+  }
+};

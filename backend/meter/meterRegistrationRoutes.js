@@ -9,4 +9,11 @@ const meterRegistrationController = require('./meterRegistrationController');
  */
 router.post('/register', meterRegistrationController.registerMeter);
 
+/**
+ * @route GET /api/meter/locations
+ * @description Get distinct locations for commissioning dropdown
+ * @access Public
+ */
+router.get('/locations', meterRegistrationController.getLocations);
+
 module.exports = router;
