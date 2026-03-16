@@ -450,7 +450,7 @@ export default function Batches() {
     <Box m="20px">
       <Header
         title="BATCH MANAGEMENT"
-        subtitle="NamPower-Compliant Sales & Banking Batch Operations"
+        subtitle="Sales & Banking Batch Operations"
       />
 
       <Box

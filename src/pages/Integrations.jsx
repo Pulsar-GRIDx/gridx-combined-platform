@@ -454,7 +454,7 @@ export default function Integrations() {
     <Box m="20px">
       <Header
         title="API INTEGRATION GATEWAY"
-        subtitle="Third-Party Vendor Integration & ISO 8583 Gateway — NamPower Compliant"
+        subtitle="Third-Party Vendor Integration & ISO 8583 Gateway"
       />
 
       {/* Stat Cards */}
@@ -535,7 +535,7 @@ export default function Integrations() {
               System Architecture — Third-Party Integration
             </Typography>
             <Typography variant="body2" color={colors.grey[400]} mb="20px">
-              NamPower-compliant API gateway supporting REST API and ISO 8583 messaging for banks, mobile money, POS, and ATM networks.
+              STS-compliant API gateway supporting REST API and ISO 8583 messaging for banks, mobile money, POS, and ATM networks.
               All external transactions flow through the centralized security layer before reaching the core vending engine.
             </Typography>
             <ArchitectureDiagram />

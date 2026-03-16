@@ -811,7 +811,7 @@ export default function Vendors() {
               <TableCell sx={headerCellSx} align="center">Rate</TableCell>
               <TableCell sx={headerCellSx} align="right">Gross Sales</TableCell>
               <TableCell sx={headerCellSx} align="right">Commission</TableCell>
-              <TableCell sx={headerCellSx} align="right">Net to NamPower</TableCell>
+              <TableCell sx={headerCellSx} align="right">Net to Utility</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>

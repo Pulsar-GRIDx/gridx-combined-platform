@@ -1,7 +1,7 @@
 /**
- * NamPower STS Vending Routes — IEC 62055-41 Compliant
+ * STS Vending Routes — IEC 62055-41 Compliant
  *
- * KEY REQUIREMENTS (NamPower Tender Section V):
+ * KEY REQUIREMENTS:
  * 1. ATOMIC TRANSACTIONS — taxes, levies, standing charges, arrears, services
  *    are each stored as individual rows in TransactionLineItems.
  * 2. IDEMPOTENCY — idempotency keys prevent duplicate tokens for the same payment.
@@ -83,7 +83,7 @@ var TABLES = [
   "  INDEX idx_idempotency (idempotencyKey)" +
   ")",
 
-  // NamPower REQUIREMENT: Individual rows per deduction component
+  // Individual rows per deduction component
   "CREATE TABLE IF NOT EXISTS TransactionLineItems (" +
   "  id INT AUTO_INCREMENT PRIMARY KEY," +
   "  transactionId INT NOT NULL," +
@@ -653,7 +653,7 @@ router.get('/non-gridx-customers/providers/list', authenticateToken, function(re
 /**
  * POST /vending/vend
  *
- * NamPower Section V compliance:
+ * STS compliance:
  * - Uses MySQL transaction (BEGIN / COMMIT / ROLLBACK) for atomicity
  * - Creates individual TransactionLineItems rows for: VAT, Fixed Charge,
  *   REL Levy, Arrears, Energy (and optionally Commission)
@@ -801,7 +801,7 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
                   ).then(function(result) {
                     var txnId = result[0].insertId;
 
-                    // Build individual line item rows (NamPower requirement)
+                    // Build individual line item rows (compliance requirement)
                     var lineItems = [];
 
                     // 1. VAT line item
@@ -1069,7 +1069,7 @@ router.get('/transactions/:id/line-items', authenticateToken, function(req, res)
 /**
  * POST /vending/transactions/:id/reverse
  *
- * NamPower Section V compliance:
+ * STS compliance:
  * "Transaction reversals shall: be effected with full traceability of the reversal;
  *  shall allow for a reason to be supplied; shall be traceable to an operator;
  *  and shall reverse an entire transaction..."
@@ -1079,7 +1079,7 @@ router.get('/transactions/:id/line-items', authenticateToken, function(req, res)
  */
 router.post('/transactions/:id/reverse', authenticateToken, function(req, res) {
   var reason = req.body.reason;
-  if (!reason) return res.status(400).json({ error: 'Reversal reason is required (NamPower traceability requirement)' });
+  if (!reason) return res.status(400).json({ error: 'Reversal reason is required (traceability requirement)' });
 
   var operatorName = getOperatorName(req);
   var operatorId = getOperatorId(req);

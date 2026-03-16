@@ -270,7 +270,7 @@ export const suburbAPI = {
   getEnergy: (suburbs) => post('/suburbEnergy', { suburbs }),
 };
 
-// ===== VENDING (NamPower STS) =====
+// ===== VENDING (STS) =====
 export const vendingAPI = {
   // Dashboard
   getDashboard: () => get('/vending/dashboard'),

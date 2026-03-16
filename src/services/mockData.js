@@ -1,7 +1,7 @@
 /**
  * GRIDx Combined - Mock Data Service
  * Smart Metering + STS Vending Platform
- * All data is realistic for a Namibian electricity utility (City of Windhoek / NamPower)
+ * All data is realistic for a Namibian electricity utility (City of Windhoek)
  */
 
 // ---------------------------------------------------------------------------
@@ -2154,7 +2154,7 @@ export const notifications = [
   {
     id: 'NTF-010',
     timestamp: '2026-03-08T12:00:00',
-    title: 'NamPower Tariff Update',
+    title: 'Tariff Update',
     message: 'REL levy adjusted from N$2.20 to N$2.40/kWh effective 2026-03-11. Tariff engine updated.',
     type: 'Info',
     read: true,
