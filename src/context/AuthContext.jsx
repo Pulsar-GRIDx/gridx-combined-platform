@@ -9,15 +9,29 @@ export const AuthProvider = ({ children }) => {
     return stored ? JSON.parse(stored) : null;
   });
 
+  // Login — may return { requires2FA: true } if 2FA is enabled
   const login = async (email, password) => {
     const res = await authAPI.login(email, password);
-    const token = res.token;
-    const userData = res.user;
 
-    sessionStorage.setItem("token", token);
-    sessionStorage.setItem("user", JSON.stringify(userData));
-    setUser(userData);
-    return userData;
+    // If 2FA is required, return partial data (caller handles 2FA step)
+    if (res.requires2FA) {
+      return { requires2FA: true, tempToken: res.tempToken, user: res.user };
+    }
+
+    // Normal login — store token and user
+    sessionStorage.setItem("token", res.token);
+    sessionStorage.setItem("user", JSON.stringify(res.user));
+    setUser(res.user);
+    return res.user;
+  };
+
+  // Complete 2FA verification
+  const verify2FA = async (Admin_ID, code, tempToken) => {
+    const res = await authAPI.verify2FALogin(Admin_ID, code, tempToken);
+    sessionStorage.setItem("token", res.token);
+    sessionStorage.setItem("user", JSON.stringify(res.user));
+    setUser(res.user);
+    return res.user;
   };
 
   const logout = () => {
@@ -27,7 +41,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, verify2FA, logout }}>
       {children}
     </AuthContext.Provider>
   );

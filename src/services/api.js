@@ -73,8 +73,10 @@ async function uploadFile(url, formData) {
 // ===== AUTH =====
 export const authAPI = {
   login: (Email, Password) => post('/signin', { Email, Password }),
+  verify2FALogin: (Admin_ID, code, tempToken) => post('/verify-2fa-login', { Admin_ID, code, tempToken }),
   signup: (data) => post('/adminSignup', data),
   getProfile: (id) => get(`/profile/${id}`),
+  getAdminData: (id) => get(`/adminData/${id}`),
   getAllAdmins: () => get('/allAdmins'),
   getAllUsers: () => get('/allUsers'),
   updateAdmin: (id, data) => post(`/AdminUpdate/${id}`, data),
@@ -82,11 +84,22 @@ export const authAPI = {
   deleteAdmin: (id) => del(`/deleteAdmin/${id}`),
   updateAdminStatus: (id) => post(`/updateStatus/${id}`),
   resetPassword: (id, Password) => post(`/resetPassword/${id}`, { Password }),
+  unlockAccount: (id) => post(`/unlockAccount/${id}`),
   forgotPassword: (Email) => post('/forgot-password', { Email }),
   verifyPin: (Email, pin) => post('/verify-pin', { Email, pin }),
   resetForgottenPassword: (Email, pin, newPassword) =>
     post('/reset-forgotten-password', { Email, pin, newPassword }),
   getAccessLevel: () => get('/adminAuth/accessLevel'),
+  // 2FA management
+  setup2FA: () => post('/2fa/setup', {}),
+  enable2FA: (code) => post('/2fa/enable', { code }),
+  disable2FA: (adminId) => post(adminId ? `/2fa/disable/${adminId}` : '/2fa/disable', {}),
+  // Platform Audit Log
+  getPlatformAuditLog: (params) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return get(`/platform-audit-log${q ? '?' + q : ''}`);
+  },
+  clearPlatformAuditLog: () => del('/platform-audit-log'),
 };
 
 // ===== METERS =====

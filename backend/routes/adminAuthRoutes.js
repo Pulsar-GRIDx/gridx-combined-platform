@@ -1,58 +1,94 @@
-const express = require('express');
-const router = express.Router();
-const adminController = require('../admin/adminControllers');
-const { authenticateToken } = require('../admin/authMiddllware');
+var express = require('express');
+var router = express.Router();
+var adminController = require('../admin/adminControllers');
+var auth = require('../admin/authMiddllware');
 
-// Admin Signup Router
-router.post('/adminSignup', adminController.adminSignup);
+// ═══════════════════════════════════════════════════════════════════════════
+// PUBLIC ROUTES — no authentication required
+// ═══════════════════════════════════════════════════════════════════════════
 
-// ADMIN Signin Router
+// Admin Sign In
 router.post('/signin', adminController.signIn);
 
-// Forgot Password Flow - MUST be before authenticateToken middleware
+// 2FA verification (second step of login when 2FA is enabled)
+router.post('/verify-2fa-login', adminController.verify2FALogin);
+
+// Forgot Password Flow
 router.post('/forgot-password', adminController.forgotPassword);
 router.post('/verify-pin', adminController.verifyPin);
 router.post('/reset-forgotten-password', adminController.resetForgottenPassword);
 
-// Protected routes - All routes below this line require authentication
-router.use(authenticateToken);
+// ═══════════════════════════════════════════════════════════════════════════
+// PROTECTED ROUTES — require authentication
+// ═══════════════════════════════════════════════════════════════════════════
+router.use(auth.authenticateToken);
 
-// Route to access protected content
-router.get('/protected', (req, res) => {
-  // Implement logic for protected route here
+// Protected resource test
+router.get('/protected', function(req, res) {
   res.send('This is a protected route');
 });
 
-// Route to access admin profile
+// Get own profile
 router.get('/profile/:UserID', adminController.getUserProfile);
 
-// Route to get all users (requires authentication)
+// Get access level
+router.get('/adminAuth/accessLevel', function(req, res) {
+  res.json(req.tokenPayload || req.user);
+});
+
+// Get admin's own data
+router.get('/adminData/:Admin_ID', adminController.getAdminData);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 2FA MANAGEMENT — authenticated users
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Setup 2FA (get secret)
+router.post('/2fa/setup', adminController.setup2FA);
+
+// Enable 2FA (verify code and activate)
+router.post('/2fa/enable', adminController.enable2FA);
+
+// Disable 2FA (self or admin-for-others)
+router.post('/2fa/disable/:Admin_ID', adminController.disable2FA);
+router.post('/2fa/disable', adminController.disable2FA);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// USER/ADMIN MANAGEMENT — ADMIN role required for most
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Get all users (any authenticated user can view)
 router.get('/allUsers', adminController.getAllUsers);
 
-// Route to get all admins (requires authentication)
+// Get all admins (any authenticated user can view)
 router.get('/allAdmins', adminController.getAllAdmins);
 
-// Route to update admin information (requires authentication)
+// Create new admin — ADMIN only (self-registration disabled)
+router.post('/adminSignup', auth.requireAdmin, adminController.adminSignup);
+
+// Update admin info (self or ADMIN for others)
 router.post('/AdminUpdate/:Admin_ID', adminController.updateAdminInfo);
 
-// Route to update user status (requires authentication)
+// Update user info
 router.post('/UserUpdate/:UserID', adminController.updateUserInfo);
 
-// Route to delete an admin (requires authentication)
-router.delete('/deleteAdmin/:Admin_ID', adminController.deleteAdmin);
+// Delete admin — ADMIN only
+router.delete('/deleteAdmin/:Admin_ID', auth.requireAdmin, adminController.deleteAdmin);
 
-// Route to update admin status (requires authentication)
-router.post('/updateStatus/:Admin_ID', adminController.updateAdminStatus);
+// Toggle admin status — ADMIN only
+router.post('/updateStatus/:Admin_ID', auth.requireAdmin, adminController.updateAdminStatus);
 
-// Route to reset the admin password (requires authentication)
+// Reset password (self or ADMIN for others)
 router.post('/resetPassword/:Admin_ID', adminController.resetAdminPassword);
 
-// Route to get admin data (requires authentication)
-router.get('/adminAuth/accessLevel', (req, res) => {
-  // AccessLevel is attached to the request object by the authenticateToken middleware
-  const accessLevel = req.tokenPayload; // Assuming tokenPayload contains access level
-  // Send AccessLevel to the frontend
-  res.json(accessLevel);
-});
+// Unlock a locked account — ADMIN only
+router.post('/unlockAccount/:Admin_ID', auth.requireAdmin, adminController.unlockAccount);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLATFORM AUDIT LOG — ADMIN only
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get('/platform-audit-log', auth.requireAdmin, adminController.getPlatformAuditLog);
+router.delete('/platform-audit-log', auth.requireAdmin, adminController.clearPlatformAuditLog);
 
 module.exports = router;

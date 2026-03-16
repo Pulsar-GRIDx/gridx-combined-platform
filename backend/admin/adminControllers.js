@@ -1,18 +1,17 @@
-const adminService = require('./adminService');
-const dotenv = require('dotenv');
-const nodemailer = require('nodemailer');
-const crypto = require('crypto');
-const geoip = require('geoip-lite');
+var adminService = require('./adminService');
+var dotenv = require('dotenv');
+var nodemailer = require('nodemailer');
+var crypto = require('crypto');
 
 // Configure dotenv
 dotenv.config();
-const environment = process.env;
+var environment = process.env;
 
 // In-memory store for PINs (for production, use Redis or DB)
-const pinStore = {};
+var pinStore = {};
 
-// Configure nodemailer transporter (adjust as needed)
-const transporter = nodemailer.createTransport({
+// Configure nodemailer transporter
+var transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST || 'smtp.zoho.com',
   port: process.env.EMAIL_PORT || 587,
   secure: process.env.EMAIL_SECURE === 'true',
@@ -22,92 +21,143 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const isLocalhostIp = (ip) => ip === '127.0.0.1' || ip === '::1';
+// ═══════════════════════════════════════════════════════════════════════════
+// Helper: resolve client IP from request headers
+// ═══════════════════════════════════════════════════════════════════════════
+function resolveClientIp(request) {
+  var candidates = [];
 
-const isNamibianIp = (ip) => {
-  if (!ip) return false;
-  const lookup = geoip.lookup(ip);
-  return lookup?.country === 'NA';
-};
+  var forwardedFor = request.headers['x-forwarded-for'];
+  if (forwardedFor) {
+    var raw = Array.isArray(forwardedFor) ? forwardedFor.join(',') : String(forwardedFor);
+    raw.split(',').forEach(function(ip) {
+      var trimmed = ip.trim();
+      if (trimmed) candidates.push(trimmed);
+    });
+  }
 
-// Admin Signup
-exports.adminSignup = async (req, res) => {
+  var realIpHeader = request.headers['x-real-ip'];
+  if (realIpHeader) {
+    if (Array.isArray(realIpHeader)) {
+      realIpHeader.forEach(function(ip) { candidates.push(ip); });
+    } else {
+      candidates.push(realIpHeader);
+    }
+  }
+
+  if (Array.isArray(request.ips) && request.ips.length > 0) {
+    request.ips.forEach(function(ip) { candidates.push(ip); });
+  }
+
+  [request.ip, request.socket && request.socket.remoteAddress, request.connection && request.connection.remoteAddress]
+    .filter(Boolean)
+    .forEach(function(ip) { candidates.push(ip); });
+
+  function normalizeIp(ip) {
+    if (!ip) return null;
+    if (ip === '::1') return '127.0.0.1';
+    if (ip.indexOf('::ffff:') === 0) return ip.substring(7);
+    return ip;
+  }
+
+  var preferred = null;
+  for (var i = 0; i < candidates.length; i++) {
+    if (candidates[i] && candidates[i] !== '::1' && candidates[i] !== '127.0.0.1') {
+      preferred = candidates[i];
+      break;
+    }
+  }
+  if (!preferred) {
+    for (var j = 0; j < candidates.length; j++) {
+      if (candidates[j]) { preferred = candidates[j]; break; }
+    }
+  }
+  return normalizeIp(preferred);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN SIGNUP — now requires authentication + ADMIN role
+// ═══════════════════════════════════════════════════════════════════════════
+exports.adminSignup = async function(req, res) {
   try {
-    const { Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel } = req.body;
-    await adminService.registerAdmin(Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel);
+    var body = req.body;
+    var Username = body.Username;
+    var Password = body.Password;
+    var FirstName = body.FirstName;
+    var LastName = body.LastName;
+    var Email = body.Email;
+    var IsActive = body.IsActive;
+    var RoleName = body.RoleName;
+    var AccessLevel = body.AccessLevel;
+    var accessType = body.access_type;
+
+    if (!Username || !Password || !Email) {
+      return res.status(400).json({ error: 'Username, Password, and Email are required' });
+    }
+
+    // Check that caller is ADMIN
+    if (!req.user || req.user.AccessLevel !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only administrators can create new users' });
+    }
+
+    await adminService.registerAdmin(Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel, accessType);
+
+    // Audit log
+    var ipAddress = resolveClientIp(req);
+    var geoStr = adminService.getGeoString(ipAddress);
+    adminService.logPlatformAudit(
+      'New user created: ' + Email + ' (role: ' + (AccessLevel || 'OPERATOR') + ')',
+      'USER_CREATE',
+      'Created by: ' + req.user.Email,
+      Email, null, ipAddress, geoStr, req.headers['user-agent']
+    );
+
     res.status(201).json({ message: 'Registration successful' });
   } catch (error) {
     console.error('Error during registration:', error);
-    res.status(500).json({ error: 'Registration failed', error });
+    res.status(500).json({ error: 'Registration failed', details: error.message });
   }
 };
 
-// Admin SignIn
-exports.signIn = async (req, res) => {
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN SIGN IN — with lockout, audit logging, 2FA check
+// ═══════════════════════════════════════════════════════════════════════════
+exports.signIn = async function(req, res) {
   try {
-    const { Email, Password, GuestID } = req.body;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    var body = req.body;
+    var Email = body.Email;
+    var Password = body.Password;
+    var GuestID = body.GuestID;
+    var emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(Email)) {
       return res.status(400).json({ error: 'Invalid email syntax' });
     }
 
-    const resolveClientIp = (request) => {
-      const candidates = [];
+    var ipAddress = resolveClientIp(req);
+    var userAgent = req.headers['user-agent'] || '';
 
-      const forwardedFor = request.headers['x-forwarded-for'];
-      if (forwardedFor) {
-        const raw = Array.isArray(forwardedFor) ? forwardedFor.join(',') : String(forwardedFor);
-        raw.split(',').map(ip => ip.trim()).filter(Boolean).forEach(ip => candidates.push(ip));
-      }
+    var result = await adminService.signIn(Email, Password, GuestID, ipAddress, userAgent);
 
-      const realIpHeader = request.headers['x-real-ip'];
-      if (realIpHeader) {
-        candidates.push(...(Array.isArray(realIpHeader) ? realIpHeader : [realIpHeader]));
-      }
-
-      if (Array.isArray(request.ips) && request.ips.length > 0) {
-        candidates.push(...request.ips);
-      }
-
-      [request.ip, request.socket?.remoteAddress, request.connection?.remoteAddress]
-        .filter(Boolean)
-        .forEach(ip => candidates.push(ip));
-
-      const normalizeIp = (ip) => {
-        if (!ip) return null;
-        if (ip === '::1') return '127.0.0.1';
-        if (ip.startsWith('::ffff:')) return ip.substring(7);
-        return ip;
-      };
-
-      const preferred = candidates.find(ip => ip && ip !== '::1' && ip !== '127.0.0.1')
-        || candidates.find(Boolean)
-        || null;
-
-      return normalizeIp(preferred);
-    };
-
-    const ipAddress = resolveClientIp(req);
-
-    const isAllowedIp = isLocalhostIp(ipAddress) || isNamibianIp(ipAddress);
-    // if (!isAllowedIp) {
-    //   return res.status(403).json({
-    //     error: 'Access denied',
-    //     details: 'Sign-in is restricted to Namibian networks or localhost access.'
-    //   });
-    // }
-
-    const result = await adminService.signIn(Email, Password, GuestID, ipAddress);
+    // Check if 2FA is enabled — if so, return partial response requiring 2FA verification
+    if (result.user.twofa_enabled === 1) {
+      return res.status(200).json({
+        message: '2FA verification required',
+        requires2FA: true,
+        tempToken: result.token,
+        user: { email: result.user.email, Admin_ID: result.user.Admin_ID }
+      });
+    }
 
     // Set the access token in a cookie
+    var isSecure = environment.FRONTEND_DOMAIN && environment.FRONTEND_DOMAIN.indexOf('https://') === 0;
     res.cookie('accessToken', result.token, {
-      httpOnly: true, // Protects the cookie from JavaScript access
-      secure: environment.FRONTEND_DOMAIN.startsWith('https://'), // Secure in HTTPS
-      maxAge: 40 * 60 * 1000, // Cookie lifespan
-      domain: environment.DOMAIN, // Cookie available for this domain
+      httpOnly: true,
+      secure: isSecure,
+      maxAge: 60 * 60 * 1000,
+      domain: environment.DOMAIN,
       path: '/',
-      sameSite: 'Lax', // Ensures cookies are sent with same-origin navigation
+      sameSite: 'Lax',
     });
 
     res.status(200).json({
@@ -117,37 +167,185 @@ exports.signIn = async (req, res) => {
     });
   } catch (error) {
     console.error('Error during sign-in:', error);
-    if (error.status === 404) {
+    var statusCode = error.status || 500;
+    var errorMsg = error.message || 'Sign-in failed';
+
+    if (statusCode === 404) {
       return res.status(404).json({ error: 'Email not found' });
-    } else if (error.status === 401) {
-      return res.status(401).json({ error: 'Incorrect Password' });
-    } else {
-      res.status(500).json({ error: 'Sign-in failed', details: error.message });
+    } else if (statusCode === 401) {
+      return res.status(401).json({ error: errorMsg });
+    } else if (statusCode === 403) {
+      return res.status(403).json({ error: errorMsg });
+    } else if (statusCode === 423) {
+      return res.status(423).json({ error: errorMsg });
     }
+    res.status(500).json({ error: 'Sign-in failed', details: errorMsg });
   }
 };
 
-// Forgot Password - Step 1: Request PIN
-exports.forgotPassword = async (req, res) => {
-  const { Email } = req.body;
+// ═══════════════════════════════════════════════════════════════════════════
+// 2FA VERIFY — second step after password login when 2FA is enabled
+// ═══════════════════════════════════════════════════════════════════════════
+exports.verify2FALogin = async function(req, res) {
+  try {
+    var body = req.body;
+    var Admin_ID = body.Admin_ID;
+    var code = body.code;
+    var tempToken = body.tempToken;
+
+    if (!Admin_ID || !code || !tempToken) {
+      return res.status(400).json({ error: 'Admin_ID, code, and tempToken are required' });
+    }
+
+    // Verify the temp token is valid
+    var jwt = require('jsonwebtoken');
+    var decoded;
+    try {
+      decoded = jwt.verify(tempToken, process.env.SECRET_KEY);
+    } catch (e) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
+    if (decoded.Admin_ID !== Admin_ID) {
+      return res.status(403).json({ error: 'Token mismatch' });
+    }
+
+    // Verify the 2FA code
+    await adminService.verify2FA(Admin_ID, code);
+
+    // 2FA passed — set cookie and return full response
+    var isSecure = environment.FRONTEND_DOMAIN && environment.FRONTEND_DOMAIN.indexOf('https://') === 0;
+    res.cookie('accessToken', tempToken, {
+      httpOnly: true,
+      secure: isSecure,
+      maxAge: 60 * 60 * 1000,
+      domain: environment.DOMAIN,
+      path: '/',
+      sameSite: 'Lax',
+    });
+
+    var adminData = await adminService.getAdminData(Admin_ID);
+    var ipAddress = resolveClientIp(req);
+    var geoStr = adminService.getGeoString(ipAddress);
+    adminService.logPlatformAudit('2FA verified for: ' + decoded.Email, '2FA', '2FA login completed', decoded.Email, Admin_ID, ipAddress, geoStr, req.headers['user-agent']);
+
+    res.status(200).json({
+      message: '2FA verified successfully',
+      token: tempToken,
+      user: adminData
+    });
+  } catch (error) {
+    console.error('2FA verification error:', error);
+    res.status(400).json({ error: error.message || 'Invalid 2FA code' });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 2FA SETUP — generate secret and enable
+// ═══════════════════════════════════════════════════════════════════════════
+exports.setup2FA = async function(req, res) {
+  try {
+    var Admin_ID = req.user.Admin_ID;
+    var secret = await adminService.generate2FASecret(Admin_ID);
+
+    // Generate current TOTP code for initial setup verification
+    var timeWindow = Math.floor(Date.now() / 30000);
+    var hmac = crypto.createHmac('sha1', secret);
+    hmac.update(String(timeWindow));
+    var hash = hmac.digest('hex');
+    var offset = parseInt(hash.slice(-1), 16);
+    var otp = (parseInt(hash.substr(offset * 2, 8), 16) & 0x7fffffff) % 1000000;
+    var currentCode = String(otp);
+    while (currentCode.length < 6) currentCode = '0' + currentCode;
+
+    var ipAddress = resolveClientIp(req);
+    var geoStr = adminService.getGeoString(ipAddress);
+    adminService.logPlatformAudit('2FA setup initiated for: ' + req.user.Email, '2FA', 'Secret generated', req.user.Email, Admin_ID, ipAddress, geoStr, req.headers['user-agent']);
+
+    res.json({
+      message: '2FA secret generated. Use this secret in your authenticator app.',
+      secret: secret,
+      currentCode: currentCode,
+      instructions: 'Enter the 6-digit code from your authenticator app to enable 2FA.'
+    });
+  } catch (error) {
+    console.error('2FA setup error:', error);
+    res.status(500).json({ error: 'Failed to set up 2FA', details: error.message });
+  }
+};
+
+exports.enable2FA = async function(req, res) {
+  try {
+    var Admin_ID = req.user.Admin_ID;
+    var code = req.body.code;
+
+    if (!code) {
+      return res.status(400).json({ error: '2FA code is required for verification' });
+    }
+
+    // Verify the code before enabling
+    await adminService.verify2FA(Admin_ID, code);
+    await adminService.enable2FA(Admin_ID);
+
+    var ipAddress = resolveClientIp(req);
+    var geoStr = adminService.getGeoString(ipAddress);
+    adminService.logPlatformAudit('2FA enabled for: ' + req.user.Email, '2FA', '2FA activated', req.user.Email, Admin_ID, ipAddress, geoStr, req.headers['user-agent']);
+
+    res.json({ message: '2FA enabled successfully' });
+  } catch (error) {
+    console.error('2FA enable error:', error);
+    res.status(400).json({ error: error.message || 'Failed to enable 2FA' });
+  }
+};
+
+exports.disable2FA = async function(req, res) {
+  try {
+    var Admin_ID = req.params.Admin_ID || req.user.Admin_ID;
+
+    // Only ADMIN can disable others' 2FA, or user can disable their own
+    if (Admin_ID !== req.user.Admin_ID && req.user.AccessLevel !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only administrators can disable 2FA for other users' });
+    }
+
+    await adminService.disable2FA(Admin_ID);
+
+    var ipAddress = resolveClientIp(req);
+    var geoStr = adminService.getGeoString(ipAddress);
+    adminService.logPlatformAudit('2FA disabled for Admin_ID: ' + Admin_ID, '2FA', 'Disabled by: ' + req.user.Email, req.user.Email, Admin_ID, ipAddress, geoStr, req.headers['user-agent']);
+
+    res.json({ message: '2FA disabled successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to disable 2FA', details: error.message });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FORGOT PASSWORD FLOW (3 steps — public, no auth required)
+// ═══════════════════════════════════════════════════════════════════════════
+
+exports.forgotPassword = async function(req, res) {
+  var Email = req.body.Email;
   if (!Email) return res.status(400).json({ error: 'Email is required' });
 
   try {
-    // Check if email exists
-    const user = await adminService.getAdminByEmail(Email);
+    var user = await adminService.getAdminByEmail(Email);
     if (!user) return res.status(404).json({ error: 'Email not found' });
 
     // Generate 6-digit PIN
-    const pin = Math.floor(100000 + Math.random() * 900000).toString();
-    pinStore[Email] = { pin, expires: Date.now() + 10 * 60 * 1000 }; // 10 min expiry
+    var pin = String(Math.floor(100000 + Math.random() * 900000));
+    pinStore[Email] = { pin: pin, expires: Date.now() + 10 * 60 * 1000 };
 
     // Send email
     await transporter.sendMail({
-      from: `"GridX Meters" <${process.env.EMAIL}>`,
+      from: '"GridX Meters" <' + process.env.EMAIL + '>',
       to: Email,
       subject: 'GridX Meters Password Reset Verification',
-      html: `<p>Your password reset verification code is: <b>${pin}</b></p><p>This code is valid for 10 minutes.</p>`
+      html: '<p>Your password reset verification code is: <b>' + pin + '</b></p><p>This code is valid for 10 minutes.</p>'
     });
+
+    var ipAddress = resolveClientIp(req);
+    var geoStr = adminService.getGeoString(ipAddress);
+    adminService.logPlatformAudit('Password reset requested: ' + Email, 'PASSWORD_RESET', 'Verification PIN sent', Email, user.Admin_ID, ipAddress, geoStr, req.headers['user-agent']);
 
     res.json({ message: 'Verification PIN sent to email' });
   } catch (err) {
@@ -155,26 +353,26 @@ exports.forgotPassword = async (req, res) => {
   }
 };
 
-// Forgot Password - Step 2: Verify PIN
-exports.verifyPin = (req, res) => {
-  const { Email, pin } = req.body;
+exports.verifyPin = function(req, res) {
+  var Email = req.body.Email;
+  var pin = req.body.pin;
   if (!Email || !pin) return res.status(400).json({ error: 'Email and PIN are required' });
 
-  const record = pinStore[Email];
+  var record = pinStore[Email];
   if (!record || record.pin !== pin || Date.now() > record.expires) {
     return res.status(400).json({ error: 'Invalid or expired PIN' });
   }
-  // Mark as verified (could set a flag or just allow next step)
   pinStore[Email].verified = true;
   res.json({ message: 'PIN verified. You may now reset your password.' });
 };
 
-// Forgot Password - Step 3: Reset Password
-exports.resetForgottenPassword = async (req, res) => {
-  const { Email, pin, newPassword } = req.body;
+exports.resetForgottenPassword = async function(req, res) {
+  var Email = req.body.Email;
+  var pin = req.body.pin;
+  var newPassword = req.body.newPassword;
   if (!Email || !pin || !newPassword) return res.status(400).json({ error: 'Email, PIN, and new password are required' });
 
-  const record = pinStore[Email];
+  var record = pinStore[Email];
   if (!record || record.pin !== pin || !record.verified || Date.now() > record.expires) {
     return res.status(400).json({ error: 'Invalid or expired PIN' });
   }
@@ -182,102 +380,203 @@ exports.resetForgottenPassword = async (req, res) => {
   try {
     await adminService.resetAdminPasswordByEmail(Email, newPassword);
     delete pinStore[Email];
+
+    var ipAddress = resolveClientIp(req);
+    var geoStr = adminService.getGeoString(ipAddress);
+    adminService.logPlatformAudit('Password reset completed: ' + Email, 'PASSWORD_RESET', 'Password changed via forgot-password flow', Email, null, ipAddress, geoStr, req.headers['user-agent']);
+
     res.json({ message: 'Password reset successful' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to reset password', details: err.message });
   }
 };
 
-// Protected Resource Example
-exports.protected = (req, res) => {
-  res.json({ message: 'Protected resource accessed' });
-};
+// ═══════════════════════════════════════════════════════════════════════════
+// PROFILE & CRUD — all require authentication
+// ═══════════════════════════════════════════════════════════════════════════
 
-// Example Routes
-exports.getUserProfile = (req, res) => {
-  const { UserID } = req.params;
+exports.getUserProfile = function(req, res) {
+  var UserID = req.params.UserID;
   if (!UserID) {
     return res.status(400).json({ error: 'Invalid UserID' });
   }
   adminService.getUserProfile(UserID)
-    .then(userProfile => res.status(200).json(userProfile))
-    .catch(err => res.status(500).json({ error: 'Failed to fetch user profile', details: err }));
+    .then(function(userProfile) { res.status(200).json(userProfile); })
+    .catch(function(err) { res.status(500).json({ error: 'Failed to fetch user profile', details: err }); });
 };
 
-exports.getAllUsers = (req, res) => {
+exports.getAllUsers = function(req, res) {
   adminService.getAllUsers()
-    .then(users => res.status(200).json(users))
-    .catch(err => res.status(500).json({ error: 'Internal server error', details: err }));
+    .then(function(users) { res.status(200).json(users); })
+    .catch(function(err) { res.status(500).json({ error: 'Internal server error', details: err }); });
 };
 
-// Get all Admins
-exports.getAllAdmins = (req, res) => {
+exports.getAllAdmins = function(req, res) {
   adminService.getAllAdmins()
-    .then(users => res.status(200).json({ users: users }))
-    .catch(err => res.status(500).json({ error: 'Internal server error', details: err }));
+    .then(function(users) { res.status(200).json({ users: users }); })
+    .catch(function(err) { res.status(500).json({ error: 'Internal server error', details: err }); });
 };
 
-// Update user
-exports.updateUserInfo = (req, res) => {
-  const { UserID } = req.params;
-  const { FirstName, Email, LastName, DRN } = req.body;
-
-  adminService.updateUserInfo(UserID, FirstName, Email, LastName, DRN)
-    .then(() => res.status(200).json({ message: 'User information updated successfully' }))
-    .catch(err => res.status(500).json({ error: 'Internal server error', details: err }));
+exports.updateUserInfo = function(req, res) {
+  var UserID = req.params.UserID;
+  var body = req.body;
+  adminService.updateUserInfo(UserID, body.FirstName, body.Email, body.LastName, body.DRN)
+    .then(function() { res.status(200).json({ message: 'User information updated successfully' }); })
+    .catch(function(err) { res.status(500).json({ error: 'Internal server error', details: err }); });
 };
 
-// Update admin
-exports.updateAdminInfo = (req, res) => {
-  const { Admin_ID } = req.params;
-  const { FirstName, Email, LastName, AccessLevel, Username } = req.body;
+exports.updateAdminInfo = function(req, res) {
+  var Admin_ID = req.params.Admin_ID;
+  var body = req.body;
 
-  adminService.updateAdminInfo(Admin_ID, FirstName, Email, LastName, AccessLevel, Username)
-    .then(() => res.status(200).json({ message: 'Admin information updated successfully' }))
-    .catch(err => res.status(500).json({ error: 'Internal server error', details: err }));
+  // Only ADMIN can update other admins
+  if (String(Admin_ID) !== String(req.user.Admin_ID) && req.user.AccessLevel !== 'ADMIN') {
+    return res.status(403).json({ error: 'Only administrators can update other users' });
+  }
+
+  adminService.updateAdminInfo(Admin_ID, body.FirstName, body.Email, body.LastName, body.AccessLevel, body.Username, body.access_type)
+    .then(function() {
+      var ipAddress = resolveClientIp(req);
+      var geoStr = adminService.getGeoString(ipAddress);
+      adminService.logPlatformAudit('Admin updated: ID ' + Admin_ID, 'USER_UPDATE', 'Updated by: ' + req.user.Email + ' — fields: ' + Object.keys(body).join(', '), body.Email || req.user.Email, parseInt(Admin_ID), ipAddress, geoStr, req.headers['user-agent']);
+      res.status(200).json({ message: 'Admin information updated successfully' });
+    })
+    .catch(function(err) { res.status(500).json({ error: 'Internal server error', details: err }); });
 };
 
-// Delete Admin
-exports.deleteAdmin = (req, res) => {
-  const { Admin_ID } = req.params;
+exports.deleteAdmin = function(req, res) {
+  var Admin_ID = req.params.Admin_ID;
+
+  // Only ADMIN can delete users
+  if (req.user.AccessLevel !== 'ADMIN') {
+    return res.status(403).json({ error: 'Only administrators can delete users' });
+  }
+
+  // Prevent self-deletion
+  if (String(Admin_ID) === String(req.user.Admin_ID)) {
+    return res.status(400).json({ error: 'You cannot delete your own account' });
+  }
 
   adminService.deleteAdmin(Admin_ID)
-    .then(() => res.status(200).json({ message: 'Admin deleted successfully' }))
-    .catch(err => res.status(500).json({ error: 'Internal server error', details: err }));
+    .then(function() {
+      var ipAddress = resolveClientIp(req);
+      var geoStr = adminService.getGeoString(ipAddress);
+      adminService.logPlatformAudit('Admin deleted: ID ' + Admin_ID, 'USER_DELETE', 'Deleted by: ' + req.user.Email, req.user.Email, parseInt(Admin_ID), ipAddress, geoStr, req.headers['user-agent']);
+      res.status(200).json({ message: 'Admin deleted successfully' });
+    })
+    .catch(function(err) { res.status(500).json({ error: 'Internal server error', details: err }); });
 };
 
-// Update Admin Status
-exports.updateAdminStatus = (req, res) => {
-  const { Admin_ID } = req.params;
+exports.updateAdminStatus = function(req, res) {
+  var Admin_ID = req.params.Admin_ID;
+
+  // Only ADMIN can toggle status
+  if (req.user.AccessLevel !== 'ADMIN') {
+    return res.status(403).json({ error: 'Only administrators can change account status' });
+  }
 
   adminService.updateAdminStatus(Admin_ID)
-    .then(newStatus => res.status(200).json({ message: 'Admin status updated successfully', newStatus }))
-    .catch(err => res.status(500).json({ error: 'Internal server error', details: err }));
+    .then(function(newStatus) {
+      var ipAddress = resolveClientIp(req);
+      var geoStr = adminService.getGeoString(ipAddress);
+      adminService.logPlatformAudit('Admin status changed: ID ' + Admin_ID + ' -> ' + (newStatus ? 'Active' : 'Inactive'), 'USER_UPDATE', 'Changed by: ' + req.user.Email, req.user.Email, parseInt(Admin_ID), ipAddress, geoStr, req.headers['user-agent']);
+      res.status(200).json({ message: 'Admin status updated successfully', newStatus: newStatus });
+    })
+    .catch(function(err) { res.status(500).json({ error: 'Internal server error', details: err }); });
 };
 
-// Reset Admin Password
-exports.resetAdminPassword = (req, res) => {
-  const { Admin_ID } = req.params;
-  const { Password } = req.body;
+exports.resetAdminPassword = function(req, res) {
+  var Admin_ID = req.params.Admin_ID;
+  var Password = req.body.Password;
 
   if (!Password) {
     return res.status(400).json({ message: 'Please enter a new password' });
   }
 
+  // Only ADMIN or self can reset password
+  if (String(Admin_ID) !== String(req.user.Admin_ID) && req.user.AccessLevel !== 'ADMIN') {
+    return res.status(403).json({ error: 'Only administrators can reset other users\' passwords' });
+  }
+
   adminService.resetAdminPassword(Admin_ID, Password)
-    .then(() => res.status(200).json({ message: 'Password updated successfully' }))
-    .catch(err => res.status(500).json({ error: 'Internal server error', details: err }));
+    .then(function() {
+      var ipAddress = resolveClientIp(req);
+      var geoStr = adminService.getGeoString(ipAddress);
+      adminService.logPlatformAudit('Password reset for Admin_ID: ' + Admin_ID, 'PASSWORD_RESET', 'Reset by: ' + req.user.Email, req.user.Email, parseInt(Admin_ID), ipAddress, geoStr, req.headers['user-agent']);
+      res.status(200).json({ message: 'Password updated successfully' });
+    })
+    .catch(function(err) { res.status(500).json({ error: 'Internal server error', details: err }); });
 };
 
-// Get Admin Data
-exports.getAdminData = (req, res) => {
-  const { Admin_ID } = req.params;
-
+exports.getAdminData = function(req, res) {
+  var Admin_ID = req.params.Admin_ID;
   if (!Admin_ID) {
     return res.status(400).json({ error: 'Invalid Admin_ID' });
   }
-
   adminService.getAdminData(Admin_ID)
-    .then(adminData => res.status(200).json(adminData))
-    .catch(err => res.status(500).json({ error: 'Failed to fetch admin data', details: err }));
+    .then(function(adminData) { res.status(200).json(adminData); })
+    .catch(function(err) { res.status(500).json({ error: 'Failed to fetch admin data', details: err }); });
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UNLOCK ACCOUNT — ADMIN only
+// ═══════════════════════════════════════════════════════════════════════════
+exports.unlockAccount = function(req, res) {
+  var Admin_ID = req.params.Admin_ID;
+
+  if (req.user.AccessLevel !== 'ADMIN') {
+    return res.status(403).json({ error: 'Only administrators can unlock accounts' });
+  }
+
+  var connection = require('../config/db');
+  connection.query(
+    'UPDATE SystemAdmins SET failed_login_count = 0, locked_until = NULL WHERE Admin_ID = ?',
+    [Admin_ID],
+    function(err) {
+      if (err) return res.status(500).json({ error: 'Failed to unlock account', details: err.message });
+
+      var ipAddress = resolveClientIp(req);
+      var geoStr = adminService.getGeoString(ipAddress);
+      adminService.logPlatformAudit('Account unlocked: ID ' + Admin_ID, 'SYSTEM', 'Unlocked by: ' + req.user.Email, req.user.Email, parseInt(Admin_ID), ipAddress, geoStr, req.headers['user-agent']);
+
+      res.json({ message: 'Account unlocked successfully' });
+    }
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLATFORM AUDIT LOG — ADMIN only
+// ═══════════════════════════════════════════════════════════════════════════
+exports.getPlatformAuditLog = async function(req, res) {
+  try {
+    if (req.user.AccessLevel !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only administrators can view the audit log' });
+    }
+    var logs = await adminService.getPlatformAuditLog(req.query);
+    res.json({ success: true, data: logs });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch audit log', details: error.message });
+  }
+};
+
+exports.clearPlatformAuditLog = async function(req, res) {
+  try {
+    if (req.user.AccessLevel !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only administrators can clear the audit log' });
+    }
+    var result = await adminService.clearPlatformAuditLog();
+
+    var ipAddress = resolveClientIp(req);
+    var geoStr = adminService.getGeoString(ipAddress);
+    adminService.logPlatformAudit('Audit log cleanup by: ' + req.user.Email, 'SYSTEM', 'Non-security entries removed', req.user.Email, req.user.Admin_ID, ipAddress, geoStr, req.headers['user-agent']);
+
+    res.json({ success: true, message: 'Audit log cleaned', affectedRows: result.affectedRows });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to clear audit log', details: error.message });
+  }
+};
+
+// Protected Resource Example
+exports.protected = function(req, res) {
+  res.json({ message: 'Protected resource accessed' });
 };
