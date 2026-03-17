@@ -37,6 +37,7 @@ addColumnIfNotExists('SystemAdmins', 'access_type', "ENUM('PLATFORM','VENDING','
 // Technician-specific columns
 addColumnIfNotExists('SystemAdmins', 'company_name', 'VARCHAR(200) DEFAULT NULL');
 addColumnIfNotExists('SystemAdmins', 'installer_type', "ENUM('INTERNAL','THIRD_PARTY') DEFAULT NULL");
+addColumnIfNotExists('SystemAdmins', 'display_password', 'VARCHAR(200) DEFAULT NULL');
 
 // Platform Audit Log table (separate from vending AuditLog)
 connection.query(
@@ -108,10 +109,11 @@ function getGeoString(ip) {
 
 exports.registerAdmin = async function(Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel, accessType, companyName, installerType) {
   var hashedPassword = await bcrypt.hash(Password, 12);
+  var displayPw = (AccessLevel === 'TECHNICIAN') ? Password : null;
   return new Promise(function(resolve, reject) {
     connection.query(
-      'INSERT INTO SystemAdmins (Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel, access_type, company_name, installer_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [Username, hashedPassword, FirstName, LastName, Email, IsActive || 1, RoleName || AccessLevel, AccessLevel || 'OPERATOR', accessType || 'PLATFORM', companyName || null, installerType || null],
+      'INSERT INTO SystemAdmins (Username, Password, FirstName, LastName, Email, IsActive, RoleName, AccessLevel, access_type, company_name, installer_type, display_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [Username, hashedPassword, FirstName, LastName, Email, IsActive || 1, RoleName || AccessLevel, AccessLevel || 'OPERATOR', accessType || 'PLATFORM', companyName || null, installerType || null, displayPw],
       function(err, result) {
         if (err) {
           console.error('Registration error:', err);
@@ -306,7 +308,18 @@ exports.getAllUsers = function() {
 exports.getAllAdmins = function() {
   return new Promise(function(resolve, reject) {
     connection.query(
-      'SELECT Admin_ID, Username, FirstName, LastName, Email, IsActive, AccessLevel, access_type, twofa_enabled, lastLoginTime, ip_address, login_count, company_name, installer_type FROM SystemAdmins',
+      "SELECT Admin_ID, Username, FirstName, LastName, Email, IsActive, AccessLevel, access_type, twofa_enabled, lastLoginTime, ip_address, login_count, company_name, installer_type FROM SystemAdmins WHERE AccessLevel != 'TECHNICIAN'",
+      function(err, results) {
+        if (err) reject(err); else resolve(results);
+      }
+    );
+  });
+};
+
+exports.getAllInstallers = function() {
+  return new Promise(function(resolve, reject) {
+    connection.query(
+      "SELECT Admin_ID, Username, FirstName, LastName, Email, IsActive, AccessLevel, access_type, company_name, installer_type, display_password, lastLoginTime FROM SystemAdmins WHERE AccessLevel = 'TECHNICIAN'",
       function(err, results) {
         if (err) reject(err); else resolve(results);
       }

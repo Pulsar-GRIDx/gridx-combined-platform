@@ -100,6 +100,8 @@ export const authAPI = {
     return get(`/platform-audit-log${q ? '?' + q : ''}`);
   },
   clearPlatformAuditLog: () => del('/platform-audit-log'),
+  // Installer management
+  getAllInstallers: () => get('/installers'),
 };
 
 // ===== METERS =====

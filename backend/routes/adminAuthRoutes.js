@@ -85,6 +85,12 @@ router.post('/resetPassword/:Admin_ID', adminController.resetAdminPassword);
 router.post('/unlockAccount/:Admin_ID', auth.requireAdmin, adminController.unlockAccount);
 
 // ═══════════════════════════════════════════════════════════════════════════
+// INSTALLER MANAGEMENT — ADMIN only
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get('/installers', auth.requireAdmin, adminController.getAllInstallers);
+
+// ═══════════════════════════════════════════════════════════════════════════
 // PLATFORM AUDIT LOG — ADMIN only
 // ═══════════════════════════════════════════════════════════════════════════
 

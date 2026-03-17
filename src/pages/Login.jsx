@@ -220,6 +220,15 @@ export default function Login() {
         return;
       }
 
+      // Block technicians from the main dashboard
+      if (result && result.AccessLevel === "TECHNICIAN") {
+        sessionStorage.removeItem("token");
+        sessionStorage.removeItem("user");
+        setFormErrors({ general: "This account is for the commissioning app only. You do not have access to the main dashboard." });
+        setLoading(false);
+        return;
+      }
+
       navigate("/");
     } catch (err) {
       setFormErrors({ general: err.message || "Incorrect email or password" });

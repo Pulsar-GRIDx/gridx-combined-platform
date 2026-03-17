@@ -22,6 +22,7 @@ import AssessmentIcon from "@mui/icons-material/Assessment";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import SpeedIcon from "@mui/icons-material/Speed";
 import HubIcon from "@mui/icons-material/Hub";
+import BuildIcon from "@mui/icons-material/Build";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
@@ -498,6 +499,13 @@ const Sidebar = () => {
           icon={<PeopleOutlinedIcon />}
           isCollapsed={isCollapsed}
           accentColor={colors.redAccent[400]}
+        />
+        <NavItem
+          title="Installers"
+          to="/installers"
+          icon={<BuildIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#ff9800"
         />
 
         {/* Bottom spacer */}

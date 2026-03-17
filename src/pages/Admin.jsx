@@ -632,7 +632,6 @@ export default function Admin() {
               <MenuItem value="ADMIN">Admin</MenuItem>
               <MenuItem value="SUPERVISOR">Supervisor</MenuItem>
               <MenuItem value="OPERATOR">Operator</MenuItem>
-              <MenuItem value="TECHNICIAN">Technician</MenuItem>
               <MenuItem value="VIEWER">Viewer</MenuItem>
             </TextField>
             <TextField

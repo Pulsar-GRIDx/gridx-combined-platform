@@ -602,6 +602,22 @@ exports.clearPlatformAuditLog = async function(req, res) {
   }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// INSTALLER MANAGEMENT — ADMIN only
+// ═══════════════════════════════════════════════════════════════════════════
+
+exports.getAllInstallers = async function(req, res) {
+  try {
+    if (req.user.AccessLevel !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only administrators can view installers' });
+    }
+    var installers = await adminService.getAllInstallers();
+    res.json({ success: true, installers: installers });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch installers', details: error.message });
+  }
+};
+
 // Protected Resource Example
 exports.protected = function(req, res) {
   res.json({ message: 'Protected resource accessed' });
