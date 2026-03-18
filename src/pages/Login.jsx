@@ -399,10 +399,10 @@ export default function Login() {
             </Box>
             <Box>
               <Typography sx={{ color: "#fff", fontWeight: 800, fontSize: "1.6rem", letterSpacing: "0.08em", lineHeight: 1 }}>
-                NamPower
+                SmartPay
               </Typography>
               <Typography sx={{ color: ACCENT, fontSize: "0.68rem", fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", mt: 0.3 }}>
-                Smart Metering Platform
+                NamPower Metering Platform
               </Typography>
             </Box>
           </Box>
@@ -802,7 +802,7 @@ export default function Login() {
             letterSpacing: "0.06em",
           }}
         >
-          &copy; 2026 NamPower | Smart Metering Platform
+          &copy; 2026 NamPower SmartPay | Powered by MTC
         </Typography>
       </Box>
 

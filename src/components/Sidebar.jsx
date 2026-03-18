@@ -220,7 +220,7 @@ const Sidebar = () => {
                     WebkitTextFillColor: "transparent",
                   }}
                 >
-                  NamPower
+                  SmartPay
                 </Typography>
                 <Box
                   sx={{
@@ -547,7 +547,7 @@ const Sidebar = () => {
               textAlign: "center",
             }}
           >
-            NamPower Metering v2.0
+            NamPower SmartPay v2.0
           </Typography>
         ) : (
           <Box
