@@ -61,6 +61,7 @@ try { otaRoutes = require('./routes/otaRoutes'); } catch (e) { /* optional */ }
 const groupControlRoutes = require('./routes/groupControlRoutes');
 const vendingRoutes = require('./vending/vendingRoutes');
 const integrationRoutes = require('./vending/integrationRoutes');
+const customerAuthRoutes = require('./routes/customerAuthRoutes');
 
 // Initialize MQTT handler (subscribes to meter telemetry topics)
 const mqttHandler = require('./services/mqttHandler');
@@ -77,6 +78,9 @@ const homeClassificationPublicRoutes = require('./meterProfile/homeClassificatio
 apiRouter.use('/home-classification', homeClassificationPublicRoutes);
 // Integration API (has own auth via API keys — must be before global auth routes)
 apiRouter.use('/integration', integrationRoutes);
+
+// Customer auth routes (public — before admin auth middleware)
+apiRouter.use('/customer', customerAuthRoutes);
 
 // Authenticated routes
 apiRouter.use('/', getRoutes);
@@ -143,6 +147,7 @@ app.use('/systemSettings', systemSettingsRoutes);
 app.use('/api/meter', meterBillingRoutes);
 app.use('/api/billing', billingNotificationRoutes);
 app.use('/meter-registration', meterRegistrationRoutes);
+app.use('/customer', customerAuthRoutes);
 
 // OTA firmware serving (ESP32 polls these over GSM HTTP)
 if (otaRoutes) {
