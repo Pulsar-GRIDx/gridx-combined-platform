@@ -23,6 +23,8 @@ import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import SpeedIcon from "@mui/icons-material/Speed";
 import HubIcon from "@mui/icons-material/Hub";
 import BuildIcon from "@mui/icons-material/Build";
+import SecurityIcon from "@mui/icons-material/Security";
+import GppBadIcon from "@mui/icons-material/GppBad";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
@@ -423,6 +425,13 @@ const Sidebar = () => {
           isCollapsed={isCollapsed}
           accentColor={colors.yellowAccent[500]}
         />
+        <NavItem
+          title="VSM Testing"
+          to="/vsm-testing"
+          icon={<SecurityIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#00bfa5"
+        />
 
         {/* Data */}
         <SectionHeader
@@ -464,6 +473,13 @@ const Sidebar = () => {
           icon={<NotificationImportantIcon />}
           isCollapsed={isCollapsed}
           accentColor={colors.redAccent[500]}
+        />
+        <NavItem
+          title="Tamper Detection"
+          to="/tamper-detection"
+          icon={<GppBadIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#db4f4a"
         />
         <NavItem
           title="Analysis"

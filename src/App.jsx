@@ -26,6 +26,8 @@ import NewMeterDash from "./pages/NewMeterDash";
 import GroupControl from "./pages/GroupControl";
 import Integrations from "./pages/Integrations";
 import Installers from "./pages/Installers";
+import TamperDetection from "./pages/TamperDetection";
+import VsmTesting from "./pages/VsmTesting";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -61,6 +63,8 @@ function App() {
               <Route path="load-control" element={<GroupControl />} />
               <Route path="integrations" element={<Integrations />} />
               <Route path="installers" element={<Installers />} />
+              <Route path="tamper-detection" element={<TamperDetection />} />
+              <Route path="vsm-testing" element={<VsmTesting />} />
             </Route>
           </Routes>
         </AuthProvider>
