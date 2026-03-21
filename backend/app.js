@@ -65,6 +65,44 @@ const customerAuthRoutes = require('./routes/customerAuthRoutes');
 const tamperRoutes = require('./routes/tamperRoutes');
 const vsmRoutes = require('./routes/vsmRoutes');
 
+// ─── Hardware routes (merged from GridX_express_generator2) ───
+const hwMeterTokenRoutes = require('./hardware/meterTokenRoutes');
+const hwMeterPowerRoutes = require('./hardware/meterPowerRoutes');
+const hwMeterEnergyRoutes = require('./hardware/meterEnergyRoutes');
+const hwMeterCellNetworkRoutes = require('./hardware/meterCellNetworkRoutes');
+const hwMeterLoadControlRoutes = require('./hardware/meterLoadControlRoutes');
+const hwMeterSTSTokesInfoRoutes = require('./hardware/meterSTSTokesInfoRoutes');
+const hwMeterSendSTSTokenRoutes = require('./hardware/meterSendSTSTokenRoutes');
+const hwMeterTariffRoutes = require('./hardware/meterTariffRoutes');
+const hwMeterProfileRoutes = require('./hardware/meterProfileRoutes');
+const hwSystemUsersRoutes = require('./hardware/hwSystemUsersRoutes');
+const hwMeterLocationRoutes = require('./hardware/meterLocationRoutes');
+const hwMeterNotificationsRoutes = require('./hardware/meterNotificationsRoutes');
+const hwMeterCalibrationRoutes = require('./hardware/meterCalibrationRoutes');
+const hwMeterResetRoutes = require('./hardware/meterResetRoute');
+const hwMeterResetAuthNumbersRoutes = require('./hardware/meterResetAuthNumbersRoutes');
+const hwMeterResetBLERoutes = require('./hardware/meterResetBLERoutes');
+const hwTransformerRoutes = require('./hardware/transformerRoutes');
+const hwMeterMainsControlRoutes = require('./hardware/LoadControl/meterMainsControlRoutes');
+const hwMeterMainsStateRoutes = require('./hardware/LoadControl/meterMainsStateRoutes');
+const hwMeterHeaterControlRoutes = require('./hardware/LoadControl/meterHeaterControlRoutes');
+const hwMeterHeaterstateRoutes = require('./hardware/LoadControl/meterHeaterstateRoutes');
+const hwMeterCreditTransferRoutes = require('./hardware/meterCreditTransferRoutes');
+const hwPrepaidBillingRoutes = require('./hardware/PrepaidBillingRoutes');
+const hwPostpaidBillingConfigRoutes = require('./hardware/PostpaidBillingConfigRoutes');
+const hwFilesRoute = require('./hardware/files/filesRoute');
+const hwMeterResponseNumberRoutes = require('./hardware/meterResponseNumberRoute');
+const hwMeterEmergencyRoutes = require('./hardware/meterEmergencyRoutes');
+const hwTariffUpdateStatusRoutes = require('./hardware/tariffUpdateStatusRoutes');
+const hwMeterRegistrationRoutes = require('./hardware/registration/meterRegistrationRoutes');
+
+// Rate limiter for hardware registration
+const hwRegistrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'TOO_MANY_REQUESTS', message: 'Too many registration attempts. Try again in 15 minutes.' },
+});
+
 // Initialize MQTT handler (subscribes to meter telemetry topics)
 const mqttHandler = require('./services/mqttHandler');
 mqttHandler.init();
@@ -152,6 +190,38 @@ app.use('/api/meter', meterBillingRoutes);
 app.use('/api/billing', billingNotificationRoutes);
 app.use('/meter-registration', meterRegistrationRoutes);
 app.use('/customer', customerAuthRoutes);
+
+// ─── Hardware routes (ESP32 meters hit these directly via tech.gridx-meters.com) ───
+app.use('/meters', hwMeterTokenRoutes);
+app.use('/createMeterToken', hwMeterTokenRoutes);
+app.use('/meterPower', hwMeterPowerRoutes);
+app.use('/meterEnergy', hwMeterEnergyRoutes);
+app.use('/meterCellNetwork', hwMeterCellNetworkRoutes);
+app.use('/meterLoadControl', hwMeterLoadControlRoutes);
+app.use('/meterSTSTokesInfo', hwMeterSTSTokesInfoRoutes);
+app.use('/meterSendSTSToken', hwMeterSendSTSTokenRoutes);
+app.use('/meterProfile', hwMeterProfileRoutes);
+app.use('/systemUsers', hwSystemUsersRoutes);
+app.use('/meterLocation', hwMeterLocationRoutes);
+app.use('/meterNotification', hwMeterNotificationsRoutes);
+app.use('/meterCaibration', hwMeterCalibrationRoutes);
+app.use('/meterReset', hwMeterResetRoutes);
+app.use('/meterResetBLE', hwMeterResetBLERoutes);
+app.use('/meterResetAuthNumber', hwMeterResetAuthNumbersRoutes);
+app.use('/meterMainsControl', hwMeterMainsControlRoutes);
+app.use('/meterMainsState', hwMeterMainsStateRoutes);
+app.use('/meterHeaterControl', hwMeterHeaterControlRoutes);
+app.use('/meterHeaterState', hwMeterHeaterstateRoutes);
+app.use('/transformer', hwTransformerRoutes);
+app.use('/prepaidBilling', hwPrepaidBillingRoutes);
+app.use('/postpaidBilling', hwPostpaidBillingConfigRoutes);
+app.use('/tariff', hwMeterTariffRoutes);
+app.use('/files', hwFilesRoute);
+app.use('/credit', hwMeterCreditTransferRoutes);
+app.use('/smsResponse', hwMeterResponseNumberRoutes);
+app.use('/emergency', hwMeterEmergencyRoutes);
+app.use('/tariffStatus', hwTariffUpdateStatusRoutes);
+app.use('/api/meters', hwRegistrationLimiter, hwMeterRegistrationRoutes);
 
 // Relay events API (receives relay logs from maintenance app)
 const relayEventsRoutes = require('./meter/relayEventsRoutes');
