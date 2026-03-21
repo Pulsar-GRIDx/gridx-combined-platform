@@ -153,6 +153,10 @@ app.use('/api/billing', billingNotificationRoutes);
 app.use('/meter-registration', meterRegistrationRoutes);
 app.use('/customer', customerAuthRoutes);
 
+// Relay events API (receives relay logs from maintenance app)
+const relayEventsRoutes = require('./meter/relayEventsRoutes');
+app.use('/api/v1/relay-events', relayEventsRoutes);
+
 // OTA firmware serving (ESP32 polls these over GSM HTTP)
 if (otaRoutes) {
   app.use('/files', otaRoutes);
