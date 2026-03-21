@@ -21,6 +21,8 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import TerminalIcon from "@mui/icons-material/Terminal";
+import WifiIcon from "@mui/icons-material/Wifi";
+import WifiOffIcon from "@mui/icons-material/WifiOff";
 import { vsmAPI } from "../services/api";
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -112,6 +114,89 @@ function useSerial() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   WEBSOCKET HELPER HOOK (for TCP mode)
+   ═══════════════════════════════════════════════════════════════════ */
+function useWebSocket() {
+  const [ws, setWs] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [connInfo, setConnInfo] = useState(null);
+  const bufferRef = useRef("");
+  const onDataRef = useRef(null);
+
+  const connect = useCallback(async (host, port) => {
+    return new Promise((resolve, reject) => {
+      const url = `ws://${host}:${port}`;
+      const socket = new WebSocket(url);
+      socket.binaryType = "arraybuffer";
+
+      const timeout = setTimeout(() => {
+        socket.close();
+        reject(new Error(`Connection timeout to ${url}`));
+      }, 5000);
+
+      socket.onopen = () => {
+        clearTimeout(timeout);
+        setWs(socket);
+        setConnected(true);
+        setConnInfo({ host, port, url });
+        resolve(socket);
+      };
+
+      socket.onmessage = (event) => {
+        let text;
+        if (event.data instanceof ArrayBuffer) {
+          text = new TextDecoder().decode(event.data);
+        } else {
+          text = event.data;
+        }
+        bufferRef.current += text;
+        if (onDataRef.current) onDataRef.current(text, bufferRef.current);
+      };
+
+      socket.onerror = (err) => {
+        clearTimeout(timeout);
+        reject(new Error(`WebSocket error connecting to ${url}`));
+      };
+
+      socket.onclose = () => {
+        setWs(null);
+        setConnected(false);
+        setConnInfo(null);
+      };
+    });
+  }, []);
+
+  const disconnect = useCallback(async () => {
+    if (ws) { ws.close(); }
+    setWs(null);
+    setConnected(false);
+    setConnInfo(null);
+    bufferRef.current = "";
+  }, [ws]);
+
+  const send = useCallback(async (data) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error("Not connected");
+    if (typeof data === "string") {
+      ws.send(data);
+    } else {
+      ws.send(data);
+    }
+  }, [ws]);
+
+  const sendHex = useCallback(async (hexString) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error("Not connected");
+    const clean = hexString.replace(/\s/g, "");
+    const bytes = new Uint8Array(clean.match(/.{1,2}/g).map((b) => parseInt(b, 16)));
+    ws.send(bytes.buffer);
+  }, [ws]);
+
+  const clearBuffer = useCallback(() => { bufferRef.current = ""; }, []);
+  const setOnData = useCallback((fn) => { onDataRef.current = fn; }, []);
+
+  return { connected, connInfo, connect, disconnect, send, sendHex, clearBuffer, setOnData, buffer: bufferRef };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    MAIN PAGE COMPONENT
    ═══════════════════════════════════════════════════════════════════ */
 export default function VsmTesting() {
@@ -119,6 +204,9 @@ export default function VsmTesting() {
   const colors = tokens(theme.palette.mode);
   const isDark = theme.palette.mode === "dark";
   const [tab, setTab] = useState(0);
+
+  // Connection mode: "serial" or "tcp"
+  const [connMode, setConnMode] = useState("serial");
 
   // Serial
   const serial = useSerial();
@@ -128,6 +216,15 @@ export default function VsmTesting() {
   const [parity, setParity] = useState("none");
   const [serialLog, setSerialLog] = useState([]);
   const [connectError, setConnectError] = useState("");
+
+  // TCP/WebSocket
+  const tcp = useWebSocket();
+  const [tcpHost, setTcpHost] = useState("localhost");
+  const [tcpPort, setTcpPort] = useState("9000");
+
+  // Unified connection status
+  const isConnected = connMode === "serial" ? serial.connected : tcp.connected;
+  const activeConn = connMode === "serial" ? serial : tcp;
 
   // Token generation
   const [meterNo, setMeterNo] = useState("");
@@ -162,6 +259,13 @@ export default function VsmTesting() {
     });
   }, [serial.setOnData]);
 
+  /* ── TCP data handler ── */
+  useEffect(() => {
+    tcp.setOnData((chunk, full) => {
+      setSerialLog((prev) => [...prev, { time: new Date().toISOString(), dir: "RX", data: chunk }]);
+    });
+  }, [tcp.setOnData]);
+
   /* ── Load keys on mount ── */
   useEffect(() => { loadKeys(); }, []);
 
@@ -174,18 +278,27 @@ export default function VsmTesting() {
     setKeysLoading(false);
   }
 
-  /* ── Connect/disconnect serial ── */
+  /* ── Connect/disconnect ── */
   async function handleConnect() {
     setConnectError("");
     try {
-      await serial.connect(baudRate, dataBits, stopBits, parity);
-      setSerialLog((prev) => [...prev, { time: new Date().toISOString(), dir: "SYS", data: `Connected at ${baudRate} baud` }]);
+      if (connMode === "serial") {
+        await serial.connect(baudRate, dataBits, stopBits, parity);
+        setSerialLog((prev) => [...prev, { time: new Date().toISOString(), dir: "SYS", data: `Connected via COM port at ${baudRate} baud` }]);
+      } else {
+        await tcp.connect(tcpHost, tcpPort);
+        setSerialLog((prev) => [...prev, { time: new Date().toISOString(), dir: "SYS", data: `Connected via WebSocket to ${tcpHost}:${tcpPort}` }]);
+      }
     } catch (e) {
       setConnectError(e.message);
     }
   }
   async function handleDisconnect() {
-    await serial.disconnect();
+    if (connMode === "serial") {
+      await serial.disconnect();
+    } else {
+      await tcp.disconnect();
+    }
     setSerialLog((prev) => [...prev, { time: new Date().toISOString(), dir: "SYS", data: "Disconnected" }]);
   }
 
@@ -194,9 +307,9 @@ export default function VsmTesting() {
     if (!rawInput.trim()) return;
     try {
       if (hexMode) {
-        await serial.sendHex(rawInput);
+        await activeConn.sendHex(rawInput);
       } else {
-        await serial.send(rawInput + "\r\n");
+        await activeConn.send(rawInput + "\r\n");
       }
       setSerialLog((prev) => [...prev, { time: new Date().toISOString(), dir: "TX", data: rawInput }]);
       setRawInput("");
@@ -220,15 +333,17 @@ export default function VsmTesting() {
     setServerLoading(false);
   }
 
-  /* ── Generate token via VSM (serial) ── */
+  /* ── Generate token via VSM (serial or TCP) ── */
   async function handleVsmGenerate() {
-    if (!serial.connected) {
-      setVsmResult({ error: "Not connected to VSM. Please connect a COM port first." });
+    if (!isConnected) {
+      setVsmResult({ error: "Not connected to VSM. Please connect via COM port or TCP first." });
       return;
     }
     if (!meterNo || !amount) return;
     setVsmLoading(true);
     setVsmResult(null);
+
+    const transportLabel = connMode === "serial" ? "COM port" : "TCP/WebSocket";
 
     // Build STS vending request payload
     const payload = buildVsmRequest(meterNo, amount);
@@ -241,27 +356,27 @@ export default function VsmTesting() {
       ...prev,
       {
         step: prev.length + 1,
-        label: "VSM Serial Request",
+        label: `VSM ${transportLabel} Request`,
         direction: "outbound",
         timestamp: new Date().toISOString(),
-        data: { hex: payloadHex, description: "Sent to VSM via COM port" },
+        data: { hex: payloadHex, description: `Sent to VSM via ${transportLabel}` },
       },
     ]);
 
     try {
-      await serial.sendHex(payloadHex);
+      await activeConn.sendHex(payloadHex);
       // Wait for response with timeout
-      serial.clearBuffer();
+      activeConn.clearBuffer();
       const response = await waitForResponse(3000);
       setSerialLog((prev) => [...prev, { time: new Date().toISOString(), dir: "RX", data: `VSM Response: ${response}` }]);
       setDataFlow((prev) => [
         ...prev,
         {
           step: prev.length + 1,
-          label: "VSM Serial Response",
+          label: `VSM ${transportLabel} Response`,
           direction: "inbound",
           timestamp: new Date().toISOString(),
-          data: { raw: response, description: "Received from VSM via COM port" },
+          data: { raw: response, description: `Received from VSM via ${transportLabel}` },
         },
       ]);
       const parsed = parseVsmResponse(response);
@@ -298,17 +413,18 @@ export default function VsmTesting() {
   function waitForResponse(timeoutMs) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
+      const conn = activeConn;
       const check = setInterval(() => {
-        const buf = serial.buffer.current;
+        const buf = conn.buffer.current;
         if (buf.length > 0 && (buf.includes("\x03") || buf.includes("\n"))) {
           clearInterval(check);
-          serial.clearBuffer();
+          conn.clearBuffer();
           resolve(buf);
         }
         if (Date.now() - start > timeoutMs) {
           clearInterval(check);
-          const partial = serial.buffer.current;
-          serial.clearBuffer();
+          const partial = conn.buffer.current;
+          conn.clearBuffer();
           resolve(partial || "(no response within timeout)");
         }
       }, 50);
@@ -386,32 +502,46 @@ export default function VsmTesting() {
       {/* Connection status bar */}
       <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3, p: 2, borderRadius: "12px", bgcolor: cardBg, border: `1px solid ${cardBorder}` }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          {serial.connected ? (
-            <UsbIcon sx={{ color: "#4caf50", fontSize: 28 }} />
+          {isConnected ? (
+            connMode === "serial" ? <UsbIcon sx={{ color: "#4caf50", fontSize: 28 }} /> : <WifiIcon sx={{ color: "#4caf50", fontSize: 28 }} />
           ) : (
-            <UsbOffIcon sx={{ color: colors.grey[500], fontSize: 28 }} />
+            connMode === "serial" ? <UsbOffIcon sx={{ color: colors.grey[500], fontSize: 28 }} /> : <WifiOffIcon sx={{ color: colors.grey[500], fontSize: 28 }} />
           )}
           <Box>
             <Typography sx={{ fontSize: "13px", fontWeight: 600 }}>
-              COM Port: {serial.connected ? "Connected" : "Disconnected"}
+              {connMode === "serial" ? "COM Port" : "TCP/WebSocket"}: {isConnected ? "Connected" : "Disconnected"}
             </Typography>
-            {serial.portInfo && (
+            {connMode === "serial" && serial.portInfo && (
               <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>
                 Vendor: {serial.portInfo.vendorId || "N/A"} | Product: {serial.portInfo.productId || "N/A"}
+              </Typography>
+            )}
+            {connMode === "tcp" && tcp.connInfo && (
+              <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>
+                {tcp.connInfo.url}
               </Typography>
             )}
           </Box>
         </Box>
         <Chip
-          label={serial.connected ? "Online" : "Offline"}
+          label={isConnected ? "Online" : "Offline"}
           size="small"
           sx={{
-            bgcolor: serial.connected ? "#4caf5020" : colors.grey[700] + "40",
-            color: serial.connected ? "#4caf50" : colors.grey[400],
+            bgcolor: isConnected ? "#4caf5020" : colors.grey[700] + "40",
+            color: isConnected ? "#4caf50" : colors.grey[400],
             fontWeight: 600, fontSize: "11px",
           }}
         />
-        {!serial.isSupported && (
+        <Chip
+          label={connMode === "serial" ? "Serial" : "TCP"}
+          size="small"
+          sx={{
+            bgcolor: connMode === "serial" ? "#2196f320" : "#ff980020",
+            color: connMode === "serial" ? "#2196f3" : "#ff9800",
+            fontWeight: 600, fontSize: "11px",
+          }}
+        />
+        {connMode === "serial" && !serial.isSupported && (
           <Alert severity="warning" sx={{ ml: "auto", py: 0, fontSize: "12px" }}>
             Web Serial API requires Chrome or Edge browser
           </Alert>
@@ -429,66 +559,109 @@ export default function VsmTesting() {
           "& .MuiTabs-indicator": { bgcolor: accent },
         }}
       >
-        <Tab icon={<UsbIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="COM Port & Connection" />
+        <Tab icon={<UsbIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Connection" />
         <Tab icon={<PlayArrowIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Token Generation" />
         <Tab icon={<CompareArrowsIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Comparison View" />
         <Tab icon={<VpnKeyIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Key Management" />
       </Tabs>
 
-      {/* ═══ TAB 0: COM PORT & CONNECTION ═══ */}
+      {/* ═══ TAB 0: CONNECTION ═══ */}
       {tab === 0 && (
         <Box>
+          {/* Connection Mode Toggle */}
+          <Box sx={{ display: "flex", gap: 1, mb: 3 }}>
+            <Button
+              variant={connMode === "serial" ? "contained" : "outlined"}
+              startIcon={<UsbIcon />}
+              onClick={() => { if (!isConnected) setConnMode("serial"); }}
+              disabled={isConnected}
+              sx={connMode === "serial" ? { bgcolor: "#2196f3", "&:hover": { bgcolor: "#1976d2" } } : { borderColor: colors.grey[500], color: colors.grey[400] }}
+            >
+              Serial (COM Port)
+            </Button>
+            <Button
+              variant={connMode === "tcp" ? "contained" : "outlined"}
+              startIcon={<WifiIcon />}
+              onClick={() => { if (!isConnected) setConnMode("tcp"); }}
+              disabled={isConnected}
+              sx={connMode === "tcp" ? { bgcolor: "#ff9800", "&:hover": { bgcolor: "#f57c00" } } : { borderColor: colors.grey[500], color: colors.grey[400] }}
+            >
+              TCP (WebSocket)
+            </Button>
+          </Box>
+
           {/* Connection settings */}
           <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, mb: 3 }}>
             <Box sx={{ p: 3, borderRadius: "12px", bgcolor: cardBg, border: `1px solid ${cardBorder}` }}>
-              <Typography sx={{ fontWeight: 700, fontSize: "15px", mb: 2 }}>Serial Port Settings</Typography>
-              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Baud Rate</InputLabel>
-                  <Select value={baudRate} onChange={(e) => setBaudRate(e.target.value)} label="Baud Rate">
-                    {[1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200].map((r) => (
-                      <MenuItem key={r} value={r}>{r}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Data Bits</InputLabel>
-                  <Select value={dataBits} onChange={(e) => setDataBits(e.target.value)} label="Data Bits">
-                    {[7, 8].map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Stop Bits</InputLabel>
-                  <Select value={stopBits} onChange={(e) => setStopBits(e.target.value)} label="Stop Bits">
-                    {[1, 2].map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Parity</InputLabel>
-                  <Select value={parity} onChange={(e) => setParity(e.target.value)} label="Parity">
-                    {["none", "even", "odd"].map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
-                  </Select>
-                </FormControl>
-              </Box>
+              <Typography sx={{ fontWeight: 700, fontSize: "15px", mb: 2 }}>
+                {connMode === "serial" ? "Serial Port Settings" : "TCP/WebSocket Settings"}
+              </Typography>
+
+              {connMode === "serial" ? (
+                <>
+                  <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel>Baud Rate</InputLabel>
+                      <Select value={baudRate} onChange={(e) => setBaudRate(e.target.value)} label="Baud Rate">
+                        {[1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200].map((r) => (
+                          <MenuItem key={r} value={r}>{r}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel>Data Bits</InputLabel>
+                      <Select value={dataBits} onChange={(e) => setDataBits(e.target.value)} label="Data Bits">
+                        {[7, 8].map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel>Stop Bits</InputLabel>
+                      <Select value={stopBits} onChange={(e) => setStopBits(e.target.value)} label="Stop Bits">
+                        {[1, 2].map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel>Parity</InputLabel>
+                      <Select value={parity} onChange={(e) => setParity(e.target.value)} label="Parity">
+                        {["none", "even", "odd"].map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Box>
+                </>
+              ) : (
+                <Box sx={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 2 }}>
+                  <TextField size="small" label="Host / IP Address" value={tcpHost} onChange={(e) => setTcpHost(e.target.value)}
+                    placeholder="e.g. localhost or 192.168.1.100" disabled={isConnected} />
+                  <TextField size="small" label="Port" value={tcpPort} onChange={(e) => setTcpPort(e.target.value)}
+                    type="number" placeholder="e.g. 9000" disabled={isConnected} />
+                </Box>
+              )}
+
               <Box sx={{ mt: 2, display: "flex", gap: 2 }}>
-                {!serial.connected ? (
-                  <Button variant="contained" startIcon={<UsbIcon />} onClick={handleConnect}
+                {!isConnected ? (
+                  <Button variant="contained" startIcon={connMode === "serial" ? <UsbIcon /> : <WifiIcon />} onClick={handleConnect}
                     sx={{ bgcolor: accent, "&:hover": { bgcolor: "#009688" } }}>
-                    Select COM Port & Connect
+                    {connMode === "serial" ? "Select COM Port & Connect" : "Connect via WebSocket"}
                   </Button>
                 ) : (
-                  <Button variant="outlined" color="error" startIcon={<UsbOffIcon />} onClick={handleDisconnect}>
+                  <Button variant="outlined" color="error" startIcon={connMode === "serial" ? <UsbOffIcon /> : <WifiOffIcon />} onClick={handleDisconnect}>
                     Disconnect
                   </Button>
                 )}
               </Box>
               {connectError && <Alert severity="error" sx={{ mt: 2, fontSize: "12px" }}>{connectError}</Alert>}
+
+              {connMode === "tcp" && !isConnected && (
+                <Alert severity="info" sx={{ mt: 2, fontSize: "12px" }}>
+                  Start the VSM Simulator in TCP mode: <strong>node vsm-simulator.js --tcp 9000</strong>
+                </Alert>
+              )}
             </Box>
 
-            {/* Raw serial I/O */}
+            {/* Raw I/O */}
             <Box sx={{ p: 3, borderRadius: "12px", bgcolor: cardBg, border: `1px solid ${cardBorder}` }}>
               <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2 }}>
-                <Typography sx={{ fontWeight: 700, fontSize: "15px" }}>Raw Serial I/O</Typography>
+                <Typography sx={{ fontWeight: 700, fontSize: "15px" }}>Raw I/O</Typography>
                 <FormControlLabel
                   control={<Switch checked={hexMode} onChange={(e) => setHexMode(e.target.checked)} size="small" />}
                   label={<Typography sx={{ fontSize: "12px" }}>Hex Mode</Typography>}
@@ -500,10 +673,10 @@ export default function VsmTesting() {
                   placeholder={hexMode ? "Enter hex bytes (e.g. 02 10 FF 03)" : "Enter text command..."}
                   value={rawInput} onChange={(e) => setRawInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSendRaw()}
-                  disabled={!serial.connected}
+                  disabled={!isConnected}
                   sx={{ "& .MuiInputBase-input": { fontFamily: "monospace", fontSize: "13px" } }}
                 />
-                <Button variant="contained" onClick={handleSendRaw} disabled={!serial.connected}
+                <Button variant="contained" onClick={handleSendRaw} disabled={!isConnected}
                   sx={{ bgcolor: accent, "&:hover": { bgcolor: "#009688" }, minWidth: 80 }}>
                   <SendIcon sx={{ fontSize: 18 }} />
                 </Button>
@@ -529,7 +702,7 @@ export default function VsmTesting() {
             }}>
               {serialLog.length === 0 ? (
                 <Typography sx={{ color: colors.grey[500], fontSize: "12px", fontStyle: "italic" }}>
-                  No serial data yet. Connect to a COM port to begin.
+                  No data yet. Connect via COM port or TCP to begin.
                 </Typography>
               ) : (
                 serialLog.map((entry, i) => (
