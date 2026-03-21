@@ -426,7 +426,7 @@ const Sidebar = () => {
           accentColor={colors.yellowAccent[500]}
         />
         <NavItem
-          title="VSM Testing"
+          title="HSM / VSM"
           to="/vsm-testing"
           icon={<SecurityIcon />}
           isCollapsed={isCollapsed}
