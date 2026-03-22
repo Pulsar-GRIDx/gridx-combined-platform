@@ -193,6 +193,105 @@ router.get('/meterHeaterState/getLastUpdate/:id', authenticateToken, async (req,
   }
 });
 
+// POST /meterMainsState/update/:id — send mains state on/off command
+router.post('/meterMainsState/update/:id', authenticateToken, async (req, res) => {
+  try {
+    const { user, state, reason } = req.body;
+    const DRN = req.params.id;
+    await new Promise((resolve, reject) => {
+      db.query(
+        `INSERT INTO MeterMainsStateTable (DRN, user, state, processed, reason)
+         VALUES (?, ?, ?, '0', ?)`,
+        [DRN, user || 'Admin', state, reason || 'Remote control'],
+        (err, result) => err ? reject(err) : resolve(result)
+      );
+    });
+    res.json({ success: true, message: `Mains state ${state == 1 ? 'ON' : 'OFF'} command sent` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /meterHeaterState/update/:id — send heater state on/off command
+router.post('/meterHeaterState/update/:id', authenticateToken, async (req, res) => {
+  try {
+    const { user, state, reason } = req.body;
+    const DRN = req.params.id;
+    await new Promise((resolve, reject) => {
+      db.query(
+        `INSERT INTO MeterHeaterStateTable (DRN, user, state, processed, reason)
+         VALUES (?, ?, ?, '0', ?)`,
+        [DRN, user || 'Admin', state, reason || 'Remote control'],
+        (err, result) => err ? reject(err) : resolve(result)
+      );
+    });
+    res.json({ success: true, message: `Heater state ${state == 1 ? 'ON' : 'OFF'} command sent` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── METER CONFIGURATION COMMANDS ───────────────────────
+// POST /meterResetBLE/update/:id — reset BLE PIN
+router.post('/meterResetBLE/update/:id', authenticateToken, async (req, res) => {
+  try {
+    const { state, processed } = req.body;
+    const DRN = req.params.id;
+    const userName = req.user ? (req.user.Email || 'Admin') : 'Admin';
+    await new Promise((resolve, reject) => {
+      db.query(
+        `INSERT INTO BLEReset (DRN, user, processed, reason)
+         VALUES (?, ?, ?, ?)`,
+        [DRN, userName, processed != null ? processed : 0, 'BLE PIN reset via platform'],
+        (err, result) => err ? reject(err) : resolve(result)
+      );
+    });
+    res.json({ success: true, message: 'Reset BLE PIN command sent' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /meterResetAuthNumber/update/:id — clear authorized numbers
+router.post('/meterResetAuthNumber/update/:id', authenticateToken, async (req, res) => {
+  try {
+    const { state, processed } = req.body;
+    const DRN = req.params.id;
+    const userName = req.user ? (req.user.Email || 'Admin') : 'Admin';
+    await new Promise((resolve, reject) => {
+      db.query(
+        `INSERT INTO ResetAuthNumbers (DRN, user, processed, reason)
+         VALUES (?, ?, ?, ?)`,
+        [DRN, userName, processed != null ? processed : 0, 'Auth numbers cleared via platform'],
+        (err, result) => err ? reject(err) : resolve(result)
+      );
+    });
+    res.json({ success: true, message: 'Clear Authorized Numbers command sent' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /meterReset/update/:id — restart meter
+router.post('/meterReset/update/:id', authenticateToken, async (req, res) => {
+  try {
+    const { state, processed } = req.body;
+    const DRN = req.params.id;
+    const userName = req.user ? (req.user.Email || 'Admin') : 'Admin';
+    await new Promise((resolve, reject) => {
+      db.query(
+        `INSERT INTO \`Reset\` (DRN, user, processed, reason)
+         VALUES (?, ?, ?, ?)`,
+        [DRN, userName, processed != null ? processed : 0, 'Meter restart via platform'],
+        (err, result) => err ? reject(err) : resolve(result)
+      );
+    });
+    res.json({ success: true, message: 'Restart Meter command sent' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── CELL NETWORK ────────────────────────────────────────
 router.get('/meterCellNetwork/getLastUpdate/:id', authenticateToken, async (req, res) => {
   try {
