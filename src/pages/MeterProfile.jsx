@@ -2764,6 +2764,110 @@ export default function MeterProfile() {
                         </Box>
                       )}
 
+                      {/* Commissioning Location & Owner Info */}
+                      {report.report_type === "commissioning" && (
+                        <Box>
+                          <Typography
+                            color={colors.grey[300]}
+                            fontSize="0.7rem"
+                            fontWeight={600}
+                            mb={0.5}
+                          >
+                            COMMISSIONING DETAILS
+                          </Typography>
+                          <Box display="flex" flexDirection="column" gap={0.3}>
+                            {report.region && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">Region</Typography>
+                                <Typography color={colors.grey[100]} fontSize="0.72rem">{report.region}</Typography>
+                              </Box>
+                            )}
+                            {report.sub_region && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">Sub-Region</Typography>
+                                <Typography color={colors.grey[100]} fontSize="0.72rem">{report.sub_region}</Typography>
+                              </Box>
+                            )}
+                            {report.area && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">Area</Typography>
+                                <Typography color={colors.grey[100]} fontSize="0.72rem">{report.area}</Typography>
+                              </Box>
+                            )}
+                            {report.erf_number && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">ERF Number</Typography>
+                                <Typography color={colors.grey[100]} fontSize="0.72rem">{report.erf_number}</Typography>
+                              </Box>
+                            )}
+                            {report.sim_number && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">SIM Number</Typography>
+                                <Typography color={colors.grey[100]} fontSize="0.72rem">{report.sim_number}</Typography>
+                              </Box>
+                            )}
+                            {(report.gps_latitude || report.gps_longitude) && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">GPS</Typography>
+                                <Typography color={colors.grey[100]} fontSize="0.72rem">
+                                  {report.gps_latitude?.toFixed(6)}, {report.gps_longitude?.toFixed(6)}
+                                </Typography>
+                              </Box>
+                            )}
+                            {report.firmware_version && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">Firmware</Typography>
+                                <Typography color={colors.grey[100]} fontSize="0.72rem">{report.firmware_version}</Typography>
+                              </Box>
+                            )}
+                            {report.owner_name && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">Owner</Typography>
+                                <Typography color={colors.grey[100]} fontSize="0.72rem">
+                                  {report.owner_name} {report.owner_surname || ""}
+                                </Typography>
+                              </Box>
+                            )}
+                            {report.owner_phone && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">Phone</Typography>
+                                <Typography color={colors.grey[100]} fontSize="0.72rem">{report.owner_phone}</Typography>
+                              </Box>
+                            )}
+                            {report.owner_email && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">Email</Typography>
+                                <Typography color={colors.grey[100]} fontSize="0.72rem">{report.owner_email}</Typography>
+                              </Box>
+                            )}
+                            {report.nextion_connected != null && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">Nextion</Typography>
+                                <Typography
+                                  color={report.nextion_connected ? colors.greenAccent[500] : "#db4f4a"}
+                                  fontSize="0.72rem"
+                                  fontWeight={600}
+                                >
+                                  {report.nextion_connected ? "Connected" : "Disconnected"}
+                                </Typography>
+                              </Box>
+                            )}
+                            {report.gsm_registered != null && (
+                              <Box display="flex" justifyContent="space-between">
+                                <Typography color={colors.grey[400]} fontSize="0.72rem">GSM</Typography>
+                                <Typography
+                                  color={report.gsm_registered ? colors.greenAccent[500] : "#db4f4a"}
+                                  fontSize="0.72rem"
+                                  fontWeight={600}
+                                >
+                                  {report.gsm_registered ? "Registered" : "Not Registered"}
+                                </Typography>
+                              </Box>
+                            )}
+                          </Box>
+                        </Box>
+                      )}
+
                       {/* Test Metadata */}
                       <Box>
                         <Typography

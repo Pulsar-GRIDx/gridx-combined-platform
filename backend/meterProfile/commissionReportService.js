@@ -5,7 +5,7 @@ const createTableSQL = `
 CREATE TABLE IF NOT EXISTS MeterCommissionReport (
   id INT AUTO_INCREMENT PRIMARY KEY,
   DRN VARCHAR(50) NOT NULL,
-  report_type ENUM('measurement', 'load', 'api', 'auto_calibration', 'full_system') NOT NULL,
+  report_type ENUM('measurement', 'load', 'api', 'auto_calibration', 'full_system', 'commissioning') NOT NULL,
   overall_passed BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- Measurement test fields
@@ -39,6 +39,22 @@ CREATE TABLE IF NOT EXISTS MeterCommissionReport (
   load_test_passed BOOLEAN NULL,
   api_test_passed BOOLEAN NULL,
 
+  -- Commissioning fields
+  sim_number VARCHAR(20) NULL,
+  region VARCHAR(100) NULL,
+  sub_region VARCHAR(100) NULL,
+  area VARCHAR(255) NULL,
+  gps_latitude DOUBLE NULL,
+  gps_longitude DOUBLE NULL,
+  erf_number VARCHAR(50) NULL,
+  owner_name VARCHAR(100) NULL,
+  owner_surname VARCHAR(100) NULL,
+  owner_phone VARCHAR(20) NULL,
+  owner_email VARCHAR(100) NULL,
+  firmware_version VARCHAR(20) NULL,
+  nextion_connected BOOLEAN NULL,
+  gsm_registered BOOLEAN NULL,
+
   -- Raw report data (JSON)
   report_data JSON NULL,
 
@@ -59,6 +75,36 @@ db.query(createTableSQL, (err) => {
   } else {
     console.log('MeterCommissionReport table ready');
   }
+});
+
+// Migration: add commissioning columns if they don't exist
+const migrationColumns = [
+  "ALTER TABLE MeterCommissionReport MODIFY COLUMN report_type ENUM('measurement', 'load', 'api', 'auto_calibration', 'full_system', 'commissioning') NOT NULL",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS sim_number VARCHAR(20) NULL AFTER api_test_passed",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS region VARCHAR(100) NULL AFTER sim_number",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS sub_region VARCHAR(100) NULL AFTER region",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS area VARCHAR(255) NULL AFTER sub_region",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS gps_latitude DOUBLE NULL AFTER area",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS gps_longitude DOUBLE NULL AFTER gps_latitude",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS erf_number VARCHAR(50) NULL AFTER gps_longitude",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS owner_name VARCHAR(100) NULL AFTER erf_number",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS owner_surname VARCHAR(100) NULL AFTER owner_name",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS owner_phone VARCHAR(20) NULL AFTER owner_surname",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS owner_email VARCHAR(100) NULL AFTER owner_phone",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS firmware_version VARCHAR(20) NULL AFTER owner_email",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS nextion_connected BOOLEAN NULL AFTER firmware_version",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS gsm_registered BOOLEAN NULL AFTER nextion_connected",
+];
+
+migrationColumns.forEach(sql => {
+  db.query(sql, (err) => {
+    if (err && !err.message.includes('Duplicate column')) {
+      // Silently ignore duplicate column errors
+      if (!err.message.includes('duplicate') && !err.message.includes('Duplicate')) {
+        console.log('Migration note:', err.message);
+      }
+    }
+  });
 });
 
 // Save a commission report
