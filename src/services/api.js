@@ -145,6 +145,10 @@ export const loadControlAPI = {
     post(`/meterMainsControl/update/${drn}`, { state, user, reason }),
   setHeater: (drn, state, user, reason) =>
     post(`/meterHeaterControl/update/${drn}`, { state, user, reason }),
+  setMainsState: (drn, state, user, reason) =>
+    post(`/meterMainsState/update/${drn}`, { state, user, reason }),
+  setHeaterState: (drn, state, user, reason) =>
+    post(`/meterHeaterState/update/${drn}`, { state, user, reason }),
 };
 
 // ===== ENERGY =====
@@ -161,6 +165,7 @@ export const energyAPI = {
   getSuburbWeeklyPower: (suburbs) => post('/search-by-weekly-power', { suburbs }),
   getSuburbMonthlyPower: (suburbs) => post('/search-by-monthly-power', { suburbs }),
   getSuburbHourlyEnergy: (suburbs) => post('/getSuburbHourlyEnergy', { suburbs }),
+  getHourlyByDrn: (drn) => get(`/getHourlyDataByDrn/${drn}`),
 };
 
 // ===== FINANCIAL =====
@@ -204,6 +209,13 @@ export const meterPercentageAPI = {
 export const settingsAPI = {
   get: () => get('/systemSettings'),
   update: (data) => post('/systemSettings', data),
+};
+
+// ===== METER CONFIGURATION =====
+export const meterConfigAPI = {
+  resetBLE: (drn) => post(`/meterResetBLE/update/${drn}`, { state: 1, processed: 0 }),
+  resetAuthNumbers: (drn) => post(`/meterResetAuthNumber/update/${drn}`, { state: 1, processed: 0 }),
+  resetMeter: (drn) => post(`/meterReset/update/${drn}`, { state: 1, processed: 0 }),
 };
 
 // ===== METER BILLING =====

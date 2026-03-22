@@ -70,6 +70,8 @@ import {
   ToggleOn,
   ToggleOff,
   HotTub,
+  BluetoothDisabled,
+  PersonRemoveOutlined,
 } from "@mui/icons-material";
 import {
   AreaChart,
@@ -93,7 +95,7 @@ import Header from "../components/Header";
 import DataBadge from "../components/DataBadge";
 import { tokens } from "../theme";
 import { useAuth } from "../context/AuthContext";
-import { meterAPI, loadControlAPI, commissionReportAPI, homeClassificationAPI, meterHealthAPI, relayEventsAPI } from "../services/api";
+import { meterAPI, loadControlAPI, commissionReportAPI, homeClassificationAPI, meterHealthAPI, relayEventsAPI, energyAPI, meterConfigAPI } from "../services/api";
 import {
   meters as mockMeters,
   transactions,
@@ -416,6 +418,32 @@ export default function MeterProfile() {
     fetchRelays();
   }, [drn, tab, relayPage, relayRowsPerPage, relayFilter, relayTypeFilter]);
 
+  /* ---------- Fetch hourly energy data when Energy Charts tab is selected ---------- */
+  useEffect(() => {
+    if (tab !== 5) return;
+    const fetchHourly = async () => {
+      try {
+        const res = await energyAPI.getHourlyByDrn(drn);
+        if (res?.data && Array.isArray(res.data)) {
+          setHourlyData(res.data);
+        } else {
+          // Fallback: generate placeholder with zeros
+          setHourlyData(Array.from({ length: 24 }, (_, i) => ({
+            hour: `${String(i).padStart(2, "0")}:00`,
+            kWh: 0,
+          })));
+        }
+      } catch (e) {
+        console.warn("Failed to fetch hourly data:", e);
+        setHourlyData(Array.from({ length: 24 }, (_, i) => ({
+          hour: `${String(i).padStart(2, "0")}:00`,
+          kWh: 0,
+        })));
+      }
+    };
+    fetchHourly();
+  }, [drn, tab]);
+
   /* ---------- fallback mock meter ---------- */
   const mockMeter = mockMeters.find((m) => m.drn === drn);
 
@@ -490,7 +518,7 @@ export default function MeterProfile() {
   const tariff = tariffGroups.find(
     (t) => t.name === (mockMeter?.billing?.tariffGroup || "Residential")
   );
-  const hourlyData = useMemo(() => generateHourlyData(), []);
+  const [hourlyData, setHourlyData] = useState([]);
 
   /* ---------- Daily power: this week vs last week ---------- */
   const weeklyPowerChart = useMemo(() => {
@@ -545,24 +573,36 @@ export default function MeterProfile() {
 
   const handleConfirmLoadControl = async () => {
     const { type, action } = confirmDialog;
-    const state = action === "enable" ? 1 : 0;
-    const reason = type === "mains" ? mainsReason : heaterReason;
+    const isStateControl = type === "mains_state" || type === "heater_state";
+    const state = isStateControl ? (action === "on" ? 1 : 0) : (action === "enable" ? 1 : 0);
+    const baseType = type.replace("_state", "");
+    const reason = baseType === "mains" ? mainsReason : heaterReason;
     const userName = user?.Name || user?.name || "Admin";
 
     setCommandLoading(true);
     setConfirmDialog({ open: false, type: "", action: "" });
 
     try {
-      if (type === "mains") {
-        await loadControlAPI.setMains(drn, state, userName, reason);
+      if (isStateControl) {
+        if (baseType === "mains") {
+          await loadControlAPI.setMainsState(drn, state, userName, reason);
+        } else {
+          await loadControlAPI.setHeaterState(drn, state, userName, reason);
+        }
       } else {
-        await loadControlAPI.setHeater(drn, state, userName, reason);
+        if (type === "mains") {
+          await loadControlAPI.setMains(drn, state, userName, reason);
+        } else {
+          await loadControlAPI.setHeater(drn, state, userName, reason);
+        }
       }
+      const labelType = baseType === "mains" ? "Mains" : "Heater";
+      const labelAction = isStateControl
+        ? (action === "on" ? "Turn ON" : "Turn OFF")
+        : (action === "enable" ? "Enable" : "Disable");
       setSnackbar({
         open: true,
-        message: `${type === "mains" ? "Mains" : "Heater"} ${
-          action === "enable" ? "Enable" : "Disable"
-        } command sent successfully`,
+        message: `${labelType} ${labelAction} command sent successfully`,
         severity: "success",
       });
 
@@ -584,6 +624,27 @@ export default function MeterProfile() {
         message: `Failed: ${err.message}`,
         severity: "error",
       });
+    } finally {
+      setCommandLoading(false);
+    }
+  };
+
+  /* ---------- config action handler ---------- */
+  const handleConfigAction = async (actionType) => {
+    setCommandLoading(true);
+    try {
+      if (actionType === "reset_ble") {
+        await meterConfigAPI.resetBLE(drn);
+        setSnackbar({ open: true, message: "Reset BLE PIN command sent successfully", severity: "success" });
+      } else if (actionType === "clear_auth") {
+        await meterConfigAPI.resetAuthNumbers(drn);
+        setSnackbar({ open: true, message: "Clear Authorized Numbers command sent successfully", severity: "success" });
+      } else if (actionType === "restart_meter") {
+        await meterConfigAPI.resetMeter(drn);
+        setSnackbar({ open: true, message: "Restart Meter command sent successfully", severity: "success" });
+      }
+    } catch (err) {
+      setSnackbar({ open: true, message: `Failed: ${err.message}`, severity: "error" });
     } finally {
       setCommandLoading(false);
     }
@@ -1493,6 +1554,7 @@ export default function MeterProfile() {
               </Select>
             </FormControl>
 
+            <Typography variant="caption" color={colors.grey[400]} mt={1} mb={0.5}>Control Mode (Enable/Disable Relay Control)</Typography>
             <Box display="flex" gap={1}>
               <Button
                 variant="contained"
@@ -1521,6 +1583,38 @@ export default function MeterProfile() {
                 }}
               >
                 Disable
+              </Button>
+            </Box>
+
+            <Typography variant="caption" color={colors.grey[400]} mt={1.5} mb={0.5}>Relay State (Turn Relay ON/OFF)</Typography>
+            <Box display="flex" gap={1}>
+              <Button
+                variant="contained"
+                startIcon={<PowerSettingsNewOutlined />}
+                onClick={() => handleLoadControlClick("mains_state", "on")}
+                disabled={commandLoading}
+                sx={{
+                  backgroundColor: "#1b5e20",
+                  "&:hover": { backgroundColor: "#2e7d32" },
+                  textTransform: "none",
+                  flex: 1,
+                }}
+              >
+                Turn ON
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<PowerSettingsNewOutlined />}
+                onClick={() => handleLoadControlClick("mains_state", "off")}
+                disabled={commandLoading}
+                sx={{
+                  backgroundColor: "#b71c1c",
+                  "&:hover": { backgroundColor: "#c62828" },
+                  textTransform: "none",
+                  flex: 1,
+                }}
+              >
+                Turn OFF
               </Button>
             </Box>
           </Box>
@@ -1605,6 +1699,7 @@ export default function MeterProfile() {
               </Select>
             </FormControl>
 
+            <Typography variant="caption" color={colors.grey[400]} mt={1} mb={0.5}>Control Mode (Enable/Disable Relay Control)</Typography>
             <Box display="flex" gap={1}>
               <Button
                 variant="contained"
@@ -1633,6 +1728,38 @@ export default function MeterProfile() {
                 }}
               >
                 Disable
+              </Button>
+            </Box>
+
+            <Typography variant="caption" color={colors.grey[400]} mt={1.5} mb={0.5}>Relay State (Turn Relay ON/OFF)</Typography>
+            <Box display="flex" gap={1}>
+              <Button
+                variant="contained"
+                startIcon={<PowerSettingsNewOutlined />}
+                onClick={() => handleLoadControlClick("heater_state", "on")}
+                disabled={commandLoading}
+                sx={{
+                  backgroundColor: "#1b5e20",
+                  "&:hover": { backgroundColor: "#2e7d32" },
+                  textTransform: "none",
+                  flex: 1,
+                }}
+              >
+                Turn ON
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<PowerSettingsNewOutlined />}
+                onClick={() => handleLoadControlClick("heater_state", "off")}
+                disabled={commandLoading}
+                sx={{
+                  backgroundColor: "#b71c1c",
+                  "&:hover": { backgroundColor: "#c62828" },
+                  textTransform: "none",
+                  flex: 1,
+                }}
+              >
+                Turn OFF
               </Button>
             </Box>
           </Box>
@@ -2067,31 +2194,11 @@ export default function MeterProfile() {
             <Box display="flex" flexDirection="column" gap={1.5}>
               <Button
                 variant="outlined"
-                startIcon={<RestartAltOutlined />}
-                sx={{
-                  textTransform: "none",
-                  justifyContent: "flex-start",
-                  color: colors.greenAccent[500],
-                  borderColor: colors.greenAccent[500],
+                startIcon={<BluetoothDisabled />}
+                disabled={commandLoading}
+                onClick={() => {
+                  setConfirmDialog({ open: true, type: "config_reset_ble", action: "reset_ble" });
                 }}
-              >
-                Restart Meter
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<LockResetOutlined />}
-                sx={{
-                  textTransform: "none",
-                  justifyContent: "flex-start",
-                  color: "#f2b705",
-                  borderColor: "#f2b705",
-                }}
-              >
-                Reset STS Keys
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<TuneOutlined />}
                 sx={{
                   textTransform: "none",
                   justifyContent: "flex-start",
@@ -2099,19 +2206,39 @@ export default function MeterProfile() {
                   borderColor: "#00b4d8",
                 }}
               >
-                Update Configuration
+                Reset BLE PIN to Default
               </Button>
               <Button
                 variant="outlined"
-                startIcon={<SignalCellularAltOutlined />}
+                startIcon={<PersonRemoveOutlined />}
+                disabled={commandLoading}
+                onClick={() => {
+                  setConfirmDialog({ open: true, type: "config_clear_auth", action: "clear_auth" });
+                }}
                 sx={{
                   textTransform: "none",
                   justifyContent: "flex-start",
-                  color: "#6870fa",
-                  borderColor: "#6870fa",
+                  color: "#f2b705",
+                  borderColor: "#f2b705",
                 }}
               >
-                Ping Meter
+                Clear All Authorized Numbers
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<RestartAltOutlined />}
+                disabled={commandLoading}
+                onClick={() => {
+                  setConfirmDialog({ open: true, type: "config_restart", action: "restart_meter" });
+                }}
+                sx={{
+                  textTransform: "none",
+                  justifyContent: "flex-start",
+                  color: "#db4f4a",
+                  borderColor: "#db4f4a",
+                }}
+              >
+                Restart Meter
               </Button>
             </Box>
           </Box>
@@ -3440,14 +3567,15 @@ export default function MeterProfile() {
         const REASON_LABELS = ["Unknown","Manual Control","Credit Expired","Power Limit","Scheduled","Remote Command","System Startup","Tamper Detected","Overcurrent"];
         const fmtTime = (ts) => ts ? new Date(ts).toLocaleString("en-ZA", { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "-";
 
-        // Pie chart data from summary
-        const pieData = relaySummary?.summary ? Object.entries(
-          relaySummary.summary.reduce((acc, s) => {
-            const label = s.reason_name || REASON_LABELS[s.reason_code] || "Unknown";
-            acc[label] = (acc[label] || 0) + s.event_count;
-            return acc;
-          }, {})
-        ).map(([name, value]) => ({ name, value })) : [];
+        // Pie chart data from summary (supports both old and new API formats)
+        const pieData = relaySummary?.byReason ? relaySummary.byReason :
+          relaySummary?.summary ? Object.entries(
+            relaySummary.summary.reduce((acc, s) => {
+              const label = s.reason_name || REASON_LABELS[s.reason_code] || "Unknown";
+              acc[label] = (acc[label] || 0) + (s.event_count || s.count || 0);
+              return acc;
+            }, {})
+          ).map(([name, value]) => ({ name, value })) : [];
 
         return (
           <Box>
@@ -3496,9 +3624,9 @@ export default function MeterProfile() {
                   <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 2, p: 2, border: `1px solid ${colors.primary[600]}` }}>
                     <Typography variant="subtitle2" color={colors.grey[300]} mb={1}>Event Breakdown</Typography>
                     <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={[
-                        { name: "Mains", count: relaySummary?.summary?.filter(s => s.relay_index === 0).reduce((sum, s) => sum + s.event_count, 0) || 0 },
-                        { name: "Geyser", count: relaySummary?.summary?.filter(s => s.relay_index === 1).reduce((sum, s) => sum + s.event_count, 0) || 0 },
+                      <BarChart data={relaySummary?.byRelay ? relaySummary.byRelay.map(r => ({ name: r.name, count: (r.state || 0) + (r.control || 0) })) : [
+                        { name: "Mains", count: relaySummary?.summary?.filter(s => s.relay_index === 0).reduce((sum, s) => sum + (s.event_count || s.count || 0), 0) || 0 },
+                        { name: "Geyser", count: relaySummary?.summary?.filter(s => s.relay_index === 1).reduce((sum, s) => sum + (s.event_count || s.count || 0), 0) || 0 },
                       ]}>
                         <CartesianGrid strokeDasharray="3 3" stroke={colors.primary[600]} />
                         <XAxis dataKey="name" tick={{ fill: colors.grey[400] }} />
@@ -3584,26 +3712,46 @@ export default function MeterProfile() {
         }}
       >
         <DialogTitle>
-          Confirm {confirmDialog.type === "mains" ? "Mains" : "Heater"}{" "}
-          {confirmDialog.action === "enable" ? "Enable" : "Disable"}
+          {confirmDialog.type?.startsWith("config_")
+            ? `Confirm ${confirmDialog.action === "reset_ble" ? "Reset BLE PIN" : confirmDialog.action === "clear_auth" ? "Clear Authorized Numbers" : "Restart Meter"}`
+            : `Confirm ${confirmDialog.type?.replace("_state", "").replace("mains", "Mains").replace("heater", "Heater")} ${confirmDialog.action === "enable" ? "Enable" : confirmDialog.action === "disable" ? "Disable" : confirmDialog.action === "on" ? "Turn ON" : "Turn OFF"}`
+          }
         </DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ color: colors.grey[100] }}>
-            Are you sure you want to{" "}
-            <strong>
-              {confirmDialog.action === "enable" ? "enable" : "disable"}
-            </strong>{" "}
-            the{" "}
-            <strong>
-              {confirmDialog.type === "mains" ? "mains relay" : "heater relay"}
-            </strong>{" "}
-            for meter <strong>{drn}</strong>?
-            <br />
-            <br />
-            Reason:{" "}
-            <strong>
-              {confirmDialog.type === "mains" ? mainsReason : heaterReason}
-            </strong>
+            {confirmDialog.type?.startsWith("config_") ? (
+              <>
+                Are you sure you want to{" "}
+                <strong>
+                  {confirmDialog.action === "reset_ble" ? "reset the BLE PIN to default" : confirmDialog.action === "clear_auth" ? "clear all authorized numbers" : "restart the meter"}
+                </strong>{" "}
+                for meter <strong>{drn}</strong>?
+                {confirmDialog.action === "restart_meter" && (
+                  <>
+                    <br /><br />
+                    This will cause the meter to reboot. It may be temporarily offline.
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                Are you sure you want to{" "}
+                <strong>
+                  {confirmDialog.action === "enable" ? "enable" : confirmDialog.action === "disable" ? "disable" : confirmDialog.action === "on" ? "turn ON" : "turn OFF"}
+                </strong>{" "}
+                the{" "}
+                <strong>
+                  {confirmDialog.type?.includes("mains") ? "mains relay" : "heater relay"}
+                </strong>{" "}
+                for meter <strong>{drn}</strong>?
+                <br />
+                <br />
+                Reason:{" "}
+                <strong>
+                  {confirmDialog.type?.includes("mains") ? mainsReason : heaterReason}
+                </strong>
+              </>
+            )}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -3616,16 +3764,23 @@ export default function MeterProfile() {
             Cancel
           </Button>
           <Button
-            onClick={handleConfirmLoadControl}
+            onClick={() => {
+              if (confirmDialog.type?.startsWith("config_")) {
+                setConfirmDialog({ open: false, type: "", action: "" });
+                handleConfigAction(confirmDialog.action);
+              } else {
+                handleConfirmLoadControl();
+              }
+            }}
             variant="contained"
             sx={{
               backgroundColor:
-                confirmDialog.action === "enable"
+                confirmDialog.action === "enable" || confirmDialog.action === "on" || confirmDialog.action === "reset_ble" || confirmDialog.action === "clear_auth"
                   ? colors.greenAccent[700]
                   : "#db4f4a",
               "&:hover": {
                 backgroundColor:
-                  confirmDialog.action === "enable"
+                  confirmDialog.action === "enable" || confirmDialog.action === "on" || confirmDialog.action === "reset_ble" || confirmDialog.action === "clear_auth"
                     ? colors.greenAccent[600]
                     : "#c0413c",
               },

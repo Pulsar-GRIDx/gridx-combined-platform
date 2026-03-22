@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS MeterCommissionReport (
   area VARCHAR(255) NULL,
   gps_latitude DOUBLE NULL,
   gps_longitude DOUBLE NULL,
+  street_name VARCHAR(200) NULL,
   erf_number VARCHAR(50) NULL,
   owner_name VARCHAR(100) NULL,
   owner_surname VARCHAR(100) NULL,
@@ -94,6 +95,7 @@ const migrationColumns = [
   "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS firmware_version VARCHAR(20) NULL AFTER owner_email",
   "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS nextion_connected BOOLEAN NULL AFTER firmware_version",
   "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS gsm_registered BOOLEAN NULL AFTER nextion_connected",
+  "ALTER TABLE MeterCommissionReport ADD COLUMN IF NOT EXISTS street_name VARCHAR(200) NULL AFTER gps_longitude",
 ];
 
 migrationColumns.forEach(sql => {

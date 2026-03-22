@@ -43,6 +43,7 @@ exports.saveReport = function(req, res) {
     area: report.area || null,
     gps_latitude: report.gps_latitude || null,
     gps_longitude: report.gps_longitude || null,
+    street_name: report.street_name || null,
     erf_number: report.erf_number || null,
     owner_name: report.owner_name || null,
     owner_surname: report.owner_surname || null,

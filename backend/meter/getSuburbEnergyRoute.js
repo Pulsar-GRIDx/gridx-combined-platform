@@ -324,6 +324,52 @@ router.get('/getHourlyDataByDrn', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * GET /getHourlyDataByDrn/:drn
+ * Get hourly power consumption for a specific meter (today)
+ */
+router.get('/getHourlyDataByDrn/:drn', authenticateToken, async (req, res) => {
+  const drn = req.params.drn;
+  const query = `
+    SELECT
+      HOUR(date_time) AS hour,
+      MIN(active_power) AS min_power,
+      MAX(active_power) AS max_power,
+      AVG(active_power) AS avg_power,
+      (MAX(active_power) - MIN(active_power)) AS power_consumption
+    FROM MeteringPower
+    WHERE DRN = ? AND DATE(date_time) = CURDATE()
+    GROUP BY HOUR(date_time)
+    ORDER BY hour
+  `;
+
+  try {
+    const result = await new Promise((resolve, reject) => {
+      connection.query(query, [drn], (err, data) => {
+        if (err) reject(err);
+        else resolve(data);
+      });
+    });
+
+    // Build 24-hour array (fill gaps with 0)
+    const hourlyData = [];
+    for (let h = 0; h < 24; h++) {
+      const row = result.find(r => r.hour === h);
+      hourlyData.push({
+        hour: `${String(h).padStart(2, '0')}:00`,
+        kWh: row ? parseFloat((row.avg_power / 1000).toFixed(2)) : 0,
+        avgPower: row ? parseFloat(row.avg_power.toFixed(1)) : 0,
+        maxPower: row ? parseFloat(row.max_power.toFixed(1)) : 0,
+      });
+    }
+
+    res.json({ success: true, data: hourlyData });
+  } catch (err) {
+    console.error('Error fetching hourly data for DRN:', err);
+    res.status(500).json({ error: 'Failed to fetch hourly data' });
+  }
+});
+
 router.post('/getSuburbHourlyEnergyMock', authenticateToken, async (req, res) => {
   const sampleData = {
     data: {
