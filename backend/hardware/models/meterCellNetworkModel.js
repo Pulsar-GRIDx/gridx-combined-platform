@@ -6,9 +6,9 @@ const meterCellNetworkModel = function (meterDrn, cellNetworkvalues) {
   this.DRN = meterDrn;
   this.signal_strength = cellNetworkvalues[0];
   this.service_provider = cellNetworkvalues[1];
-  this.sim_phone_number = cellNetworkvalues[3];
-  this.IMEU = cellNetworkvalues[4];
-   this.record_time = cellNetworkvalues[5];
+  this.sim_phone_number = cellNetworkvalues[2];
+  this.IMEU = cellNetworkvalues[3];
+  this.record_time = cellNetworkvalues[4];
 };
 
 meterCellNetworkModel.create = (cellNetworkData, result) => {

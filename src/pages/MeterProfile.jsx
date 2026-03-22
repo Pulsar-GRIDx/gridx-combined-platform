@@ -3091,350 +3091,167 @@ export default function MeterProfile() {
                     : typeof cls.selected_loads === "string"
                     ? (() => { try { return JSON.parse(cls.selected_loads); } catch { return []; } })()
                     : [];
+                  const calStatus = cls.calibration_status === "completed"
+                    ? (cls.calibration_passed ? "CALIBRATED" : "FAILED")
+                    : (cls.calibration_status?.toUpperCase() || "PENDING");
+                  const calColor = cls.calibration_passed ? "#4cceac" : cls.calibration_status === "pending" ? "#6870fa" : "#f44336";
+                  const totalPower = cls.total_expected_power || 0;
+                  const totalCurrent = cls.total_expected_current || 0;
 
                   return (
-                    <Box
-                      key={cls.id || idx}
-                      mb={2}
-                      p={2}
-                      sx={{
-                        backgroundColor: colors.primary[500],
-                        borderLeft: `4px solid ${
-                          cls.calibration_passed
-                            ? colors.greenAccent[500]
-                            : cls.calibration_status === "pending"
-                            ? colors.blueAccent?.[400] || "#6870fa"
-                            : "#db4f4a"
-                        }`,
-                        borderRadius: "2px",
-                      }}
-                    >
-                      {/* Classification Header */}
+                    <Box key={cls.id || idx} mb={3}>
+                      {/* Classification Card Header */}
                       <Box
-                        display="flex"
-                        justifyContent="space-between"
-                        alignItems="center"
-                        mb={1.5}
+                        display="flex" justifyContent="space-between" alignItems="center"
+                        p={2} sx={{ backgroundColor: colors.primary[500], borderRadius: "8px 8px 0 0", borderBottom: `3px solid ${calColor}` }}
                       >
-                        <Box display="flex" alignItems="center" gap={1.5}>
-                          <Chip
-                            label={cls.classification_type || "UNCLASSIFIED"}
-                            size="small"
-                            sx={{
-                              backgroundColor: "rgba(129,140,248,0.15)",
-                              color: "#818CF8",
-                              fontWeight: 700,
-                              fontSize: "0.7rem",
-                              textTransform: "uppercase",
-                            }}
-                          />
-                          <Chip
-                            label={
-                              cls.calibration_status === "completed"
-                                ? cls.calibration_passed
-                                  ? "CALIBRATED"
-                                  : "FAILED"
-                                : cls.calibration_status?.toUpperCase() || "PENDING"
-                            }
-                            size="small"
-                            sx={{
-                              backgroundColor:
-                                cls.calibration_passed
-                                  ? "rgba(76,206,172,0.2)"
-                                  : cls.calibration_status === "pending"
-                                  ? "rgba(104,112,250,0.2)"
-                                  : "rgba(219,79,74,0.2)",
-                              color:
-                                cls.calibration_passed
-                                  ? colors.greenAccent[400]
-                                  : cls.calibration_status === "pending"
-                                  ? "#6870fa"
-                                  : "#f44336",
-                              fontWeight: 700,
-                              fontSize: "0.7rem",
-                            }}
-                          />
-                        </Box>
-                        <Typography
-                          color={colors.grey[300]}
-                          fontSize="0.75rem"
-                        >
-                          {cls.date_time
-                            ? formatDateTime(cls.date_time)
-                            : "---"}
-                        </Typography>
-                      </Box>
-
-                      {/* Classification Details Grid */}
-                      <Box
-                        display="grid"
-                        gridTemplateColumns="repeat(auto-fit, minmax(200px, 1fr))"
-                        gap={1.5}
-                      >
-                        {/* Power Summary */}
-                        <Box>
-                          <Typography
-                            color={colors.grey[300]}
-                            fontSize="0.7rem"
-                            fontWeight={600}
-                            mb={0.5}
-                          >
-                            POWER SUMMARY
-                          </Typography>
-                          <Box display="flex" flexDirection="column" gap={0.3}>
-                            <Box display="flex" justifyContent="space-between">
-                              <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                Expected Power
-                              </Typography>
-                              <Typography
-                                color={colors.grey[100]}
-                                fontSize="0.72rem"
-                                fontWeight={600}
-                              >
-                                {cls.total_expected_power >= 1000
-                                  ? `${(cls.total_expected_power / 1000).toFixed(1)} kW`
-                                  : `${Number(cls.total_expected_power).toFixed(0)} W`}
-                              </Typography>
-                            </Box>
-                            <Box display="flex" justifyContent="space-between">
-                              <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                Expected Current
-                              </Typography>
-                              <Typography
-                                color={colors.grey[100]}
-                                fontSize="0.72rem"
-                                fontWeight={600}
-                              >
-                                {Number(cls.total_expected_current).toFixed(1)} A
-                              </Typography>
-                            </Box>
-                            {cls.measured_power != null && (
-                              <Box display="flex" justifyContent="space-between">
-                                <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                  Measured Power
-                                </Typography>
-                                <Typography
-                                  color={colors.grey[100]}
-                                  fontSize="0.72rem"
-                                  fontWeight={600}
-                                >
-                                  {Number(cls.measured_power).toFixed(0)} W
-                                </Typography>
-                              </Box>
-                            )}
-                            {cls.measured_current != null && (
-                              <Box display="flex" justifyContent="space-between">
-                                <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                  Measured Current
-                                </Typography>
-                                <Typography
-                                  color={colors.grey[100]}
-                                  fontSize="0.72rem"
-                                  fontWeight={600}
-                                >
-                                  {Number(cls.measured_current).toFixed(3)} A
-                                </Typography>
-                              </Box>
-                            )}
-                            {cls.power_deviation != null && (
-                              <Box display="flex" justifyContent="space-between">
-                                <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                  Power Deviation
-                                </Typography>
-                                <Typography
-                                  color={
-                                    cls.power_deviation <= 30
-                                      ? colors.greenAccent[500]
-                                      : "#db4f4a"
-                                  }
-                                  fontSize="0.72rem"
-                                  fontWeight={600}
-                                >
-                                  {Number(cls.power_deviation).toFixed(1)}%
-                                </Typography>
-                              </Box>
-                            )}
+                        <Box display="flex" alignItems="center" gap={2}>
+                          <Box sx={{ width: 48, height: 48, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: `${calColor}22`, border: `2px solid ${calColor}` }}>
+                            <HomeOutlined sx={{ color: calColor, fontSize: 24 }} />
+                          </Box>
+                          <Box>
+                            <Typography variant="h6" fontWeight="bold" color={colors.grey[100]}>
+                              {cls.classification_type || "Unclassified"}
+                            </Typography>
+                            <Typography variant="caption" color={colors.grey[400]}>
+                              {cls.date_time ? formatDateTime(cls.date_time) : "---"}
+                              {cls.technician_name ? ` | Technician: ${cls.technician_name}` : ""}
+                            </Typography>
                           </Box>
                         </Box>
+                        <Chip
+                          label={calStatus}
+                          sx={{ backgroundColor: `${calColor}22`, color: calColor, fontWeight: 700, fontSize: "0.75rem", px: 1, border: `1px solid ${calColor}44` }}
+                        />
+                      </Box>
 
-                        {/* Household Loads */}
-                        <Box gridColumn={loads.length > 5 ? "span 2" : "span 1"}>
-                          <Typography
-                            color={colors.grey[300]}
-                            fontSize="0.7rem"
-                            fontWeight={600}
-                            mb={0.5}
-                          >
-                            HOUSEHOLD LOADS ({loads.length})
+                      {/* Power Metrics Cards */}
+                      <Box sx={{ backgroundColor: colors.primary[500], p: 2, borderRadius: "0 0 0 0" }}>
+                        <Grid container spacing={1.5}>
+                          <Grid item xs={6} sm={3}>
+                            <Box sx={{ backgroundColor: colors.primary[400], borderRadius: 2, p: 1.5, textAlign: "center", border: "1px solid rgba(129,140,248,0.2)" }}>
+                              <Typography variant="caption" color={colors.grey[400]}>Expected Power</Typography>
+                              <Typography variant="h5" fontWeight="bold" color="#818CF8">
+                                {totalPower >= 1000 ? `${(totalPower / 1000).toFixed(1)}` : Number(totalPower).toFixed(0)}
+                              </Typography>
+                              <Typography variant="caption" color={colors.grey[400]}>{totalPower >= 1000 ? "kW" : "W"}</Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={6} sm={3}>
+                            <Box sx={{ backgroundColor: colors.primary[400], borderRadius: 2, p: 1.5, textAlign: "center", border: "1px solid rgba(76,206,172,0.2)" }}>
+                              <Typography variant="caption" color={colors.grey[400]}>Expected Current</Typography>
+                              <Typography variant="h5" fontWeight="bold" color="#4cceac">
+                                {Number(totalCurrent).toFixed(1)}
+                              </Typography>
+                              <Typography variant="caption" color={colors.grey[400]}>A</Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={6} sm={3}>
+                            <Box sx={{ backgroundColor: colors.primary[400], borderRadius: 2, p: 1.5, textAlign: "center", border: `1px solid ${cls.measured_power != null ? "rgba(255,152,0,0.2)" : "rgba(255,255,255,0.05)"}` }}>
+                              <Typography variant="caption" color={colors.grey[400]}>Measured Power</Typography>
+                              <Typography variant="h5" fontWeight="bold" color={cls.measured_power != null ? "#ff9800" : colors.grey[600]}>
+                                {cls.measured_power != null ? Number(cls.measured_power).toFixed(0) : "--"}
+                              </Typography>
+                              <Typography variant="caption" color={colors.grey[400]}>W</Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={6} sm={3}>
+                            <Box sx={{ backgroundColor: colors.primary[400], borderRadius: 2, p: 1.5, textAlign: "center", border: `1px solid ${cls.power_deviation != null ? (cls.power_deviation <= 30 ? "rgba(76,206,172,0.2)" : "rgba(244,67,54,0.2)") : "rgba(255,255,255,0.05)"}` }}>
+                              <Typography variant="caption" color={colors.grey[400]}>Deviation</Typography>
+                              <Typography variant="h5" fontWeight="bold" color={cls.power_deviation != null ? (cls.power_deviation <= 30 ? "#4cceac" : "#f44336") : colors.grey[600]}>
+                                {cls.power_deviation != null ? `${Number(cls.power_deviation).toFixed(1)}%` : "--"}
+                              </Typography>
+                              <Typography variant="caption" color={colors.grey[400]}>{cls.power_deviation != null ? (cls.power_deviation <= 30 ? "Within range" : "Out of range") : ""}</Typography>
+                            </Box>
+                          </Grid>
+                        </Grid>
+
+                        {/* Additional metrics row */}
+                        {(cls.measured_voltage != null || cls.measured_current != null) && (
+                          <Box display="flex" gap={2} mt={1.5} flexWrap="wrap">
+                            {cls.measured_voltage != null && (
+                              <Chip label={`Voltage: ${Number(cls.measured_voltage).toFixed(1)} V`} size="small" variant="outlined" sx={{ color: colors.grey[300], borderColor: colors.grey[600] }} />
+                            )}
+                            {cls.measured_current != null && (
+                              <Chip label={`Measured Current: ${Number(cls.measured_current).toFixed(3)} A`} size="small" variant="outlined" sx={{ color: colors.grey[300], borderColor: colors.grey[600] }} />
+                            )}
+                            {cls.tester_app_version && (
+                              <Chip label={`App: ${cls.tester_app_version}`} size="small" variant="outlined" sx={{ color: colors.grey[300], borderColor: colors.grey[600] }} />
+                            )}
+                          </Box>
+                        )}
+                      </Box>
+
+                      {/* Household Loads Table */}
+                      {loads.length > 0 && (
+                        <Box sx={{ backgroundColor: colors.primary[500], p: 2, borderRadius: "0 0 8px 8px", borderTop: `1px solid ${colors.primary[600]}` }}>
+                          <Typography variant="subtitle2" color={colors.grey[300]} fontWeight={700} mb={1}>
+                            HOUSEHOLD LOADS ({loads.length} appliances)
                           </Typography>
-                          <TableContainer sx={{ maxHeight: 200 }}>
+                          <TableContainer sx={{ maxHeight: 300 }}>
                             <Table size="small" stickyHeader>
                               <TableHead>
                                 <TableRow>
-                                  <TableCell
-                                    sx={{
-                                      backgroundColor: colors.primary[600] || colors.primary[400],
-                                      color: colors.grey[300],
-                                      fontSize: "0.65rem",
-                                      fontWeight: 700,
-                                      py: 0.5,
-                                      borderBottom: `1px solid ${colors.primary[300] || "rgba(255,255,255,0.1)"}`,
-                                    }}
-                                  >
-                                    Appliance
-                                  </TableCell>
-                                  <TableCell
-                                    align="right"
-                                    sx={{
-                                      backgroundColor: colors.primary[600] || colors.primary[400],
-                                      color: colors.grey[300],
-                                      fontSize: "0.65rem",
-                                      fontWeight: 700,
-                                      py: 0.5,
-                                      borderBottom: `1px solid ${colors.primary[300] || "rgba(255,255,255,0.1)"}`,
-                                    }}
-                                  >
-                                    Power
-                                  </TableCell>
-                                  <TableCell
-                                    align="right"
-                                    sx={{
-                                      backgroundColor: colors.primary[600] || colors.primary[400],
-                                      color: colors.grey[300],
-                                      fontSize: "0.65rem",
-                                      fontWeight: 700,
-                                      py: 0.5,
-                                      borderBottom: `1px solid ${colors.primary[300] || "rgba(255,255,255,0.1)"}`,
-                                    }}
-                                  >
-                                    Current
-                                  </TableCell>
-                                  <TableCell
-                                    sx={{
-                                      backgroundColor: colors.primary[600] || colors.primary[400],
-                                      color: colors.grey[300],
-                                      fontSize: "0.65rem",
-                                      fontWeight: 700,
-                                      py: 0.5,
-                                      borderBottom: `1px solid ${colors.primary[300] || "rgba(255,255,255,0.1)"}`,
-                                    }}
-                                  >
-                                    Category
-                                  </TableCell>
+                                  {["Appliance", "Power (W)", "Current (A)", "Category"].map((h, hi) => (
+                                    <TableCell
+                                      key={h}
+                                      align={hi > 0 && hi < 3 ? "right" : "left"}
+                                      sx={{
+                                        backgroundColor: colors.primary[400],
+                                        color: colors.greenAccent[500],
+                                        fontSize: "0.72rem",
+                                        fontWeight: 700,
+                                        py: 0.8,
+                                        borderBottom: `2px solid ${colors.greenAccent[700]}`,
+                                      }}
+                                    >
+                                      {h}
+                                    </TableCell>
+                                  ))}
                                 </TableRow>
                               </TableHead>
                               <TableBody>
                                 {loads.map((load, li) => (
-                                  <TableRow key={li}>
-                                    <TableCell
-                                      sx={{
-                                        color: colors.grey[100],
-                                        fontSize: "0.72rem",
-                                        py: 0.3,
-                                        borderBottom: `1px solid rgba(255,255,255,0.05)`,
-                                      }}
-                                    >
+                                  <TableRow key={li} sx={{ "&:hover": { backgroundColor: "rgba(255,255,255,0.03)" } }}>
+                                    <TableCell sx={{ color: colors.grey[100], fontSize: "0.78rem", fontWeight: 500, py: 0.6, borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
                                       {load.name}
                                     </TableCell>
-                                    <TableCell
-                                      align="right"
-                                      sx={{
-                                        color: "#818CF8",
-                                        fontSize: "0.72rem",
-                                        fontWeight: 600,
-                                        py: 0.3,
-                                        borderBottom: `1px solid rgba(255,255,255,0.05)`,
-                                      }}
-                                    >
-                                      {load.powerRating}W
+                                    <TableCell align="right" sx={{ color: "#818CF8", fontSize: "0.78rem", fontWeight: 600, py: 0.6, borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
+                                      {load.powerRating}
                                     </TableCell>
-                                    <TableCell
-                                      align="right"
-                                      sx={{
-                                        color: colors.greenAccent[500],
-                                        fontSize: "0.72rem",
-                                        fontWeight: 600,
-                                        py: 0.3,
-                                        borderBottom: `1px solid rgba(255,255,255,0.05)`,
-                                      }}
-                                    >
-                                      {load.currentRating}A
+                                    <TableCell align="right" sx={{ color: colors.greenAccent[400], fontSize: "0.78rem", fontWeight: 600, py: 0.6, borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
+                                      {load.currentRating}
                                     </TableCell>
-                                    <TableCell
-                                      sx={{
-                                        color: colors.grey[400],
-                                        fontSize: "0.68rem",
-                                        py: 0.3,
-                                        borderBottom: `1px solid rgba(255,255,255,0.05)`,
-                                      }}
-                                    >
-                                      {load.category}
+                                    <TableCell sx={{ color: colors.grey[400], fontSize: "0.72rem", py: 0.6, borderBottom: `1px solid rgba(255,255,255,0.06)` }}>
+                                      <Chip label={load.category || "General"} size="small" sx={{ fontSize: "0.65rem", height: 20, backgroundColor: "rgba(129,140,248,0.1)", color: colors.grey[300] }} />
                                     </TableCell>
                                   </TableRow>
                                 ))}
+                                {/* Totals row */}
+                                <TableRow>
+                                  <TableCell sx={{ color: colors.grey[100], fontSize: "0.78rem", fontWeight: 700, py: 0.8, borderTop: `2px solid ${colors.primary[600]}` }}>
+                                    Total ({loads.length})
+                                  </TableCell>
+                                  <TableCell align="right" sx={{ color: "#818CF8", fontSize: "0.78rem", fontWeight: 700, py: 0.8, borderTop: `2px solid ${colors.primary[600]}` }}>
+                                    {loads.reduce((s, l) => s + (Number(l.powerRating) || 0), 0)}
+                                  </TableCell>
+                                  <TableCell align="right" sx={{ color: colors.greenAccent[400], fontSize: "0.78rem", fontWeight: 700, py: 0.8, borderTop: `2px solid ${colors.primary[600]}` }}>
+                                    {loads.reduce((s, l) => s + (Number(l.currentRating) || 0), 0).toFixed(1)}
+                                  </TableCell>
+                                  <TableCell sx={{ py: 0.8, borderTop: `2px solid ${colors.primary[600]}` }} />
+                                </TableRow>
                               </TableBody>
                             </Table>
                           </TableContainer>
-                        </Box>
 
-                        {/* Metadata */}
-                        <Box>
-                          <Typography
-                            color={colors.grey[300]}
-                            fontSize="0.7rem"
-                            fontWeight={600}
-                            mb={0.5}
-                          >
-                            INFO
-                          </Typography>
-                          <Box display="flex" flexDirection="column" gap={0.3}>
-                            {cls.measured_voltage != null && (
-                              <Box display="flex" justifyContent="space-between">
-                                <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                  Voltage
-                                </Typography>
-                                <Typography color={colors.grey[100]} fontSize="0.72rem">
-                                  {Number(cls.measured_voltage).toFixed(1)} V
-                                </Typography>
-                              </Box>
-                            )}
-                            {cls.technician_name && (
-                              <Box display="flex" justifyContent="space-between">
-                                <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                  Technician
-                                </Typography>
-                                <Typography color={colors.grey[100]} fontSize="0.72rem">
-                                  {cls.technician_name}
-                                </Typography>
-                              </Box>
-                            )}
-                            {cls.tester_app_version && (
-                              <Box display="flex" justifyContent="space-between">
-                                <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                  App Version
-                                </Typography>
-                                <Typography color={colors.grey[100]} fontSize="0.72rem">
-                                  {cls.tester_app_version}
-                                </Typography>
-                              </Box>
-                            )}
-                            {cls.notes && (
-                              <Box mt={0.5}>
-                                <Typography color={colors.grey[400]} fontSize="0.68rem">
-                                  Notes:
-                                </Typography>
-                                <Typography
-                                  color={colors.grey[200]}
-                                  fontSize="0.72rem"
-                                  sx={{ fontStyle: "italic" }}
-                                >
-                                  {cls.notes}
-                                </Typography>
-                              </Box>
-                            )}
-                          </Box>
+                          {cls.notes && (
+                            <Box mt={1.5} p={1.5} sx={{ backgroundColor: colors.primary[400], borderRadius: 1, borderLeft: `3px solid ${colors.grey[600]}` }}>
+                              <Typography variant="caption" color={colors.grey[400]} fontWeight={600}>Notes</Typography>
+                              <Typography variant="body2" color={colors.grey[200]} sx={{ fontStyle: "italic", mt: 0.3 }}>{cls.notes}</Typography>
+                            </Box>
+                          )}
                         </Box>
-                      </Box>
+                      )}
                     </Box>
                   );
                 })
@@ -3458,6 +3275,36 @@ export default function MeterProfile() {
       {/* ================================================================ */}
       {tab === 9 && (
         <Box>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+            <Typography variant="h6" fontWeight="bold" color={colors.grey[100]}>Meter Health</Typography>
+            <Button
+              variant="contained"
+              startIcon={healthLoading ? <CircularProgress size={16} color="inherit" /> : <FavoriteBorderOutlined />}
+              disabled={healthLoading}
+              onClick={async () => {
+                setHealthLoading(true);
+                try {
+                  const [latest, history] = await Promise.allSettled([
+                    meterHealthAPI.getLatest(drn),
+                    meterHealthAPI.getHistory(drn, 72),
+                  ]);
+                  if (latest.status === "fulfilled") setHealthData(latest.value?.data || latest.value);
+                  if (history.status === "fulfilled") setHealthHistory(history.value?.data || []);
+                  setSnackbar({ open: true, message: healthData ? "Health data refreshed" : "No health data available yet", severity: healthData ? "success" : "info" });
+                } catch (e) {
+                  setSnackbar({ open: true, message: "Failed to fetch health data", severity: "error" });
+                }
+                setHealthLoading(false);
+              }}
+              sx={{
+                textTransform: "none",
+                backgroundColor: colors.greenAccent[700],
+                "&:hover": { backgroundColor: colors.greenAccent[600] },
+              }}
+            >
+              {healthLoading ? "Checking..." : "Run Health Check"}
+            </Button>
+          </Box>
           {healthLoading && <LinearProgress sx={{ mb: 2, "& .MuiLinearProgress-bar": { backgroundColor: "#e91e63" } }} />}
           {healthData ? (() => {
             const score = healthData.health_score ?? 0;

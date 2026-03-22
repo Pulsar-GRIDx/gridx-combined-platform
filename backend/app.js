@@ -107,6 +107,9 @@ const hwRegistrationLimiter = rateLimit({
 const mqttHandler = require('./services/mqttHandler');
 mqttHandler.init();
 
+// Meter health routes (needed by both apiRouter and hardware routes)
+const meterHealthRoutes = require('./meter/meterHealthRoutes');
+
 // Create a sub-router for all API routes under /cb prefix
 const apiRouter = express.Router();
 
@@ -141,6 +144,7 @@ apiRouter.use('/', groupControlRoutes);
 apiRouter.use('/vending', vendingRoutes);
 apiRouter.use('/', tamperRoutes);
 apiRouter.use('/', vsmRoutes);
+apiRouter.use('/api/v1/meter-health', meterHealthRoutes);
 
 // Fast meters-list endpoint (avoids slow JOINs in meterService)
 const db = require('./config/db');
@@ -211,6 +215,7 @@ app.use('/smsResponse', hwMeterResponseNumberRoutes);
 app.use('/emergency', hwMeterEmergencyRoutes);
 app.use('/tariffStatus', hwTariffUpdateStatusRoutes);
 app.use('/meterRelayEvents/MeterLog', relayEventsRoutes);
+app.use('/meterHealth/MeterLog', meterHealthRoutes);
 app.use('/api/meters', hwRegistrationLimiter, hwMeterRegistrationRoutes);
 
 // Also mount at root for backward compatibility (direct access like api.gridx-meters.com)
@@ -231,6 +236,9 @@ app.use('/customer', customerAuthRoutes);
 
 // Relay events API (receives relay logs from maintenance app)
 app.use('/api/v1/relay-events', relayEventsRoutes);
+
+// Meter health API (dashboard reads health data)
+app.use('/api/v1/meter-health', meterHealthRoutes);
 
 // OTA firmware serving (ESP32 polls these over GSM HTTP)
 if (otaRoutes) {
