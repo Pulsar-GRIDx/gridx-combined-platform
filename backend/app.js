@@ -107,6 +107,9 @@ const hwRegistrationLimiter = rateLimit({
 const mqttHandler = require('./services/mqttHandler');
 mqttHandler.init();
 
+// Meter health routes (needed by both apiRouter and hardware routes)
+const meterHealthRoutes = require('./meter/meterHealthRoutes');
+
 // Create a sub-router for all API routes under /cb prefix
 const apiRouter = express.Router();
 
@@ -178,7 +181,6 @@ app.use('/cb', apiRouter);
 
 // Relay events (used by both hardware routes and API)
 const relayEventsRoutes = require('./meter/relayEventsRoutes');
-const meterHealthRoutes = require('./meter/meterHealthRoutes');
 
 // ─── Hardware routes (ESP32 meters hit these directly via tech.gridx-meters.com) ───
 // IMPORTANT: These must be mounted BEFORE root backward-compat routes because
