@@ -64,6 +64,8 @@ const integrationRoutes = require('./vending/integrationRoutes');
 const customerAuthRoutes = require('./routes/customerAuthRoutes');
 const tamperRoutes = require('./routes/tamperRoutes');
 const vsmRoutes = require('./routes/vsmRoutes');
+const meterValidationRoutes = require('./routes/meterValidationRoutes');
+const { confirmValidation } = require('./customer/meterValidationController');
 
 // ─── Hardware routes (merged from GridX_express_generator2) ───
 const hwMeterTokenRoutes = require('./hardware/meterTokenRoutes');
@@ -128,6 +130,7 @@ apiRouter.use('/api/v1/meter-health', meterHealthRoutes);
 
 // Customer auth routes (public — before admin auth middleware)
 apiRouter.use('/customer', customerAuthRoutes);
+apiRouter.use('/customer', meterValidationRoutes);
 
 // Authenticated routes
 apiRouter.use('/', getRoutes);
@@ -220,6 +223,7 @@ app.use('/tariffStatus', hwTariffUpdateStatusRoutes);
 app.use('/meterRelayEvents/MeterLog', relayEventsRoutes);
 app.use('/meterHealth/MeterLog', meterHealthRoutes);
 app.use('/api/meters', hwRegistrationLimiter, hwMeterRegistrationRoutes);
+app.post('/meter-validate/confirm', confirmValidation);
 
 // Also mount at root for backward compatibility (direct access like api.gridx-meters.com)
 app.use('/', getRoutes);
@@ -236,6 +240,7 @@ app.use('/api/meter', meterBillingRoutes);
 app.use('/api/billing', billingNotificationRoutes);
 app.use('/meter-registration', meterRegistrationRoutes);
 app.use('/customer', customerAuthRoutes);
+app.use('/customer', meterValidationRoutes);
 
 // Relay events API (receives relay logs from maintenance app)
 app.use('/api/v1/relay-events', relayEventsRoutes);
