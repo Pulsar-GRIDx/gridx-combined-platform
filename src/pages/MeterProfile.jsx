@@ -3458,103 +3458,183 @@ export default function MeterProfile() {
       {/* ================================================================ */}
       {tab === 9 && (
         <Box>
-          {healthLoading && <LinearProgress sx={{ mb: 2 }} />}
+          {healthLoading && <LinearProgress sx={{ mb: 2, "& .MuiLinearProgress-bar": { backgroundColor: "#e91e63" } }} />}
           {healthData ? (() => {
             const score = healthData.health_score ?? 0;
-            const scoreColor = score >= 80 ? "#4cceac" : score >= 50 ? "#ff9800" : "#f44336";
+            const scoreColor = score >= 80 ? "#00e676" : score >= 50 ? "#ffab00" : "#ff1744";
+            const scoreBg = score >= 80 ? "rgba(0,230,118,0.08)" : score >= 50 ? "rgba(255,171,0,0.08)" : "rgba(255,23,68,0.08)";
             const scoreLabel = score >= 80 ? "GOOD" : score >= 50 ? "WARNING" : "CRITICAL";
+            const scoreGlow = score >= 80 ? "0 0 40px rgba(0,230,118,0.3)" : score >= 50 ? "0 0 40px rgba(255,171,0,0.3)" : "0 0 40px rgba(255,23,68,0.3)";
             return (
               <Box>
                 {/* Header */}
-                <Box display="flex" alignItems="center" gap={2} mb={2}>
-                  <FavoriteBorderOutlined sx={{ color: scoreColor, fontSize: 28 }} />
+                <Box display="flex" alignItems="center" flexWrap="wrap" gap={2} mb={3}>
+                  <Box sx={{ width: 40, height: 40, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: scoreBg, border: `2px solid ${scoreColor}` }}>
+                    <FavoriteBorderOutlined sx={{ color: scoreColor, fontSize: 22 }} />
+                  </Box>
                   <Typography variant="h5" fontWeight="bold" color={colors.grey[100]}>Meter Health Report</Typography>
-                  <Chip label={scoreLabel} size="small" sx={{ backgroundColor: scoreColor, color: "#fff", fontWeight: 700 }} />
-                  {healthData.firmware && <Chip label={`FW: ${healthData.firmware}`} size="small" variant="outlined" sx={{ color: colors.grey[300], borderColor: colors.grey[600] }} />}
-                  {healthData.uptime_seconds && <Chip label={`Uptime: ${Math.floor(healthData.uptime_seconds / 3600)}h`} size="small" variant="outlined" sx={{ color: colors.grey[300], borderColor: colors.grey[600] }} />}
+                  <Chip label={scoreLabel} size="small" sx={{ backgroundColor: scoreColor, color: "#000", fontWeight: 800, letterSpacing: 1, px: 1 }} />
+                  {healthData.firmware && <Chip label={`FW: ${healthData.firmware}`} size="small" sx={{ backgroundColor: "rgba(104,112,250,0.15)", color: "#868dfb", border: "1px solid rgba(104,112,250,0.4)", fontWeight: 600 }} />}
+                  {healthData.uptime_seconds && <Chip label={`Uptime: ${Math.floor(healthData.uptime_seconds / 3600)}h`} size="small" sx={{ backgroundColor: "rgba(33,150,243,0.15)", color: "#64b5f6", border: "1px solid rgba(33,150,243,0.4)", fontWeight: 600 }} />}
                 </Box>
 
-                <Grid container spacing={2}>
+                <Grid container spacing={2.5}>
                   {/* Score gauge */}
                   <Grid item xs={12} md={4}>
-                    <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 2, p: 3, textAlign: "center", border: `1px solid ${colors.primary[600]}` }}>
-                      <Box sx={{ position: "relative", display: "inline-flex" }}>
-                        <CircularProgress variant="determinate" value={score} size={140} thickness={6} sx={{ color: scoreColor, "& .MuiCircularProgress-circle": { strokeLinecap: "round" } }} />
+                    <Box sx={{
+                      background: `linear-gradient(145deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`,
+                      borderRadius: 3, p: 4, textAlign: "center",
+                      border: `1px solid ${scoreColor}33`,
+                      boxShadow: scoreGlow,
+                      position: "relative", overflow: "hidden",
+                    }}>
+                      {/* Subtle radial glow behind the gauge */}
+                      <Box sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 200, height: 200, borderRadius: "50%", background: `radial-gradient(circle, ${scoreColor}15 0%, transparent 70%)` }} />
+                      <Box sx={{ position: "relative", display: "inline-flex", mb: 2 }}>
+                        {/* Track ring */}
+                        <CircularProgress variant="determinate" value={100} size={160} thickness={5} sx={{ color: colors.primary[600], position: "absolute" }} />
+                        {/* Score ring */}
+                        <CircularProgress variant="determinate" value={score} size={160} thickness={5} sx={{ color: scoreColor, "& .MuiCircularProgress-circle": { strokeLinecap: "round", filter: `drop-shadow(0 0 6px ${scoreColor})` } }} />
                         <Box sx={{ position: "absolute", top: 0, left: 0, bottom: 0, right: 0, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
-                          <Typography variant="h3" fontWeight="bold" color={scoreColor}>{score}</Typography>
-                          <Typography variant="caption" color={colors.grey[300]}>/ 100</Typography>
+                          <Typography variant="h2" fontWeight="900" color={scoreColor} sx={{ lineHeight: 1, textShadow: `0 0 20px ${scoreColor}55` }}>{score}</Typography>
+                          <Typography variant="caption" color={colors.grey[400]} fontWeight={600}>/ 100</Typography>
                         </Box>
                       </Box>
-                      <Typography variant="subtitle1" color={colors.grey[100]} mt={1}>Health Score</Typography>
+                      <Typography variant="subtitle1" color={colors.grey[100]} fontWeight={700} letterSpacing={1}>Health Score</Typography>
+                      <Typography variant="caption" color={colors.grey[400]}>Overall meter condition</Typography>
+                    </Box>
+
+                    {/* Status indicators below gauge */}
+                    <Box mt={2} display="flex" gap={1}>
+                      {[
+                        { label: "Mains", on: healthData.mains_state, icon: <PowerSettingsNewOutlined sx={{ fontSize: 16 }} /> },
+                        { label: "Geyser", on: healthData.geyser_state, icon: <HotTub sx={{ fontSize: 16 }} /> },
+                      ].map((s) => (
+                        <Box key={s.label} sx={{
+                          flex: 1, borderRadius: 2, p: 1.5, textAlign: "center",
+                          backgroundColor: s.on ? "rgba(0,230,118,0.1)" : "rgba(255,23,68,0.1)",
+                          border: `1px solid ${s.on ? "rgba(0,230,118,0.4)" : "rgba(255,23,68,0.4)"}`,
+                        }}>
+                          <Box display="flex" alignItems="center" justifyContent="center" gap={0.5}>
+                            <Box sx={{ color: s.on ? "#00e676" : "#ff1744" }}>{s.icon}</Box>
+                            <Typography variant="caption" color={colors.grey[300]} fontWeight={600}>{s.label}</Typography>
+                          </Box>
+                          <Typography variant="subtitle2" fontWeight="bold" color={s.on ? "#00e676" : "#ff1744"} mt={0.5}>{s.on ? "ON" : "OFF"}</Typography>
+                        </Box>
+                      ))}
                     </Box>
                   </Grid>
 
                   {/* Power readings + Error counters */}
                   <Grid item xs={12} md={8}>
-                    <Grid container spacing={1}>
+                    <Typography variant="overline" color={colors.grey[400]} fontWeight={700} letterSpacing={2} mb={1} display="block">Live Readings</Typography>
+                    <Grid container spacing={1.5}>
                       {[
-                        { label: "Voltage", value: healthData.voltage, unit: "V", color: "#4cceac" },
-                        { label: "Current", value: healthData.current_a, unit: "A", color: "#6870fa" },
-                        { label: "Power", value: healthData.active_power, unit: "W", color: "#ff9800" },
-                        { label: "Temperature", value: healthData.temperature, unit: "°C", color: "#f44336" },
-                        { label: "Frequency", value: healthData.frequency, unit: "Hz", color: "#2196f3" },
-                        { label: "Power Factor", value: healthData.power_factor, unit: "", color: "#ab47bc" },
-                        { label: "Mains", value: healthData.mains_state ? "ON" : "OFF", unit: "", color: healthData.mains_state ? "#4cceac" : "#f44336" },
-                        { label: "Geyser", value: healthData.geyser_state ? "ON" : "OFF", unit: "", color: healthData.geyser_state ? "#4cceac" : "#f44336" },
+                        { label: "Voltage", value: healthData.voltage, unit: "V", color: "#00e676", bg: "rgba(0,230,118,0.08)", icon: <BoltOutlined sx={{ fontSize: 20 }} /> },
+                        { label: "Current", value: healthData.current_a, unit: "A", color: "#768fff", bg: "rgba(118,143,255,0.08)", icon: <ElectricalServicesOutlined sx={{ fontSize: 20 }} /> },
+                        { label: "Power", value: healthData.active_power, unit: "W", color: "#ffab00", bg: "rgba(255,171,0,0.08)", icon: <PowerOutlined sx={{ fontSize: 20 }} /> },
+                        { label: "Temperature", value: healthData.temperature, unit: "°C", color: "#ff6e40", bg: "rgba(255,110,64,0.08)", icon: <ThermostatOutlined sx={{ fontSize: 20 }} /> },
+                        { label: "Frequency", value: healthData.frequency, unit: "Hz", color: "#40c4ff", bg: "rgba(64,196,255,0.08)", icon: <GraphicEqOutlined sx={{ fontSize: 20 }} /> },
+                        { label: "Power Factor", value: healthData.power_factor, unit: "", color: "#ea80fc", bg: "rgba(234,128,252,0.08)", icon: <SpeedOutlined sx={{ fontSize: 20 }} /> },
                       ].map((stat) => (
-                        <Grid item xs={6} sm={3} key={stat.label}>
-                          <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 1, p: 1.5, border: `1px solid ${colors.primary[600]}` }}>
-                            <Typography variant="caption" color={colors.grey[400]}>{stat.label}</Typography>
-                            <Typography variant="h6" fontWeight="bold" color={stat.color}>{stat.value != null ? `${stat.value}${stat.unit ? ` ${stat.unit}` : ""}` : "-"}</Typography>
+                        <Grid item xs={6} sm={4} key={stat.label}>
+                          <Box sx={{
+                            background: `linear-gradient(135deg, ${stat.bg} 0%, ${colors.primary[500]} 100%)`,
+                            borderRadius: 2, p: 2,
+                            border: `1px solid ${stat.color}30`,
+                            transition: "all 0.2s ease",
+                            "&:hover": { border: `1px solid ${stat.color}60`, transform: "translateY(-2px)", boxShadow: `0 4px 20px ${stat.color}15` },
+                          }}>
+                            <Box display="flex" alignItems="center" gap={1} mb={1}>
+                              <Box sx={{ color: stat.color, opacity: 0.7 }}>{stat.icon}</Box>
+                              <Typography variant="caption" color={colors.grey[400]} fontWeight={600}>{stat.label}</Typography>
+                            </Box>
+                            <Typography variant="h5" fontWeight="800" color={stat.color}>
+                              {stat.value != null ? stat.value : "-"}
+                              {stat.value != null && stat.unit && <Typography component="span" variant="body2" color={colors.grey[400]} ml={0.5}>{stat.unit}</Typography>}
+                            </Typography>
                           </Box>
                         </Grid>
                       ))}
                     </Grid>
+
                     {/* Error counters */}
-                    <Grid container spacing={1} mt={0.5}>
+                    <Typography variant="overline" color={colors.grey[400]} fontWeight={700} letterSpacing={2} mt={2.5} mb={1} display="block">Diagnostics</Typography>
+                    <Grid container spacing={1.5}>
                       {[
-                        { label: "UART Errors", value: healthData.uart_errors, color: "#f44336" },
-                        { label: "Relay Mismatches", value: healthData.relay_mismatches, color: "#ff9800" },
-                        { label: "Power Anomalies", value: healthData.power_anomalies, color: "#ab47bc" },
-                      ].map((err) => (
-                        <Grid item xs={4} key={err.label}>
-                          <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 1, p: 1.5, border: `1px solid ${colors.primary[600]}`, textAlign: "center" }}>
-                            <Typography variant="caption" color={colors.grey[400]}>{err.label}</Typography>
-                            <Typography variant="h5" fontWeight="bold" color={err.value > 0 ? err.color : colors.grey[300]}>{err.value ?? 0}</Typography>
-                          </Box>
-                        </Grid>
-                      ))}
+                        { label: "UART Errors", value: healthData.uart_errors, color: "#ff1744", bg: "rgba(255,23,68,0.06)" },
+                        { label: "Relay Mismatches", value: healthData.relay_mismatches, color: "#ffab00", bg: "rgba(255,171,0,0.06)" },
+                        { label: "Power Anomalies", value: healthData.power_anomalies, color: "#ea80fc", bg: "rgba(234,128,252,0.06)" },
+                      ].map((err) => {
+                        const hasError = (err.value ?? 0) > 0;
+                        return (
+                          <Grid item xs={4} key={err.label}>
+                            <Box sx={{
+                              background: hasError ? err.bg : colors.primary[500],
+                              borderRadius: 2, p: 2, textAlign: "center",
+                              border: `1px solid ${hasError ? `${err.color}50` : colors.primary[600]}`,
+                              position: "relative", overflow: "hidden",
+                            }}>
+                              {hasError && <Box sx={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, backgroundColor: err.color, opacity: 0.8 }} />}
+                              <Typography variant="caption" color={colors.grey[400]} fontWeight={600}>{err.label}</Typography>
+                              <Typography variant="h4" fontWeight="900" color={hasError ? err.color : colors.grey[500]} sx={{ textShadow: hasError ? `0 0 10px ${err.color}40` : "none" }}>{err.value ?? 0}</Typography>
+                            </Box>
+                          </Grid>
+                        );
+                      })}
                     </Grid>
                   </Grid>
                 </Grid>
 
                 {/* Health trend chart */}
                 {healthHistory.length > 1 && (
-                  <Box mt={3} sx={{ backgroundColor: colors.primary[500], borderRadius: 2, p: 2, border: `1px solid ${colors.primary[600]}` }}>
-                    <Typography variant="subtitle2" color={colors.grey[300]} mb={1}>Health Score Trend</Typography>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <LineChart data={healthHistory.slice().reverse().map((h) => ({ time: new Date(h.created_at).toLocaleDateString("en-ZA", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }), score: h.health_score }))}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={colors.primary[600]} />
-                        <XAxis dataKey="time" tick={{ fill: colors.grey[400], fontSize: 10 }} />
-                        <YAxis domain={[0, 100]} tick={{ fill: colors.grey[400], fontSize: 10 }} />
-                        <RechartsTooltip contentStyle={{ backgroundColor: colors.primary[400], border: "none", color: colors.grey[100] }} />
-                        <Line type="monotone" dataKey="score" stroke="#4cceac" strokeWidth={2} dot={false} />
-                      </LineChart>
+                  <Box mt={3} sx={{
+                    background: `linear-gradient(145deg, ${colors.primary[400]} 0%, ${colors.primary[500]} 100%)`,
+                    borderRadius: 3, p: 3,
+                    border: `1px solid ${colors.primary[600]}`,
+                  }}>
+                    <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+                      <Box display="flex" alignItems="center" gap={1}>
+                        <BarChartOutlined sx={{ color: "#00e676", fontSize: 20 }} />
+                        <Typography variant="subtitle1" color={colors.grey[100]} fontWeight={700}>Health Score Trend</Typography>
+                      </Box>
+                      <Chip label={`${healthHistory.length} readings`} size="small" sx={{ backgroundColor: "rgba(0,230,118,0.1)", color: "#00e676", fontWeight: 600, fontSize: 11 }} />
+                    </Box>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <AreaChart data={healthHistory.slice().reverse().map((h) => ({ time: new Date(h.created_at).toLocaleDateString("en-ZA", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }), score: h.health_score }))}>
+                        <defs>
+                          <linearGradient id="healthGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#00e676" stopOpacity={0.3} />
+                            <stop offset="100%" stopColor="#00e676" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke={colors.primary[600]} opacity={0.5} />
+                        <XAxis dataKey="time" tick={{ fill: colors.grey[400], fontSize: 10 }} axisLine={{ stroke: colors.primary[600] }} />
+                        <YAxis domain={[0, 100]} tick={{ fill: colors.grey[400], fontSize: 10 }} axisLine={{ stroke: colors.primary[600] }} />
+                        <RechartsTooltip contentStyle={{ backgroundColor: colors.primary[400], border: `1px solid ${colors.primary[600]}`, borderRadius: 8, color: colors.grey[100] }} />
+                        <Area type="monotone" dataKey="score" stroke="#00e676" strokeWidth={2.5} fill="url(#healthGradient)" dot={false} activeDot={{ r: 5, fill: "#00e676", stroke: colors.primary[400], strokeWidth: 2 }} />
+                      </AreaChart>
                     </ResponsiveContainer>
                   </Box>
                 )}
 
                 {healthData.created_at && (
-                  <Typography variant="caption" color={colors.grey[400]} mt={2} display="block">
-                    Last updated: {new Date(healthData.created_at).toLocaleString("en-ZA")}
-                  </Typography>
+                  <Box mt={2} display="flex" alignItems="center" gap={1}>
+                    <Box sx={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#00e676", boxShadow: "0 0 8px rgba(0,230,118,0.5)" }} />
+                    <Typography variant="caption" color={colors.grey[400]}>
+                      Last updated: {new Date(healthData.created_at).toLocaleString("en-ZA")}
+                    </Typography>
+                  </Box>
                 )}
               </Box>
             );
           })() : !healthLoading && (
-            <Typography color={colors.grey[400]} sx={{ textAlign: "center", py: 6 }}>
-              No health data received yet. The meter sends health reports every hour via SIM800.
-            </Typography>
+            <Box sx={{ textAlign: "center", py: 8 }}>
+              <FavoriteBorderOutlined sx={{ fontSize: 48, color: colors.grey[600], mb: 2 }} />
+              <Typography color={colors.grey[400]}>
+                No health data received yet. The meter sends health reports every hour via SIM800.
+              </Typography>
+            </Box>
           )}
         </Box>
       )}
