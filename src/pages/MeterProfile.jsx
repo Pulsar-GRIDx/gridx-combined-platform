@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -2577,110 +2577,198 @@ export default function MeterProfile() {
       {/* TAB 7: Commission Report                                       */}
       {/* ================================================================ */}
       {tab === 7 && (() => {
+        /* ── Color Tokens ── */
+        const tk = {
+          pass: "#4ADE80",
+          passBg: "rgba(74, 222, 128, 0.12)",
+          passBorder: "rgba(74, 222, 128, 0.30)",
+          fail: "#F87171",
+          failBg: "rgba(248, 113, 113, 0.12)",
+          failBorder: "rgba(248, 113, 113, 0.30)",
+          blue: "#60A5FA",
+          blueBg: "rgba(96, 165, 250, 0.10)",
+          purple: "#818CF8",
+          purpleBg: "rgba(129, 140, 248, 0.10)",
+          amber: "#FBBF24",
+          amberBg: "rgba(251, 191, 36, 0.10)",
+          pink: "#F472B6",
+          pinkBg: "rgba(244, 114, 182, 0.10)",
+          text: "#E2E8F0",
+          textMuted: colors.grey[400],
+          textDim: colors.grey[500],
+          cardBg: colors.primary[500],
+          innerBg: colors.primary[600],
+          panelBg: colors.primary[400],
+          border: colors.primary[600],
+          rowHover: "rgba(255,255,255,0.03)",
+          rowAlt: "rgba(255,255,255,0.015)",
+          shadow: "0 2px 8px rgba(0,0,0,0.18), 0 1px 3px rgba(0,0,0,0.12)",
+          shadowLg: "0 4px 16px rgba(0,0,0,0.25), 0 2px 6px rgba(0,0,0,0.15)",
+        };
+        const fs = { sm: "0.72rem", md: "0.8rem", sub: "0.9rem" };
+
         /* Helper: render a detail row */
         const DetailRow = ({ label, value, color: rowColor, bold }) => (
-          <Box display="flex" justifyContent="space-between" alignItems="center" py={0.4}
-            sx={{ borderBottom: `1px solid ${colors.primary[600]}` }}>
-            <Typography color={colors.grey[400]} fontSize="0.78rem">{label}</Typography>
-            <Typography color={rowColor || colors.grey[100]} fontSize="0.78rem" fontWeight={bold ? 700 : 500}>{value}</Typography>
+          <Box display="grid" gridTemplateColumns="1fr 1fr" alignItems="center" py={0.5} px={1}
+            sx={{ borderBottom: `1px solid ${tk.border}`, "&:last-child": { borderBottom: "none" },
+              "&:hover": { backgroundColor: tk.rowHover } }}>
+            <Typography color={tk.textMuted} fontSize={fs.sm}>{label}</Typography>
+            <Typography color={rowColor || tk.text} fontSize={fs.md} fontWeight={bold ? 700 : 500} textAlign="right">{value}</Typography>
           </Box>
         );
+
         /* Helper: pass/fail chip */
         const PassFailChip = ({ passed, label }) => (
-          <Chip label={label || (passed ? "PASS" : "FAIL")} size="small"
-            sx={{ backgroundColor: passed ? "rgba(76,206,172,0.2)" : "rgba(219,79,74,0.2)",
-              color: passed ? "#4ADE80" : "#F87171", fontWeight: 700, fontSize: "0.72rem", minWidth: 55 }} />
+          <Chip
+            icon={passed ? <CheckCircleOutlined sx={{ fontSize: 14, color: `${tk.pass} !important` }} /> : <CancelOutlined sx={{ fontSize: 14, color: `${tk.fail} !important` }} />}
+            label={label || (passed ? "PASS" : "FAIL")}
+            size="small"
+            sx={{ backgroundColor: passed ? tk.passBg : tk.failBg,
+              color: passed ? tk.pass : tk.fail, fontWeight: 700, fontSize: fs.sm, minWidth: 72,
+              border: `1px solid ${passed ? tk.passBorder : tk.failBorder}`,
+              "& .MuiChip-icon": { marginLeft: "6px" } }} />
         );
-        /* Helper: section card */
+
+        /* Helper: section card with left accent strip */
         const SectionCard = ({ title, icon, children, accentColor }) => (
-          <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 2, border: `1px solid ${colors.primary[600]}`,
-            borderTop: `3px solid ${accentColor || "#60A5FA"}`, mb: 2 }}>
-            <Box sx={{ px: 2, py: 1.2, borderBottom: `1px solid ${colors.primary[600]}`,
-              display: "flex", alignItems: "center", gap: 1 }}>
+          <Box sx={{ backgroundColor: tk.cardBg, borderRadius: "8px", border: `1px solid ${tk.border}`,
+            borderLeft: `3px solid ${accentColor || tk.blue}`,
+            boxShadow: tk.shadow, mb: 2, overflow: "hidden", transition: "box-shadow 0.2s ease",
+            "&:hover": { boxShadow: tk.shadowLg } }}>
+            <Box sx={{ px: 2, py: 1.2, borderBottom: `1px solid ${tk.border}`,
+              display: "flex", alignItems: "center", gap: 1,
+              background: `linear-gradient(90deg, ${accentColor || tk.blue}08 0%, transparent 100%)` }}>
               {icon}
-              <Typography variant="subtitle2" fontWeight={700} color={colors.grey[100]}>{title}</Typography>
+              <Typography fontSize={fs.sub} fontWeight={700} color={colors.grey[100]} letterSpacing="0.5px">{title}</Typography>
             </Box>
             <Box px={2} py={1.5}>{children}</Box>
           </Box>
         );
-        /* Helper: measurement row with expected/measured/error */
+
+        /* Helper: measurement row - proper grid layout */
         const MeasRow = ({ label, unit, expected, measured, error, passed }) => (
-          <Box sx={{ borderBottom: `1px solid ${colors.primary[600]}`, py: 0.6 }}>
-            <Box display="flex" justifyContent="space-between" alignItems="center">
-              <Typography color={colors.grey[300]} fontSize="0.78rem" fontWeight={600}>{label}</Typography>
+          <Box sx={{ borderBottom: `1px solid ${tk.border}`, py: 0.8, px: 1,
+            "&:last-of-type": { borderBottom: "none" },
+            "&:hover": { backgroundColor: tk.rowHover } }}>
+            <Box display="grid" gridTemplateColumns="1fr auto" alignItems="center" mb={0.4}>
+              <Typography color={colors.grey[200]} fontSize={fs.md} fontWeight={600}>{label}</Typography>
               <PassFailChip passed={passed} />
             </Box>
-            <Box display="flex" gap={3} mt={0.3}>
-              {expected != null && <Typography color={colors.grey[400]} fontSize="0.72rem">Expected: <span style={{color: "#E2E8F0"}}>{Number(expected).toFixed(label === "Current" ? 3 : 1)} {unit}</span></Typography>}
-              {measured != null && <Typography color={colors.grey[400]} fontSize="0.72rem">Measured: <span style={{color: passed ? "#4ADE80" : "#F87171"}}>{Number(measured).toFixed(label === "Current" ? 3 : 1)} {unit}</span></Typography>}
-              {error != null && <Typography color={colors.grey[400]} fontSize="0.72rem">Error: <span style={{color: Math.abs(Number(error)) <= 10 ? "#4ADE80" : "#F87171"}}>{Number(error).toFixed(2)}%</span></Typography>}
+            <Box display="grid" gridTemplateColumns="repeat(3, 1fr)" gap={1}>
+              {expected != null && (
+                <Box>
+                  <Typography color={tk.textMuted} fontSize={fs.sm} lineHeight={1.2}>Expected</Typography>
+                  <Typography color={tk.text} fontSize={fs.md} fontWeight={500}>{Number(expected).toFixed(label === "Current" ? 3 : 1)} {unit}</Typography>
+                </Box>
+              )}
+              {measured != null && (
+                <Box>
+                  <Typography color={tk.textMuted} fontSize={fs.sm} lineHeight={1.2}>Measured</Typography>
+                  <Typography color={passed ? tk.pass : tk.fail} fontSize={fs.md} fontWeight={600}>{Number(measured).toFixed(label === "Current" ? 3 : 1)} {unit}</Typography>
+                </Box>
+              )}
+              {error != null && (
+                <Box>
+                  <Typography color={tk.textMuted} fontSize={fs.sm} lineHeight={1.2}>Error</Typography>
+                  <Typography color={Math.abs(Number(error)) <= 10 ? tk.pass : tk.fail} fontSize={fs.md} fontWeight={600}>{Number(error).toFixed(2)}%</Typography>
+                </Box>
+              )}
             </Box>
           </Box>
         );
 
+        /* Shared table header cell style */
+        const thSx = { color: tk.textMuted, fontSize: fs.sm, fontWeight: 700, py: 0.6, px: 1.2,
+          borderBottom: `2px solid ${tk.border}`, textTransform: "uppercase", letterSpacing: "0.3px",
+          whiteSpace: "nowrap" };
+        /* Shared table body cell style */
+        const tdSx = (si) => ({ fontSize: fs.sm, py: 0.5, px: 1.2,
+          borderBottom: `1px solid ${tk.border}`,
+          backgroundColor: si % 2 === 1 ? tk.rowAlt : "transparent" });
+
         return (
         <Box>
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-            <Box display="flex" alignItems="center" gap={1}>
-              <AssignmentOutlined sx={{ color: "#ff9800", fontSize: 28 }} />
-              <Typography variant="h5" fontWeight="bold" color={colors.grey[100]}>Diagnostic & Commission Reports</Typography>
-              {commissionReports.length > 0 && <Chip label={`${commissionReports.length} report${commissionReports.length > 1 ? "s" : ""}`} size="small" sx={{ backgroundColor: colors.primary[500], color: colors.grey[100] }} />}
+          {/* ── Page Header ── */}
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2.5}>
+            <Box display="flex" alignItems="center" gap={1.2}>
+              <Box sx={{ width: 36, height: 36, borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center",
+                background: "linear-gradient(135deg, #ff9800 0%, #f57c00 100%)", boxShadow: "0 2px 8px rgba(255,152,0,0.3)" }}>
+                <AssignmentOutlined sx={{ color: "#fff", fontSize: 20 }} />
+              </Box>
+              <Box>
+                <Typography variant="h5" fontWeight="bold" color={colors.grey[100]} lineHeight={1.2}>
+                  Diagnostic & Commission Reports
+                </Typography>
+                {commissionReports.length > 0 && (
+                  <Typography color={tk.textMuted} fontSize={fs.sm}>
+                    {commissionReports.length} report{commissionReports.length > 1 ? "s" : ""} available
+                  </Typography>
+                )}
+              </Box>
             </Box>
           </Box>
 
           {commissionReports.length > 0 ? (
             commissionReports.map((report, idx) => (
-              <Box key={report.id || idx} mb={3} sx={{ backgroundColor: colors.primary[400], borderRadius: 2, overflow: "hidden" }}>
+              <Box key={report.id || idx} mb={3} sx={{ backgroundColor: tk.panelBg, borderRadius: "10px", overflow: "hidden", boxShadow: tk.shadowLg }}>
                 {/* ── Report Header Banner ── */}
                 <Box sx={{ background: report.overall_passed
-                    ? "linear-gradient(135deg, rgba(76,206,172,0.15) 0%, rgba(76,206,172,0.05) 100%)"
-                    : "linear-gradient(135deg, rgba(219,79,74,0.15) 0%, rgba(219,79,74,0.05) 100%)",
-                  borderBottom: `2px solid ${report.overall_passed ? "#4ADE80" : "#F87171"}`,
+                    ? `linear-gradient(135deg, ${tk.passBg} 0%, transparent 100%)`
+                    : `linear-gradient(135deg, ${tk.failBg} 0%, transparent 100%)`,
+                  borderBottom: `2px solid ${report.overall_passed ? tk.pass : tk.fail}`,
                   px: 2.5, py: 1.8 }}>
                   <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
                     <Box display="flex" alignItems="center" gap={1.5}>
-                      <Box sx={{ width: 40, height: 40, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                        backgroundColor: report.overall_passed ? "rgba(76,206,172,0.2)" : "rgba(219,79,74,0.2)" }}>
+                      <Box sx={{ width: 42, height: 42, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                        backgroundColor: report.overall_passed ? tk.passBg : tk.failBg,
+                        border: `2px solid ${report.overall_passed ? tk.passBorder : tk.failBorder}` }}>
                         {report.overall_passed
-                          ? <CheckCircleOutlined sx={{ color: "#4ADE80", fontSize: 24 }} />
-                          : <CancelOutlined sx={{ color: "#F87171", fontSize: 24 }} />}
+                          ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 24 }} />
+                          : <CancelOutlined sx={{ color: tk.fail, fontSize: 24 }} />}
                       </Box>
                       <Box>
                         <Typography variant="h6" fontWeight={700} color={colors.grey[100]} sx={{ textTransform: "uppercase", letterSpacing: 1 }}>
                           {report.report_type?.replace(/_/g, " ")} Test Report
                         </Typography>
-                        <Typography color={colors.grey[300]} fontSize="0.8rem">
+                        <Typography color={colors.grey[300]} fontSize={fs.md}>
                           {report.date_time ? formatDateTime(report.date_time) : "---"}
                           {report.tester_app_version ? ` | App v${report.tester_app_version}` : ""}
                         </Typography>
                       </Box>
                     </Box>
                     <Chip label={report.overall_passed ? "ALL TESTS PASSED" : "TESTS FAILED"} size="medium"
-                      sx={{ backgroundColor: report.overall_passed ? "rgba(76,206,172,0.25)" : "rgba(219,79,74,0.25)",
-                        color: report.overall_passed ? "#4ADE80" : "#F87171", fontWeight: 700, fontSize: "0.85rem",
-                        border: `1px solid ${report.overall_passed ? "#4ADE80" : "#F87171"}`, px: 1 }} />
+                      icon={report.overall_passed ? <CheckCircleOutlined sx={{ fontSize: 18, color: `${tk.pass} !important` }} /> : <CancelOutlined sx={{ fontSize: 18, color: `${tk.fail} !important` }} />}
+                      sx={{ backgroundColor: report.overall_passed ? tk.passBg : tk.failBg,
+                        color: report.overall_passed ? tk.pass : tk.fail, fontWeight: 700, fontSize: fs.md,
+                        border: `1px solid ${report.overall_passed ? tk.pass : tk.fail}`, px: 1,
+                        "& .MuiChip-icon": { marginLeft: "8px" } }} />
                   </Box>
                 </Box>
 
                 <Box p={2.5}>
                   {/* ── Full System Summary (for full_system type) ── */}
                   {report.report_type === "full_system" && (
-                    <Box mb={2}>
+                    <Box mb={2.5}>
                       <Grid container spacing={1.5}>
                         {[
-                          { label: "Measurement Test", passed: report.measurement_test_passed },
-                          { label: "Load Test", passed: report.load_test_passed },
-                          { label: "API Test", passed: report.api_test_passed },
+                          { label: "Measurement Test", passed: report.measurement_test_passed, icon: <BoltOutlined sx={{ fontSize: 22 }} />, color: tk.blue },
+                          { label: "Load Test", passed: report.load_test_passed, icon: <PowerOutlined sx={{ fontSize: 22 }} />, color: tk.amber },
+                          { label: "API Test", passed: report.api_test_passed, icon: <TuneOutlined sx={{ fontSize: 22 }} />, color: tk.purple },
                         ].map((t) => (
                           <Grid item xs={4} key={t.label}>
-                            <Box sx={{ backgroundColor: t.passed ? "rgba(76,206,172,0.1)" : "rgba(219,79,74,0.1)",
-                              border: `1px solid ${t.passed ? "rgba(76,206,172,0.3)" : "rgba(219,79,74,0.3)"}`,
-                              borderRadius: 2, p: 1.5, textAlign: "center" }}>
-                              {t.passed
-                                ? <CheckCircleOutlined sx={{ color: "#4ADE80", fontSize: 28, mb: 0.5 }} />
-                                : <CancelOutlined sx={{ color: "#F87171", fontSize: 28, mb: 0.5 }} />}
-                              <Typography color={colors.grey[100]} fontSize="0.8rem" fontWeight={600}>{t.label}</Typography>
-                              <Typography color={t.passed ? "#4ADE80" : "#F87171"} fontSize="0.75rem" fontWeight={700}>
+                            <Box sx={{ background: t.passed
+                                ? `linear-gradient(135deg, ${tk.passBg} 0%, rgba(74,222,128,0.04) 100%)`
+                                : `linear-gradient(135deg, ${tk.failBg} 0%, rgba(248,113,113,0.04) 100%)`,
+                              border: `1px solid ${t.passed ? tk.passBorder : tk.failBorder}`,
+                              borderRadius: "8px", p: 1.8, textAlign: "center", boxShadow: tk.shadow,
+                              transition: "transform 0.15s ease", "&:hover": { transform: "translateY(-1px)" } }}>
+                              <Box sx={{ color: t.passed ? tk.pass : tk.fail, mb: 0.5 }}>
+                                {t.passed
+                                  ? <CheckCircleOutlined sx={{ fontSize: 30 }} />
+                                  : <CancelOutlined sx={{ fontSize: 30 }} />}
+                              </Box>
+                              <Typography color={colors.grey[100]} fontSize={fs.md} fontWeight={600}>{t.label}</Typography>
+                              <Typography color={t.passed ? tk.pass : tk.fail} fontSize={fs.sm} fontWeight={700} mt={0.3}>
                                 {t.passed ? "PASSED" : "FAILED"}
                               </Typography>
                             </Box>
@@ -2694,32 +2782,36 @@ export default function MeterProfile() {
                     {/* ── Measurement Test Section ── */}
                     {(report.report_type === "measurement" || report.report_type === "auto_calibration" || report.report_type === "full_system") && report.voltage_measured != null && (
                       <Grid item xs={12} md={6}>
-                        <SectionCard title="MEASUREMENT TEST RESULTS" accentColor="#60A5FA"
-                          icon={<BoltOutlined sx={{ color: "#60A5FA", fontSize: 20 }} />}>
+                        <SectionCard title="MEASUREMENT TEST RESULTS" accentColor={tk.blue}
+                          icon={<BoltOutlined sx={{ color: tk.blue, fontSize: 20 }} />}>
                           <MeasRow label="Voltage" unit="V" expected={report.voltage_expected} measured={report.voltage_measured} error={report.voltage_error} passed={report.voltage_passed} />
                           <MeasRow label="Current" unit="A" expected={report.current_expected} measured={report.current_measured} error={report.current_error} passed={report.current_passed} />
                           {report.power_measured != null && (
                             <MeasRow label="Power" unit="W" expected={report.power_expected} measured={report.power_measured} error={report.power_error} passed={report.power_passed} />
                           )}
                           {/* Pass/Fail Criteria */}
-                          <Box mt={1.5} sx={{ backgroundColor: colors.primary[600], borderRadius: 1, p: 1.2 }}>
-                            <Typography color={colors.grey[300]} fontSize="0.7rem" fontWeight={600} mb={0.5}>PASS/FAIL CRITERIA</Typography>
+                          <Box mt={1.5} sx={{ backgroundColor: tk.innerBg, borderRadius: "6px", p: 1.4, border: `1px solid ${tk.border}` }}>
+                            <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={0.5} letterSpacing="0.3px">PASS/FAIL CRITERIA</Typography>
                             {[
                               { l: "Voltage Accuracy", v: report.voltage_error, p: report.voltage_passed },
                               { l: "Current Accuracy", v: report.current_error, p: report.current_passed },
                               ...(report.power_error != null ? [{ l: "Power Accuracy", v: report.power_error, p: report.power_passed }] : []),
                             ].map(c => (
-                              <Box key={c.l} display="flex" justifyContent="space-between" py={0.2}>
-                                <Typography color={colors.grey[400]} fontSize="0.72rem">{c.l}: {c.v != null ? `${Math.abs(Number(c.v)).toFixed(2)}%` : "N/A"} ≤ 10.0%</Typography>
-                                <Typography color={c.p ? "#4ADE80" : "#F87171"} fontSize="0.72rem" fontWeight={700}>{c.p ? "PASS" : "FAIL"}</Typography>
+                              <Box key={c.l} display="grid" gridTemplateColumns="1fr auto" alignItems="center" py={0.3}
+                                sx={{ "&:hover": { backgroundColor: tk.rowHover }, px: 0.5, borderRadius: "4px" }}>
+                                <Typography color={tk.textMuted} fontSize={fs.sm}>{c.l}: {c.v != null ? `${Math.abs(Number(c.v)).toFixed(2)}%` : "N/A"} {"\u2264"} 10.0%</Typography>
+                                <Box display="flex" alignItems="center" gap={0.5}>
+                                  {c.p ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 14 }} /> : <CancelOutlined sx={{ color: tk.fail, fontSize: 14 }} />}
+                                  <Typography color={c.p ? tk.pass : tk.fail} fontSize={fs.sm} fontWeight={700}>{c.p ? "PASS" : "FAIL"}</Typography>
+                                </Box>
                               </Box>
                             ))}
                           </Box>
                           {/* Test metadata */}
                           {(report.attempts != null || report.sample_count != null) && (
-                            <Box mt={1} display="flex" gap={2}>
-                              {report.attempts != null && <Typography color={colors.grey[400]} fontSize="0.72rem">Attempts: <span style={{color:"#E2E8F0"}}>{report.attempts} / 5</span></Typography>}
-                              {report.sample_count != null && <Typography color={colors.grey[400]} fontSize="0.72rem">Samples: <span style={{color:"#E2E8F0"}}>{report.sample_count}</span></Typography>}
+                            <Box mt={1.2} display="flex" gap={2.5} px={0.5}>
+                              {report.attempts != null && <Typography color={tk.textMuted} fontSize={fs.sm}>Attempts: <span style={{color: tk.text, fontWeight: 600}}>{report.attempts} / 5</span></Typography>}
+                              {report.sample_count != null && <Typography color={tk.textMuted} fontSize={fs.sm}>Samples: <span style={{color: tk.text, fontWeight: 600}}>{report.sample_count}</span></Typography>}
                             </Box>
                           )}
                         </SectionCard>
@@ -2729,59 +2821,66 @@ export default function MeterProfile() {
                     {/* ── Load Test Section ── */}
                     {(report.report_type === "load" || report.report_type === "auto_calibration" || report.report_type === "full_system") && report.load_off_current != null && (
                       <Grid item xs={12} md={6}>
-                        <SectionCard title="LOAD TEST RESULTS" accentColor="#FBBF24"
-                          icon={<PowerOutlined sx={{ color: "#FBBF24", fontSize: 20 }} />}>
+                        <SectionCard title="LOAD TEST RESULTS" accentColor={tk.amber}
+                          icon={<PowerOutlined sx={{ color: tk.amber, fontSize: 20 }} />}>
                           {/* Load OFF */}
-                          <Box sx={{ borderBottom: `1px solid ${colors.primary[600]}`, py: 0.8 }}>
-                            <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Box sx={{ borderBottom: `1px solid ${tk.border}`, py: 1, px: 1,
+                            "&:hover": { backgroundColor: tk.rowHover } }}>
+                            <Box display="grid" gridTemplateColumns="1fr auto" alignItems="center">
                               <Box display="flex" alignItems="center" gap={1}>
-                                <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: report.load_off_passed ? "#4ADE80" : "#F87171" }} />
-                                <Typography color={colors.grey[300]} fontSize="0.78rem" fontWeight={600}>Load OFF State</Typography>
+                                <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: report.load_off_passed ? tk.pass : tk.fail,
+                                  boxShadow: `0 0 6px ${report.load_off_passed ? tk.pass : tk.fail}40` }} />
+                                <Typography color={colors.grey[200]} fontSize={fs.md} fontWeight={600}>Load OFF State</Typography>
                               </Box>
                               <PassFailChip passed={report.load_off_passed} />
                             </Box>
-                            <Box ml={2.3} mt={0.3}>
-                              <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                Current: <span style={{color: report.load_off_passed ? "#4ADE80" : "#F87171"}}>{Number(report.load_off_current).toFixed(3)} A</span>
-                                <span style={{color: colors.grey[500]}}> (threshold: &lt; 0.2A)</span>
+                            <Box ml={2.3} mt={0.4}>
+                              <Typography color={tk.textMuted} fontSize={fs.sm}>
+                                Current: <span style={{color: report.load_off_passed ? tk.pass : tk.fail, fontWeight: 600}}>{Number(report.load_off_current).toFixed(3)} A</span>
+                                <span style={{color: tk.textDim}}> (threshold: &lt; 0.2A)</span>
                               </Typography>
                             </Box>
                           </Box>
                           {/* Load ON */}
-                          <Box sx={{ py: 0.8 }}>
-                            <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Box sx={{ py: 1, px: 1, "&:hover": { backgroundColor: tk.rowHover } }}>
+                            <Box display="grid" gridTemplateColumns="1fr auto" alignItems="center">
                               <Box display="flex" alignItems="center" gap={1}>
-                                <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: report.load_on_passed ? "#4ADE80" : "#F87171" }} />
-                                <Typography color={colors.grey[300]} fontSize="0.78rem" fontWeight={600}>Load ON State</Typography>
+                                <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: report.load_on_passed ? tk.pass : tk.fail,
+                                  boxShadow: `0 0 6px ${report.load_on_passed ? tk.pass : tk.fail}40` }} />
+                                <Typography color={colors.grey[200]} fontSize={fs.md} fontWeight={600}>Load ON State</Typography>
                               </Box>
                               <PassFailChip passed={report.load_on_passed} />
                             </Box>
-                            <Box ml={2.3} mt={0.3}>
-                              <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                Current: <span style={{color: report.load_on_passed ? "#4ADE80" : "#F87171"}}>{Number(report.load_on_current).toFixed(3)} A</span>
-                                <span style={{color: colors.grey[500]}}> (threshold: &gt; 0.5A)</span>
+                            <Box ml={2.3} mt={0.4}>
+                              <Typography color={tk.textMuted} fontSize={fs.sm}>
+                                Current: <span style={{color: report.load_on_passed ? tk.pass : tk.fail, fontWeight: 600}}>{Number(report.load_on_current).toFixed(3)} A</span>
+                                <span style={{color: tk.textDim}}> (threshold: &gt; 0.5A)</span>
                               </Typography>
                             </Box>
                           </Box>
                           {/* System Verification */}
-                          <Box mt={1} sx={{ backgroundColor: colors.primary[600], borderRadius: 1, p: 1.2 }}>
-                            <Typography color={colors.grey[300]} fontSize="0.7rem" fontWeight={600} mb={0.5}>SYSTEM VERIFICATION</Typography>
+                          <Box mt={1.2} sx={{ backgroundColor: tk.innerBg, borderRadius: "6px", p: 1.4, border: `1px solid ${tk.border}` }}>
+                            <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={0.5} letterSpacing="0.3px">SYSTEM VERIFICATION</Typography>
                             {[
                               { l: "Relay Control", ok: report.load_off_passed && report.load_on_passed },
                               { l: "Load Isolation", ok: report.load_off_passed },
                               { l: "Current Measurement", ok: true },
                               { l: "Safety Function", ok: report.load_off_passed },
                             ].map(s => (
-                              <Box key={s.l} display="flex" justifyContent="space-between" py={0.2}>
-                                <Typography color={colors.grey[400]} fontSize="0.72rem">{s.l}</Typography>
-                                <Typography color={s.ok ? "#4ADE80" : "#F87171"} fontSize="0.72rem" fontWeight={600}>{s.ok ? "WORKING" : "ISSUE"}</Typography>
+                              <Box key={s.l} display="grid" gridTemplateColumns="1fr auto" alignItems="center" py={0.3}
+                                sx={{ "&:hover": { backgroundColor: tk.rowHover }, px: 0.5, borderRadius: "4px" }}>
+                                <Box display="flex" alignItems="center" gap={0.6}>
+                                  {s.ok ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 13 }} /> : <CancelOutlined sx={{ color: tk.fail, fontSize: 13 }} />}
+                                  <Typography color={tk.textMuted} fontSize={fs.sm}>{s.l}</Typography>
+                                </Box>
+                                <Typography color={s.ok ? tk.pass : tk.fail} fontSize={fs.sm} fontWeight={600}>{s.ok ? "WORKING" : "ISSUE"}</Typography>
                               </Box>
                             ))}
                           </Box>
                           {(report.attempts != null || report.sample_count != null) && (
-                            <Box mt={1} display="flex" gap={2}>
-                              {report.attempts != null && <Typography color={colors.grey[400]} fontSize="0.72rem">Attempts: <span style={{color:"#E2E8F0"}}>{report.attempts} / 5</span></Typography>}
-                              {report.sample_count != null && <Typography color={colors.grey[400]} fontSize="0.72rem">Samples: <span style={{color:"#E2E8F0"}}>{report.sample_count}</span></Typography>}
+                            <Box mt={1.2} display="flex" gap={2.5} px={0.5}>
+                              {report.attempts != null && <Typography color={tk.textMuted} fontSize={fs.sm}>Attempts: <span style={{color: tk.text, fontWeight: 600}}>{report.attempts} / 5</span></Typography>}
+                              {report.sample_count != null && <Typography color={tk.textMuted} fontSize={fs.sm}>Samples: <span style={{color: tk.text, fontWeight: 600}}>{report.sample_count}</span></Typography>}
                             </Box>
                           )}
                         </SectionCard>
@@ -2791,29 +2890,38 @@ export default function MeterProfile() {
                     {/* ── API Test Section ── */}
                     {(report.report_type === "api" || report.report_type === "full_system") && report.api_tests_total != null && (
                       <Grid item xs={12} md={6}>
-                        <SectionCard title="API TEST RESULTS" accentColor="#818CF8"
-                          icon={<TuneOutlined sx={{ color: "#818CF8", fontSize: 20 }} />}>
-                          <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                            <Typography color={colors.grey[300]} fontSize="0.85rem" fontWeight={600}>
+                        <SectionCard title="API TEST RESULTS" accentColor={tk.purple}
+                          icon={<TuneOutlined sx={{ color: tk.purple, fontSize: 20 }} />}>
+                          <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.2} px={0.5}>
+                            <Typography color={colors.grey[200]} fontSize={fs.sub} fontWeight={600}>
                               Endpoints Tested
                             </Typography>
                             <Chip label={`${report.api_tests_passed} / ${report.api_tests_total} Passed`} size="small"
-                              sx={{ backgroundColor: report.api_tests_passed === report.api_tests_total ? "rgba(76,206,172,0.2)" : "rgba(219,79,74,0.2)",
-                                color: report.api_tests_passed === report.api_tests_total ? "#4ADE80" : "#F87171", fontWeight: 700 }} />
+                              sx={{ backgroundColor: report.api_tests_passed === report.api_tests_total ? tk.passBg : tk.failBg,
+                                color: report.api_tests_passed === report.api_tests_total ? tk.pass : tk.fail, fontWeight: 700, fontSize: fs.sm,
+                                border: `1px solid ${report.api_tests_passed === report.api_tests_total ? tk.passBorder : tk.failBorder}` }} />
                           </Box>
                           {/* Progress bar */}
-                          <Box sx={{ position: "relative", height: 8, backgroundColor: colors.primary[600], borderRadius: 4, overflow: "hidden" }}>
-                            <Box sx={{ position: "absolute", left: 0, top: 0, height: "100%", borderRadius: 4,
+                          <Box sx={{ position: "relative", height: 6, backgroundColor: tk.innerBg, borderRadius: 3, overflow: "hidden", mx: 0.5 }}>
+                            <Box sx={{ position: "absolute", left: 0, top: 0, height: "100%", borderRadius: 3,
                               width: `${report.api_tests_total > 0 ? (report.api_tests_passed / report.api_tests_total) * 100 : 0}%`,
-                              backgroundColor: report.api_tests_passed === report.api_tests_total ? "#4ADE80" : "#FBBF24" }} />
+                              background: report.api_tests_passed === report.api_tests_total
+                                ? `linear-gradient(90deg, ${tk.pass}CC, ${tk.pass})`
+                                : `linear-gradient(90deg, ${tk.amber}CC, ${tk.amber})`,
+                              transition: "width 0.5s ease" }} />
                           </Box>
-                          <Box mt={1.5} sx={{ backgroundColor: colors.primary[600], borderRadius: 1, p: 1.2 }}>
-                            <Typography color={colors.grey[300]} fontSize="0.7rem" fontWeight={600} mb={0.3}>STATUS</Typography>
-                            <Typography color={report.api_tests_passed === report.api_tests_total ? "#4ADE80" : "#F87171"} fontSize="0.78rem" fontWeight={600}>
+                          <Box mt={1.5} sx={{ backgroundColor: tk.innerBg, borderRadius: "6px", p: 1.4, border: `1px solid ${tk.border}` }}>
+                            <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={0.3} letterSpacing="0.3px">STATUS</Typography>
+                            <Box display="flex" alignItems="center" gap={0.6}>
                               {report.api_tests_passed === report.api_tests_total
-                                ? "All API endpoints responding correctly"
-                                : `${report.api_tests_total - report.api_tests_passed} endpoint(s) failed - review meter connectivity`}
-                            </Typography>
+                                ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 16 }} />
+                                : <CancelOutlined sx={{ color: tk.fail, fontSize: 16 }} />}
+                              <Typography color={report.api_tests_passed === report.api_tests_total ? tk.pass : tk.fail} fontSize={fs.md} fontWeight={600}>
+                                {report.api_tests_passed === report.api_tests_total
+                                  ? "All API endpoints responding correctly"
+                                  : `${report.api_tests_total - report.api_tests_passed} endpoint(s) failed - review meter connectivity`}
+                              </Typography>
+                            </Box>
                           </Box>
                         </SectionCard>
                       </Grid>
@@ -2830,31 +2938,31 @@ export default function MeterProfile() {
                         if (!meas) return null;
                         return (
                           <Grid item xs={12}>
-                            <SectionCard title={title || "MEASUREMENT SAMPLE HISTORY"} accentColor="#818CF8"
-                              icon={<AssignmentOutlined sx={{ color: "#818CF8", fontSize: 20 }} />}>
+                            <SectionCard title={title || "MEASUREMENT SAMPLE HISTORY"} accentColor={tk.purple}
+                              icon={<AssignmentOutlined sx={{ color: tk.purple, fontSize: 20 }} />}>
                               {/* Sample Table */}
                               {meas.samples && meas.samples.length > 0 && (
                                 <>
-                                  <Typography color={colors.grey[300]} fontSize="0.72rem" fontWeight={600} mb={0.5}>Sample History</Typography>
-                                  <TableContainer sx={{ mb: 1.5 }}>
+                                  <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={0.8} letterSpacing="0.3px">Sample History</Typography>
+                                  <TableContainer sx={{ mb: 1.5, borderRadius: "6px", border: `1px solid ${tk.border}`, overflow: "hidden" }}>
                                     <Table size="small">
                                       <TableHead>
-                                        <TableRow>
+                                        <TableRow sx={{ backgroundColor: tk.innerBg }}>
                                           {["ID", "Voltage (V)", "V Error", "Current (A)", "I Error", "Power (W)", "P Error"].map(h => (
-                                            <TableCell key={h} sx={{ color: colors.grey[400], fontSize: "0.68rem", fontWeight: 600, py: 0.3, borderBottom: `1px solid ${colors.primary[600]}` }}>{h}</TableCell>
+                                            <TableCell key={h} sx={thSx}>{h}</TableCell>
                                           ))}
                                         </TableRow>
                                       </TableHead>
                                       <TableBody>
                                         {meas.samples.map((s, si) => (
-                                          <TableRow key={si} sx={{ "& td": { borderBottom: `1px solid ${colors.primary[600]}`, py: 0.2 } }}>
-                                            <TableCell sx={{ color: colors.grey[300], fontSize: "0.68rem" }}>A{s.attempt}-S{s.sample_number}</TableCell>
-                                            <TableCell sx={{ color: "#E2E8F0", fontSize: "0.68rem" }}>{Number(s.voltage).toFixed(1)}</TableCell>
-                                            <TableCell sx={{ color: Math.abs(s.voltage_error) <= 10 ? "#4ADE80" : "#F87171", fontSize: "0.68rem" }}>{Number(s.voltage_error).toFixed(1)}%</TableCell>
-                                            <TableCell sx={{ color: "#E2E8F0", fontSize: "0.68rem" }}>{Number(s.current).toFixed(3)}</TableCell>
-                                            <TableCell sx={{ color: Math.abs(s.current_error) <= 10 ? "#4ADE80" : "#F87171", fontSize: "0.68rem" }}>{Number(s.current_error).toFixed(1)}%</TableCell>
-                                            <TableCell sx={{ color: "#E2E8F0", fontSize: "0.68rem" }}>{Number(s.power).toFixed(0)}</TableCell>
-                                            <TableCell sx={{ color: Math.abs(s.power_error) <= 10 ? "#4ADE80" : "#F87171", fontSize: "0.68rem" }}>{Number(s.power_error).toFixed(1)}%</TableCell>
+                                          <TableRow key={si} sx={{ "&:hover": { backgroundColor: `${tk.rowHover} !important` } }}>
+                                            <TableCell sx={{ ...tdSx(si), color: colors.grey[300], fontWeight: 600 }}>A{s.attempt}-S{s.sample_number}</TableCell>
+                                            <TableCell sx={{ ...tdSx(si), color: tk.text }}>{Number(s.voltage).toFixed(1)}</TableCell>
+                                            <TableCell sx={{ ...tdSx(si), color: Math.abs(s.voltage_error) <= 10 ? tk.pass : tk.fail, fontWeight: 600 }}>{Number(s.voltage_error).toFixed(1)}%</TableCell>
+                                            <TableCell sx={{ ...tdSx(si), color: tk.text }}>{Number(s.current).toFixed(3)}</TableCell>
+                                            <TableCell sx={{ ...tdSx(si), color: Math.abs(s.current_error) <= 10 ? tk.pass : tk.fail, fontWeight: 600 }}>{Number(s.current_error).toFixed(1)}%</TableCell>
+                                            <TableCell sx={{ ...tdSx(si), color: tk.text }}>{Number(s.power).toFixed(0)}</TableCell>
+                                            <TableCell sx={{ ...tdSx(si), color: Math.abs(s.power_error) <= 10 ? tk.pass : tk.fail, fontWeight: 600 }}>{Number(s.power_error).toFixed(1)}%</TableCell>
                                           </TableRow>
                                         ))}
                                       </TableBody>
@@ -2862,23 +2970,47 @@ export default function MeterProfile() {
                                   </TableContainer>
                                 </>
                               )}
-                              {/* Statistical Analysis */}
+                              {/* Statistical Analysis - Grid layout */}
                               {meas.statistics && (
-                                <Box sx={{ backgroundColor: colors.primary[600], borderRadius: 1, p: 1.2 }}>
-                                  <Typography color={colors.grey[300]} fontSize="0.7rem" fontWeight={600} mb={0.5}>STATISTICAL ANALYSIS</Typography>
-                                  {[
-                                    { l: "Voltage", avg: meas.statistics.voltage_avg ?? meas.voltage_error, max: meas.statistics.voltage_max, min: meas.statistics.voltage_min, sd: meas.statistics.voltage_stddev },
-                                    { l: "Current", avg: meas.statistics.current_avg ?? meas.current_error, max: meas.statistics.current_max, min: meas.statistics.current_min, sd: meas.statistics.current_stddev },
-                                    { l: "Power", avg: meas.statistics.power_avg ?? meas.power_error, max: meas.statistics.power_max, min: meas.statistics.power_min, sd: meas.statistics.power_stddev },
-                                  ].map(row => (
-                                    <Box key={row.l} display="flex" justifyContent="space-between" py={0.2} flexWrap="wrap" gap={1}>
-                                      <Typography color="#E2E8F0" fontSize="0.72rem" fontWeight={600} minWidth={60}>{row.l}</Typography>
-                                      <Typography color={colors.grey[400]} fontSize="0.68rem">Avg: <span style={{color:"#E2E8F0"}}>{row.avg != null ? Number(row.avg).toFixed(1) : "-"}%</span></Typography>
-                                      <Typography color={colors.grey[400]} fontSize="0.68rem">Max: <span style={{color:"#E2E8F0"}}>{row.max != null ? Number(row.max).toFixed(1) : "-"}%</span></Typography>
-                                      <Typography color={colors.grey[400]} fontSize="0.68rem">Min: <span style={{color:"#E2E8F0"}}>{row.min != null ? Number(row.min).toFixed(1) : "-"}%</span></Typography>
-                                      <Typography color={colors.grey[400]} fontSize="0.68rem">{"\u03C3"}: <span style={{color:"#E2E8F0"}}>{row.sd != null ? Number(row.sd).toFixed(1) : "-"}%</span></Typography>
-                                    </Box>
-                                  ))}
+                                <Box sx={{ backgroundColor: tk.innerBg, borderRadius: "6px", p: 1.4, border: `1px solid ${tk.border}` }}>
+                                  <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={1} letterSpacing="0.3px">STATISTICAL ANALYSIS</Typography>
+                                  <Box display="grid" gridTemplateColumns="auto repeat(4, 1fr)" gap={0.5} alignItems="center">
+                                    {/* Header row */}
+                                    <Typography color={tk.textDim} fontSize={fs.sm} fontWeight={700} px={0.5}></Typography>
+                                    <Typography color={tk.textDim} fontSize={fs.sm} fontWeight={700} textAlign="center">Avg</Typography>
+                                    <Typography color={tk.textDim} fontSize={fs.sm} fontWeight={700} textAlign="center">Max</Typography>
+                                    <Typography color={tk.textDim} fontSize={fs.sm} fontWeight={700} textAlign="center">Min</Typography>
+                                    <Typography color={tk.textDim} fontSize={fs.sm} fontWeight={700} textAlign="center">{"\u03C3"}</Typography>
+                                    {/* Data rows */}
+                                    {[
+                                      { l: "Voltage", avg: meas.statistics.voltage_avg ?? meas.voltage_error, max: meas.statistics.voltage_max, min: meas.statistics.voltage_min, sd: meas.statistics.voltage_stddev },
+                                      { l: "Current", avg: meas.statistics.current_avg ?? meas.current_error, max: meas.statistics.current_max, min: meas.statistics.current_min, sd: meas.statistics.current_stddev },
+                                      { l: "Power", avg: meas.statistics.power_avg ?? meas.power_error, max: meas.statistics.power_max, min: meas.statistics.power_min, sd: meas.statistics.power_stddev },
+                                    ].map((row, ri) => (
+                                      <React.Fragment key={row.l}>
+                                        <Typography color={tk.text} fontSize={fs.sm} fontWeight={600} px={0.5}
+                                          sx={{ py: 0.4, backgroundColor: ri % 2 === 1 ? tk.rowAlt : "transparent", borderRadius: "4px 0 0 4px" }}>
+                                          {row.l}
+                                        </Typography>
+                                        <Typography color={tk.text} fontSize={fs.sm} textAlign="center"
+                                          sx={{ py: 0.4, backgroundColor: ri % 2 === 1 ? tk.rowAlt : "transparent" }}>
+                                          {row.avg != null ? Number(row.avg).toFixed(1) : "-"}%
+                                        </Typography>
+                                        <Typography color={tk.text} fontSize={fs.sm} textAlign="center"
+                                          sx={{ py: 0.4, backgroundColor: ri % 2 === 1 ? tk.rowAlt : "transparent" }}>
+                                          {row.max != null ? Number(row.max).toFixed(1) : "-"}%
+                                        </Typography>
+                                        <Typography color={tk.text} fontSize={fs.sm} textAlign="center"
+                                          sx={{ py: 0.4, backgroundColor: ri % 2 === 1 ? tk.rowAlt : "transparent" }}>
+                                          {row.min != null ? Number(row.min).toFixed(1) : "-"}%
+                                        </Typography>
+                                        <Typography color={tk.text} fontSize={fs.sm} textAlign="center"
+                                          sx={{ py: 0.4, backgroundColor: ri % 2 === 1 ? tk.rowAlt : "transparent", borderRadius: "0 4px 4px 0" }}>
+                                          {row.sd != null ? Number(row.sd).toFixed(1) : "-"}%
+                                        </Typography>
+                                      </React.Fragment>
+                                    ))}
+                                  </Box>
                                 </Box>
                               )}
                             </SectionCard>
@@ -2905,53 +3037,70 @@ export default function MeterProfile() {
 
                         return (
                           <Grid item xs={12}>
-                            <SectionCard title={title || "LOAD TEST DETAIL"} accentColor="#FBBF24"
-                              icon={<PowerOutlined sx={{ color: "#FBBF24", fontSize: 20 }} />}>
+                            <SectionCard title={title || "LOAD TEST DETAIL"} accentColor={tk.amber}
+                              icon={<PowerOutlined sx={{ color: tk.amber, fontSize: 20 }} />}>
                               {/* Load Test Cycles */}
                               {cycles.length > 0 && (
                                 <>
-                                  <Typography color={colors.grey[300]} fontSize="0.72rem" fontWeight={600} mb={0.5}>Load Test Cycles</Typography>
+                                  <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={0.8} letterSpacing="0.3px">Load Test Cycles</Typography>
                                   {cycles.map((c, ci) => (
-                                    <Box key={ci} sx={{ mb: 1.2 }}>
+                                    <Box key={ci} sx={{ mb: 1.5, borderRadius: "6px", border: `1px solid ${tk.border}`, overflow: "hidden" }}>
                                       {/* OFF row */}
-                                      <Box display="flex" alignItems="center" gap={1} py={0.3} sx={{ borderBottom: `1px solid ${colors.primary[600]}` }}>
-                                        <Box sx={{ width: 18, textAlign: "center" }}>
-                                          {c.off_passed ? <span style={{color:"#4ADE80"}}>&#10003;</span> : <span style={{color:"#F87171"}}>&#10007;</span>}
+                                      <Box display="grid" gridTemplateColumns="24px 1fr auto" alignItems="center" gap={1} py={0.6} px={1.2}
+                                        sx={{ backgroundColor: tk.innerBg, borderBottom: `1px solid ${tk.border}` }}>
+                                        <Box sx={{ display: "flex", justifyContent: "center" }}>
+                                          {c.off_passed ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 16 }} /> : <CancelOutlined sx={{ color: tk.fail, fontSize: 16 }} />}
                                         </Box>
-                                        <Typography color="#E2E8F0" fontSize="0.75rem" fontWeight={600} flex={1}>
+                                        <Typography color={tk.text} fontSize={fs.md} fontWeight={600}>
                                           Attempt {c.attempt} &mdash; OFF
                                         </Typography>
-                                        <Typography color={c.off_passed ? "#4ADE80" : "#F87171"} fontSize="0.72rem" fontWeight={700}>
+                                        <Typography color={c.off_passed ? tk.pass : tk.fail} fontSize={fs.sm} fontWeight={700}>
                                           {c.off_passed ? "PASS" : "FAIL"}
                                         </Typography>
                                       </Box>
-                                      <Box pl={3.5} pb={0.5}>
-                                        <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                          V: <span style={{color:"#E2E8F0"}}>{Number(c.off_voltage).toFixed(1)} V</span>
-                                          {"   "}I: <span style={{color:"#E2E8F0"}}>{Number(c.off_current).toFixed(3)} A</span>
-                                          {"   "}P: <span style={{color:"#E2E8F0"}}>{Number(c.off_power).toFixed(0)} W</span>
-                                        </Typography>
+                                      <Box px={1.2} py={0.6} display="grid" gridTemplateColumns="repeat(3, 1fr)" gap={1}
+                                        sx={{ borderBottom: c.on_current > 0 ? `1px solid ${tk.border}` : "none" }}>
+                                        <Box>
+                                          <Typography color={tk.textMuted} fontSize={fs.sm}>Voltage</Typography>
+                                          <Typography color={tk.text} fontSize={fs.md} fontWeight={500}>{Number(c.off_voltage).toFixed(1)} V</Typography>
+                                        </Box>
+                                        <Box>
+                                          <Typography color={tk.textMuted} fontSize={fs.sm}>Current</Typography>
+                                          <Typography color={tk.text} fontSize={fs.md} fontWeight={500}>{Number(c.off_current).toFixed(3)} A</Typography>
+                                        </Box>
+                                        <Box>
+                                          <Typography color={tk.textMuted} fontSize={fs.sm}>Power</Typography>
+                                          <Typography color={tk.text} fontSize={fs.md} fontWeight={500}>{Number(c.off_power).toFixed(0)} W</Typography>
+                                        </Box>
                                       </Box>
                                       {/* ON row */}
                                       {c.on_current > 0 && (
                                         <>
-                                          <Box display="flex" alignItems="center" gap={1} py={0.3} sx={{ borderBottom: `1px solid ${colors.primary[600]}` }}>
-                                            <Box sx={{ width: 18, textAlign: "center" }}>
-                                              {c.on_passed ? <span style={{color:"#4ADE80"}}>&#10003;</span> : <span style={{color:"#F87171"}}>&#10007;</span>}
+                                          <Box display="grid" gridTemplateColumns="24px 1fr auto" alignItems="center" gap={1} py={0.6} px={1.2}
+                                            sx={{ backgroundColor: tk.innerBg, borderBottom: `1px solid ${tk.border}` }}>
+                                            <Box sx={{ display: "flex", justifyContent: "center" }}>
+                                              {c.on_passed ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 16 }} /> : <CancelOutlined sx={{ color: tk.fail, fontSize: 16 }} />}
                                             </Box>
-                                            <Typography color="#E2E8F0" fontSize="0.75rem" fontWeight={600} flex={1}>
+                                            <Typography color={tk.text} fontSize={fs.md} fontWeight={600}>
                                               Attempt {c.attempt} &mdash; ON
                                             </Typography>
-                                            <Typography color={c.on_passed ? "#4ADE80" : "#F87171"} fontSize="0.72rem" fontWeight={700}>
+                                            <Typography color={c.on_passed ? tk.pass : tk.fail} fontSize={fs.sm} fontWeight={700}>
                                               {c.on_passed ? "PASS" : "FAIL"}
                                             </Typography>
                                           </Box>
-                                          <Box pl={3.5} pb={0.5}>
-                                            <Typography color={colors.grey[400]} fontSize="0.72rem">
-                                              V: <span style={{color:"#E2E8F0"}}>{Number(c.on_voltage).toFixed(1)} V</span>
-                                              {"   "}I: <span style={{color:"#E2E8F0"}}>{Number(c.on_current).toFixed(3)} A</span>
-                                              {"   "}P: <span style={{color:"#E2E8F0"}}>{Number(c.on_power).toFixed(0)} W</span>
-                                            </Typography>
+                                          <Box px={1.2} py={0.6} display="grid" gridTemplateColumns="repeat(3, 1fr)" gap={1}>
+                                            <Box>
+                                              <Typography color={tk.textMuted} fontSize={fs.sm}>Voltage</Typography>
+                                              <Typography color={tk.text} fontSize={fs.md} fontWeight={500}>{Number(c.on_voltage).toFixed(1)} V</Typography>
+                                            </Box>
+                                            <Box>
+                                              <Typography color={tk.textMuted} fontSize={fs.sm}>Current</Typography>
+                                              <Typography color={tk.text} fontSize={fs.md} fontWeight={500}>{Number(c.on_current).toFixed(3)} A</Typography>
+                                            </Box>
+                                            <Box>
+                                              <Typography color={tk.textMuted} fontSize={fs.sm}>Power</Typography>
+                                              <Typography color={tk.text} fontSize={fs.md} fontWeight={500}>{Number(c.on_power).toFixed(0)} W</Typography>
+                                            </Box>
                                           </Box>
                                         </>
                                       )}
@@ -2963,26 +3112,31 @@ export default function MeterProfile() {
                               {/* Sample Measurements Table */}
                               {allSamples.length > 0 && (
                                 <>
-                                  <Divider sx={{ my: 1.5, borderColor: colors.primary[600] }} />
-                                  <Typography color={colors.grey[300]} fontSize="0.72rem" fontWeight={600} mb={0.5}>Sample Measurements</Typography>
-                                  <TableContainer sx={{ mb: 1.5 }}>
+                                  <Divider sx={{ my: 1.5, borderColor: tk.border }} />
+                                  <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={0.8} letterSpacing="0.3px">Sample Measurements</Typography>
+                                  <TableContainer sx={{ mb: 1.5, borderRadius: "6px", border: `1px solid ${tk.border}`, overflow: "hidden" }}>
                                     <Table size="small">
                                       <TableHead>
-                                        <TableRow>
+                                        <TableRow sx={{ backgroundColor: tk.innerBg }}>
                                           {["Attempt", "State", "Sample", "Voltage (V)", "Current (A)", "Power (W)"].map(h => (
-                                            <TableCell key={h} sx={{ color: colors.grey[400], fontSize: "0.68rem", fontWeight: 600, py: 0.3, borderBottom: `1px solid ${colors.primary[600]}` }}>{h}</TableCell>
+                                            <TableCell key={h} sx={thSx}>{h}</TableCell>
                                           ))}
                                         </TableRow>
                                       </TableHead>
                                       <TableBody>
                                         {allSamples.map((s, si) => (
-                                          <TableRow key={si} sx={{ "& td": { borderBottom: `1px solid ${colors.primary[600]}`, py: 0.2 } }}>
-                                            <TableCell sx={{ color: colors.grey[300], fontSize: "0.68rem" }}>A{s.attempt}</TableCell>
-                                            <TableCell sx={{ color: s.state === "ON" ? "#4ADE80" : "#60A5FA", fontSize: "0.68rem", fontWeight: 600 }}>{s.state}</TableCell>
-                                            <TableCell sx={{ color: colors.grey[300], fontSize: "0.68rem" }}>S{s.sample_number}</TableCell>
-                                            <TableCell sx={{ color: "#E2E8F0", fontSize: "0.68rem" }}>{Number(s.voltage).toFixed(1)}</TableCell>
-                                            <TableCell sx={{ color: "#E2E8F0", fontSize: "0.68rem" }}>{Number(s.current).toFixed(3)}</TableCell>
-                                            <TableCell sx={{ color: "#E2E8F0", fontSize: "0.68rem" }}>{Number(s.power).toFixed(0)}</TableCell>
+                                          <TableRow key={si} sx={{ "&:hover": { backgroundColor: `${tk.rowHover} !important` } }}>
+                                            <TableCell sx={{ ...tdSx(si), color: colors.grey[300], fontWeight: 600 }}>A{s.attempt}</TableCell>
+                                            <TableCell sx={{ ...tdSx(si) }}>
+                                              <Chip label={s.state} size="small" sx={{ height: 20, fontSize: fs.sm, fontWeight: 700,
+                                                backgroundColor: s.state === "ON" ? tk.passBg : tk.blueBg,
+                                                color: s.state === "ON" ? tk.pass : tk.blue,
+                                                border: `1px solid ${s.state === "ON" ? tk.passBorder : "rgba(96,165,250,0.3)"}` }} />
+                                            </TableCell>
+                                            <TableCell sx={{ ...tdSx(si), color: colors.grey[300] }}>S{s.sample_number}</TableCell>
+                                            <TableCell sx={{ ...tdSx(si), color: tk.text }}>{Number(s.voltage).toFixed(1)}</TableCell>
+                                            <TableCell sx={{ ...tdSx(si), color: tk.text }}>{Number(s.current).toFixed(3)}</TableCell>
+                                            <TableCell sx={{ ...tdSx(si), color: tk.text }}>{Number(s.power).toFixed(0)}</TableCell>
                                           </TableRow>
                                         ))}
                                       </TableBody>
@@ -2997,20 +3151,35 @@ export default function MeterProfile() {
                                 const hasStats = stats.avg_off_voltage != null || stats.avg_on_voltage != null;
                                 if (!hasStats) return null;
                                 return (
-                                  <Box sx={{ backgroundColor: colors.primary[600], borderRadius: 1, p: 1.2, mt: 1 }}>
-                                    <Typography color={colors.grey[300]} fontSize="0.7rem" fontWeight={600} mb={0.5}>LOAD TEST STATISTICS</Typography>
-                                    {[
-                                      { l: "Avg Voltage", off: stats.avg_off_voltage, on: stats.avg_on_voltage, u: "V", d: 1 },
-                                      { l: "Avg Current", off: stats.avg_off_current, on: stats.avg_on_current, u: "A", d: 3 },
-                                      { l: "Avg Power", off: stats.avg_off_power, on: stats.avg_on_power, u: "W", d: 0 },
-                                      { l: "Max Current", off: stats.max_off_current, on: stats.max_on_current, u: "A", d: 3 },
-                                    ].map(row => (
-                                      <Box key={row.l} display="flex" justifyContent="space-between" py={0.2}>
-                                        <Typography color="#E2E8F0" fontSize="0.72rem" fontWeight={600} flex={1}>{row.l}</Typography>
-                                        <Typography color="#60A5FA" fontSize="0.72rem" flex={1} textAlign="center">OFF: {row.off != null ? Number(row.off).toFixed(row.d) : "-"} {row.u}</Typography>
-                                        <Typography color="#4ADE80" fontSize="0.72rem" flex={1} textAlign="right">ON: {row.on != null ? Number(row.on).toFixed(row.d) : "-"} {row.u}</Typography>
-                                      </Box>
-                                    ))}
+                                  <Box sx={{ backgroundColor: tk.innerBg, borderRadius: "6px", p: 1.4, mt: 1.2, border: `1px solid ${tk.border}` }}>
+                                    <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={0.8} letterSpacing="0.3px">LOAD TEST STATISTICS</Typography>
+                                    <Box display="grid" gridTemplateColumns="auto 1fr 1fr" gap={0.5} alignItems="center">
+                                      {/* Header */}
+                                      <Typography color={tk.textDim} fontSize={fs.sm} fontWeight={700} px={0.5}></Typography>
+                                      <Typography color={tk.blue} fontSize={fs.sm} fontWeight={700} textAlign="center">OFF</Typography>
+                                      <Typography color={tk.pass} fontSize={fs.sm} fontWeight={700} textAlign="center">ON</Typography>
+                                      {[
+                                        { l: "Avg Voltage", off: stats.avg_off_voltage, on: stats.avg_on_voltage, u: "V", d: 1 },
+                                        { l: "Avg Current", off: stats.avg_off_current, on: stats.avg_on_current, u: "A", d: 3 },
+                                        { l: "Avg Power", off: stats.avg_off_power, on: stats.avg_on_power, u: "W", d: 0 },
+                                        { l: "Max Current", off: stats.max_off_current, on: stats.max_on_current, u: "A", d: 3 },
+                                      ].map((row, ri) => (
+                                        <React.Fragment key={row.l}>
+                                          <Typography color={tk.text} fontSize={fs.sm} fontWeight={600} px={0.5}
+                                            sx={{ py: 0.4, backgroundColor: ri % 2 === 1 ? tk.rowAlt : "transparent", borderRadius: "4px 0 0 4px" }}>
+                                            {row.l}
+                                          </Typography>
+                                          <Typography color={tk.blue} fontSize={fs.sm} textAlign="center"
+                                            sx={{ py: 0.4, backgroundColor: ri % 2 === 1 ? tk.rowAlt : "transparent" }}>
+                                            {row.off != null ? Number(row.off).toFixed(row.d) : "-"} {row.u}
+                                          </Typography>
+                                          <Typography color={tk.pass} fontSize={fs.sm} textAlign="center"
+                                            sx={{ py: 0.4, backgroundColor: ri % 2 === 1 ? tk.rowAlt : "transparent", borderRadius: "0 4px 4px 0" }}>
+                                            {row.on != null ? Number(row.on).toFixed(row.d) : "-"} {row.u}
+                                          </Typography>
+                                        </React.Fragment>
+                                      ))}
+                                    </Box>
                                   </Box>
                                 );
                               })()}
@@ -3021,23 +3190,29 @@ export default function MeterProfile() {
                                 const onCurrent = load.avg_on_current ?? load.statistics?.avg_on_current;
                                 if (offCurrent == null && onCurrent == null) return null;
                                 return (
-                                  <Box sx={{ backgroundColor: colors.primary[600], borderRadius: 1, p: 1.2, mt: 1 }}>
-                                    <Typography color={colors.grey[300]} fontSize="0.7rem" fontWeight={600} mb={0.5}>ANALYSIS</Typography>
+                                  <Box sx={{ backgroundColor: tk.innerBg, borderRadius: "6px", p: 1.4, mt: 1.2, border: `1px solid ${tk.border}` }}>
+                                    <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={0.5} letterSpacing="0.3px">ANALYSIS</Typography>
                                     {offCurrent != null && (
-                                      <Box display="flex" alignItems="center" gap={0.8} py={0.2}>
-                                        <span style={{color: offCurrent < 0.2 ? "#4ADE80" : "#F87171"}}>{offCurrent < 0.2 ? "\u2713" : "\u2717"}</span>
+                                      <Box display="flex" alignItems="center" gap={0.8} py={0.4} px={0.5}
+                                        sx={{ "&:hover": { backgroundColor: tk.rowHover }, borderRadius: "4px" }}>
+                                        {offCurrent < 0.2
+                                          ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 16 }} />
+                                          : <CancelOutlined sx={{ color: tk.fail, fontSize: 16 }} />}
                                         <Box>
-                                          <Typography color={offCurrent < 0.2 ? "#4ADE80" : "#F87171"} fontSize="0.72rem" fontWeight={600}>Load OFF</Typography>
-                                          <Typography color={colors.grey[400]} fontSize="0.68rem">Current {Number(offCurrent).toFixed(3)} A {offCurrent < 0.2 ? "<" : ">"} 0.2A threshold</Typography>
+                                          <Typography color={offCurrent < 0.2 ? tk.pass : tk.fail} fontSize={fs.sm} fontWeight={600}>Load OFF</Typography>
+                                          <Typography color={tk.textMuted} fontSize={fs.sm}>Current {Number(offCurrent).toFixed(3)} A {offCurrent < 0.2 ? "<" : ">"} 0.2A threshold</Typography>
                                         </Box>
                                       </Box>
                                     )}
                                     {onCurrent != null && (
-                                      <Box display="flex" alignItems="center" gap={0.8} py={0.2}>
-                                        <span style={{color: onCurrent > 0.5 ? "#4ADE80" : "#F87171"}}>{onCurrent > 0.5 ? "\u2713" : "\u2717"}</span>
+                                      <Box display="flex" alignItems="center" gap={0.8} py={0.4} px={0.5}
+                                        sx={{ "&:hover": { backgroundColor: tk.rowHover }, borderRadius: "4px" }}>
+                                        {onCurrent > 0.5
+                                          ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 16 }} />
+                                          : <CancelOutlined sx={{ color: tk.fail, fontSize: 16 }} />}
                                         <Box>
-                                          <Typography color={onCurrent > 0.5 ? "#4ADE80" : "#F87171"} fontSize="0.72rem" fontWeight={600}>Load ON</Typography>
-                                          <Typography color={colors.grey[400]} fontSize="0.68rem">Current {Number(onCurrent).toFixed(3)} A {onCurrent > 0.5 ? ">" : "<"} 0.5A threshold</Typography>
+                                          <Typography color={onCurrent > 0.5 ? tk.pass : tk.fail} fontSize={fs.sm} fontWeight={600}>Load ON</Typography>
+                                          <Typography color={tk.textMuted} fontSize={fs.sm}>Current {Number(onCurrent).toFixed(3)} A {onCurrent > 0.5 ? ">" : "<"} 0.5A threshold</Typography>
                                         </Box>
                                       </Box>
                                     )}
@@ -3047,8 +3222,8 @@ export default function MeterProfile() {
 
                               {/* System Verification */}
                               {sv && (
-                                <Box sx={{ backgroundColor: colors.primary[600], borderRadius: 1, p: 1.2, mt: 1 }}>
-                                  <Typography color={colors.grey[300]} fontSize="0.7rem" fontWeight={600} mb={0.5}>SYSTEM VERIFICATION</Typography>
+                                <Box sx={{ backgroundColor: tk.innerBg, borderRadius: "6px", p: 1.4, mt: 1.2, border: `1px solid ${tk.border}` }}>
+                                  <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={0.5} letterSpacing="0.3px">SYSTEM VERIFICATION</Typography>
                                   {[
                                     { l: "Relay Control", ok: sv.relay_control },
                                     { l: "Load Isolation", ok: sv.load_isolation },
@@ -3056,9 +3231,13 @@ export default function MeterProfile() {
                                     { l: "BLE Communication", ok: sv.ble_communication },
                                     { l: "Safety Function", ok: sv.safety_function },
                                   ].map(s => (
-                                    <Box key={s.l} display="flex" justifyContent="space-between" py={0.2}>
-                                      <Typography color={colors.grey[400]} fontSize="0.72rem">{s.l}</Typography>
-                                      <Typography color={s.ok ? "#4ADE80" : "#F87171"} fontSize="0.72rem" fontWeight={600}>{s.ok ? "WORKING" : "ISSUE"}</Typography>
+                                    <Box key={s.l} display="grid" gridTemplateColumns="1fr auto" alignItems="center" py={0.3}
+                                      sx={{ "&:hover": { backgroundColor: tk.rowHover }, px: 0.5, borderRadius: "4px" }}>
+                                      <Box display="flex" alignItems="center" gap={0.6}>
+                                        {s.ok ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 13 }} /> : <CancelOutlined sx={{ color: tk.fail, fontSize: 13 }} />}
+                                        <Typography color={tk.textMuted} fontSize={fs.sm}>{s.l}</Typography>
+                                      </Box>
+                                      <Typography color={s.ok ? tk.pass : tk.fail} fontSize={fs.sm} fontWeight={600}>{s.ok ? "WORKING" : "ISSUE"}</Typography>
                                     </Box>
                                   ))}
                                 </Box>
@@ -3075,32 +3254,33 @@ export default function MeterProfile() {
                         if (endpoints.length === 0) return null;
                         return (
                           <Grid item xs={12} md={6}>
-                            <SectionCard title={title || "API ENDPOINT RESULTS"} accentColor="#818CF8"
-                              icon={<TuneOutlined sx={{ color: "#818CF8", fontSize: 20 }} />}>
-                              <TableContainer>
+                            <SectionCard title={title || "API ENDPOINT RESULTS"} accentColor={tk.purple}
+                              icon={<TuneOutlined sx={{ color: tk.purple, fontSize: 20 }} />}>
+                              <TableContainer sx={{ borderRadius: "6px", border: `1px solid ${tk.border}`, overflow: "hidden" }}>
                                 <Table size="small">
                                   <TableHead>
-                                    <TableRow>
+                                    <TableRow sx={{ backgroundColor: tk.innerBg }}>
                                       {["", "Endpoint", "Status", "Response Time"].map(h => (
-                                        <TableCell key={h} sx={{ color: colors.grey[400], fontSize: "0.68rem", fontWeight: 600, py: 0.3, borderBottom: `1px solid ${colors.primary[600]}` }}>{h}</TableCell>
+                                        <TableCell key={h} sx={thSx}>{h}</TableCell>
                                       ))}
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
                                     {endpoints.map((t, ti) => (
-                                      <TableRow key={ti} sx={{ "& td": { borderBottom: `1px solid ${colors.primary[600]}`, py: 0.3 } }}>
-                                        <TableCell sx={{ width: 24 }}>
+                                      <TableRow key={ti} sx={{ "&:hover": { backgroundColor: `${tk.rowHover} !important` } }}>
+                                        <TableCell sx={{ ...tdSx(ti), width: 28 }}>
                                           {t.passed
-                                            ? <CheckCircleOutlined sx={{ color: "#4ADE80", fontSize: 16 }} />
-                                            : <CancelOutlined sx={{ color: "#F87171", fontSize: 16 }} />}
+                                            ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 16 }} />
+                                            : <CancelOutlined sx={{ color: tk.fail, fontSize: 16 }} />}
                                         </TableCell>
-                                        <TableCell sx={{ color: "#E2E8F0", fontSize: "0.75rem", fontWeight: 600 }}>{t.name}</TableCell>
-                                        <TableCell>
+                                        <TableCell sx={{ ...tdSx(ti), color: tk.text, fontWeight: 600, fontSize: fs.md }}>{t.name}</TableCell>
+                                        <TableCell sx={tdSx(ti)}>
                                           <Chip label={t.passed ? "PASSED" : "FAILED"} size="small"
-                                            sx={{ backgroundColor: t.passed ? "rgba(76,206,172,0.2)" : "rgba(219,79,74,0.2)",
-                                              color: t.passed ? "#4ADE80" : "#F87171", fontWeight: 700, fontSize: "0.68rem", height: 22 }} />
+                                            sx={{ backgroundColor: t.passed ? tk.passBg : tk.failBg,
+                                              color: t.passed ? tk.pass : tk.fail, fontWeight: 700, fontSize: fs.sm, height: 22,
+                                              border: `1px solid ${t.passed ? tk.passBorder : tk.failBorder}` }} />
                                         </TableCell>
-                                        <TableCell sx={{ color: colors.grey[400], fontSize: "0.72rem" }}>
+                                        <TableCell sx={{ ...tdSx(ti), color: tk.textMuted }}>
                                           {t.response_time != null ? `${t.response_time}ms` : "-"}
                                         </TableCell>
                                       </TableRow>
@@ -3137,8 +3317,8 @@ export default function MeterProfile() {
                       <>
                         {/* Location & Installation */}
                         <Grid item xs={12} md={6}>
-                          <SectionCard title="LOCATION & INSTALLATION" accentColor="#4ADE80"
-                            icon={<MapOutlinedIcon sx={{ color: "#4ADE80", fontSize: 20 }} />}>
+                          <SectionCard title="LOCATION & INSTALLATION" accentColor={tk.pass}
+                            icon={<MapOutlinedIcon sx={{ color: tk.pass, fontSize: 20 }} />}>
                             {report.region && <DetailRow label="Region" value={report.region} />}
                             {report.sub_region && <DetailRow label="Sub-Region" value={report.sub_region} />}
                             {report.area && <DetailRow label="Area" value={report.area} />}
@@ -3153,8 +3333,8 @@ export default function MeterProfile() {
 
                         {/* Owner Information */}
                         <Grid item xs={12} md={6}>
-                          <SectionCard title="OWNER INFORMATION" accentColor="#F472B6"
-                            icon={<HomeOutlined sx={{ color: "#F472B6", fontSize: 20 }} />}>
+                          <SectionCard title="OWNER INFORMATION" accentColor={tk.pink}
+                            icon={<HomeOutlined sx={{ color: tk.pink, fontSize: 20 }} />}>
                             {report.owner_name && <DetailRow label="Name" value={`${report.owner_name} ${report.owner_surname || ""}`} />}
                             {report.owner_phone && <DetailRow label="Phone" value={report.owner_phone} />}
                             {report.owner_email && <DetailRow label="Email" value={report.owner_email} />}
@@ -3163,32 +3343,32 @@ export default function MeterProfile() {
 
                         {/* System Status */}
                         <Grid item xs={12} md={6}>
-                          <SectionCard title="SYSTEM STATUS" accentColor="#60A5FA"
-                            icon={<SpeedOutlined sx={{ color: "#60A5FA", fontSize: 20 }} />}>
+                          <SectionCard title="SYSTEM STATUS" accentColor={tk.blue}
+                            icon={<SpeedOutlined sx={{ color: tk.blue, fontSize: 20 }} />}>
                             {report.firmware_version && <DetailRow label="Firmware Version" value={`v${report.firmware_version}`} />}
                             {report.nextion_connected != null && (
                               <DetailRow label="Nextion Display" value={report.nextion_connected ? "Connected" : "Disconnected"}
-                                color={report.nextion_connected ? "#4ADE80" : "#F87171"} bold />
+                                color={report.nextion_connected ? tk.pass : tk.fail} bold />
                             )}
                             {report.gsm_registered != null && (
                               <DetailRow label="GSM Network" value={report.gsm_registered ? "Registered" : "Not Registered"}
-                                color={report.gsm_registered ? "#4ADE80" : "#F87171"} bold />
+                                color={report.gsm_registered ? tk.pass : tk.fail} bold />
                             )}
                             {/* Measurement summary if available */}
                             {report.voltage_measured != null && (
                               <>
                                 <DetailRow label="Voltage" value={`${Number(report.voltage_measured).toFixed(1)} V (${Number(report.voltage_error).toFixed(1)}%)`}
-                                  color={report.voltage_passed ? "#4ADE80" : "#F87171"} bold />
+                                  color={report.voltage_passed ? tk.pass : tk.fail} bold />
                                 <DetailRow label="Current" value={`${Number(report.current_measured).toFixed(3)} A (${Number(report.current_error).toFixed(1)}%)`}
-                                  color={report.current_passed ? "#4ADE80" : "#F87171"} bold />
+                                  color={report.current_passed ? tk.pass : tk.fail} bold />
                               </>
                             )}
                             {report.load_off_current != null && (
                               <>
                                 <DetailRow label="Load OFF Current" value={`${Number(report.load_off_current).toFixed(3)} A`}
-                                  color={report.load_off_passed ? "#4ADE80" : "#F87171"} bold />
+                                  color={report.load_off_passed ? tk.pass : tk.fail} bold />
                                 <DetailRow label="Load ON Current" value={`${Number(report.load_on_current).toFixed(3)} A`}
-                                  color={report.load_on_passed ? "#4ADE80" : "#F87171"} bold />
+                                  color={report.load_on_passed ? tk.pass : tk.fail} bold />
                               </>
                             )}
                           </SectionCard>
@@ -3196,32 +3376,48 @@ export default function MeterProfile() {
                       </>
                     )}
 
+                    {/* ── Divider before Recommendations ── */}
+                    <Grid item xs={12}>
+                      <Divider sx={{ borderColor: tk.border, my: 0.5 }} />
+                    </Grid>
+
                     {/* ── Recommendations Section ── */}
                     <Grid item xs={12}>
-                      <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 2, border: `1px solid ${colors.primary[600]}`, p: 2 }}>
-                        <Typography color={colors.grey[300]} fontSize="0.75rem" fontWeight={600} mb={0.8}>
-                          {report.overall_passed ? "RECOMMENDATIONS" : "ACTION REQUIRED"}
-                        </Typography>
+                      <Box sx={{ backgroundColor: tk.cardBg, borderRadius: "8px",
+                        border: `1px solid ${tk.border}`,
+                        borderLeft: `3px solid ${report.overall_passed ? tk.pass : tk.fail}`,
+                        boxShadow: tk.shadow, p: 2,
+                        background: report.overall_passed
+                          ? `linear-gradient(135deg, ${tk.passBg} 0%, ${tk.cardBg} 40%)`
+                          : `linear-gradient(135deg, ${tk.failBg} 0%, ${tk.cardBg} 40%)` }}>
+                        <Box display="flex" alignItems="center" gap={0.8} mb={1}>
+                          {report.overall_passed
+                            ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 18 }} />
+                            : <CancelOutlined sx={{ color: tk.fail, fontSize: 18 }} />}
+                          <Typography color={colors.grey[200]} fontSize={fs.sub} fontWeight={700} letterSpacing="0.3px">
+                            {report.overall_passed ? "RECOMMENDATIONS" : "ACTION REQUIRED"}
+                          </Typography>
+                        </Box>
                         {report.overall_passed ? (
-                          <Box display="flex" flexDirection="column" gap={0.3}>
-                            <Typography color="#4ADE80" fontSize="0.78rem">All {report.report_type === "full_system" ? "system " : ""}tests within acceptable limits</Typography>
+                          <Box display="flex" flexDirection="column" gap={0.5} pl={0.5}>
+                            <Typography color={tk.pass} fontSize={fs.md} fontWeight={600}>All {report.report_type === "full_system" ? "system " : ""}tests within acceptable limits</Typography>
                             {(report.report_type === "measurement" || report.report_type === "full_system") && (
-                              <Typography color={colors.grey[400]} fontSize="0.72rem">System calibration is accurate. No adjustments required.</Typography>
+                              <Typography color={tk.textMuted} fontSize={fs.sm}>System calibration is accurate. No adjustments required.</Typography>
                             )}
                             {(report.report_type === "load" || report.report_type === "full_system") && (
-                              <Typography color={colors.grey[400]} fontSize="0.72rem">Relay control and load isolation working correctly. Schedule next test in 6 months.</Typography>
+                              <Typography color={tk.textMuted} fontSize={fs.sm}>Relay control and load isolation working correctly. Schedule next test in 6 months.</Typography>
                             )}
                           </Box>
                         ) : (
-                          <Box display="flex" flexDirection="column" gap={0.3}>
-                            <Typography color="#F87171" fontSize="0.78rem">One or more tests failed. Review the following:</Typography>
-                            {report.voltage_passed === false && <Typography color={colors.grey[400]} fontSize="0.72rem">- Review voltage measurement setup and check calibration equipment</Typography>}
-                            {report.current_passed === false && <Typography color={colors.grey[400]} fontSize="0.72rem">- Verify current measurement sensor and expected reference values</Typography>}
-                            {report.power_passed === false && <Typography color={colors.grey[400]} fontSize="0.72rem">- Check power calculation — may indicate voltage or current sensor issues</Typography>}
-                            {report.load_off_passed === false && <Typography color={colors.grey[400]} fontSize="0.72rem">- Load isolation failed — physically inspect relay contacts and wiring</Typography>}
-                            {report.load_on_passed === false && <Typography color={colors.grey[400]} fontSize="0.72rem">- Load ON test failed — verify load wiring, check relay coil voltage, consider relay replacement</Typography>}
+                          <Box display="flex" flexDirection="column" gap={0.5} pl={0.5}>
+                            <Typography color={tk.fail} fontSize={fs.md} fontWeight={600}>One or more tests failed. Review the following:</Typography>
+                            {report.voltage_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Review voltage measurement setup and check calibration equipment</Typography>}
+                            {report.current_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Verify current measurement sensor and expected reference values</Typography>}
+                            {report.power_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Check power calculation — may indicate voltage or current sensor issues</Typography>}
+                            {report.load_off_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Load isolation failed — physically inspect relay contacts and wiring</Typography>}
+                            {report.load_on_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Load ON test failed — verify load wiring, check relay coil voltage, consider relay replacement</Typography>}
                             {report.api_tests_passed != null && report.api_tests_passed < report.api_tests_total && (
-                              <Typography color={colors.grey[400]} fontSize="0.72rem">- API endpoints not responding — check meter connectivity and firmware version</Typography>
+                              <Typography color={tk.textMuted} fontSize={fs.sm}>- API endpoints not responding — check meter connectivity and firmware version</Typography>
                             )}
                           </Box>
                         )}
@@ -3232,13 +3428,18 @@ export default function MeterProfile() {
               </Box>
             ))
           ) : (
-            <Box sx={{ backgroundColor: colors.primary[400], borderRadius: 2, p: 4, textAlign: "center" }}>
-              <AssignmentOutlined sx={{ fontSize: 48, color: "rgba(255,255,255,0.15)", mb: 1 }} />
-              <Typography color="rgba(255,255,255,0.35)" fontSize="0.9rem">
-                No commission reports found for this meter.
+            /* ── Empty State ── */
+            <Box sx={{ backgroundColor: tk.panelBg, borderRadius: "12px", p: 5, textAlign: "center",
+              border: `1px dashed ${tk.border}`, boxShadow: tk.shadow }}>
+              <Box sx={{ width: 64, height: 64, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center",
+                backgroundColor: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", mb: 2 }}>
+                <AssignmentOutlined sx={{ fontSize: 32, color: "rgba(255,255,255,0.18)" }} />
+              </Box>
+              <Typography color="rgba(255,255,255,0.45)" fontSize={fs.sub} fontWeight={600} mb={0.5}>
+                No Commission Reports Found
               </Typography>
-              <Typography color="rgba(255,255,255,0.2)" fontSize="0.78rem" mt={0.5}>
-                Run a commission test from the GRIDx Maintenance app to generate diagnostic reports.
+              <Typography color="rgba(255,255,255,0.25)" fontSize={fs.md} maxWidth={360} mx="auto">
+                Run a commission test from the GRIDx Maintenance app to generate diagnostic reports for this meter.
               </Typography>
             </Box>
           )}
