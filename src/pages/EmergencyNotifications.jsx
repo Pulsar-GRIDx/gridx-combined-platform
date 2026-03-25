@@ -8,10 +8,6 @@ import {
   Tooltip,
   Alert,
   LinearProgress,
-  Grid,
-  Card,
-  CardContent,
-  Avatar,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -29,13 +25,17 @@ import {
   Phone,
   LocationOn,
   Visibility,
-  TrendingUp,
   CheckCircle,
   PendingActions,
   AssignmentTurnedIn,
 } from "@mui/icons-material";
+import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
+import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
+import PendingActionsOutlinedIcon from "@mui/icons-material/PendingActionsOutlined";
+import LocalHospitalOutlinedIcon from "@mui/icons-material/LocalHospitalOutlined";
 import { Link, useNavigate } from "react-router-dom";
 import Header from "../components/Header";
+import StatBox from "../components/StatBox";
 import { emergencyAPI } from "../services/api";
 
 export default function EmergencyNotifications() {
@@ -74,11 +74,10 @@ export default function EmergencyNotifications() {
     const totalEmergencies = emergencyData.length;
     const attendedEmergencies = emergencyData.filter((item) => item.Responded === 1).length;
     const pendingEmergencies = totalEmergencies - attendedEmergencies;
-    const policeRequired = emergencyData.filter((item) => item.emergency_code === 0).length;
     const medicalEmergencies = emergencyData.filter((item) => item.emergency_code === 1).length;
-    const fireEmergencies = emergencyData.filter((item) => item.emergency_code === 2).length;
+    const responseRate = totalEmergencies > 0 ? attendedEmergencies / totalEmergencies : 0;
 
-    return { totalEmergencies, attendedEmergencies, pendingEmergencies, policeRequired, medicalEmergencies, fireEmergencies };
+    return { totalEmergencies, attendedEmergencies, pendingEmergencies, medicalEmergencies, responseRate };
   }, [emergencyData]);
 
   const fetchEmergencyNotifications = useCallback(async (isInitialLoad = false) => {
@@ -134,46 +133,6 @@ export default function EmergencyNotifications() {
       setSubmitting(false);
     }
   };
-
-  const StatCard = ({ title, value, subtitle, icon, color, trend }) => (
-    <Card
-      sx={{
-        height: "100%",
-        backgroundColor: colors.primary[400],
-        borderLeft: `4px solid ${color}`,
-        borderRadius: 0,
-        transition: "all 0.3s ease",
-        "&:hover": { transform: "translateY(-4px)", borderLeftWidth: "6px" },
-      }}
-    >
-      <CardContent>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Box>
-            <Typography variant="h6" color={colors.grey[300]} gutterBottom>
-              {title}
-            </Typography>
-            <Typography variant="h3" fontWeight="bold" color={colors.grey[100]}>
-              {value}
-            </Typography>
-            {subtitle && (
-              <Typography variant="body2" color={colors.grey[400]} mt={1}>
-                {subtitle}
-              </Typography>
-            )}
-            {trend && (
-              <Box display="flex" alignItems="center" mt={1}>
-                <TrendingUp fontSize="small" sx={{ color: colors.greenAccent[400], mr: 0.5 }} />
-                <Typography variant="body2" color={colors.greenAccent[400]}>
-                  {trend}
-                </Typography>
-              </Box>
-            )}
-          </Box>
-          <Avatar sx={{ bgcolor: color, width: 56, height: 56, borderRadius: 0 }}>{icon}</Avatar>
-        </Box>
-      </CardContent>
-    </Card>
-  );
 
   const columns = [
     {
@@ -315,103 +274,120 @@ export default function EmergencyNotifications() {
     <Box m="20px">
       <Header title="Emergency Notifications" subtitle="Critical emergency alerts from the meters" />
 
-      {/* Statistics Cards */}
+      {/* KPI Stat Cards - matching dashboard grid layout */}
       {!loading && !error && (
-        <Grid container spacing={3} mb={4}>
-          <Grid item xs={12} sm={6} md={2.4}>
-            <StatCard title="Total Emergencies" value={statistics.totalEmergencies} subtitle="All emergency types" icon={<Phone />} color={colors.yellowAccent[500]} trend="Active monitoring" />
-          </Grid>
-          <Grid item xs={12} sm={6} md={2.4}>
-            <StatCard title="Attended" value={statistics.attendedEmergencies} subtitle="Resolved incidents" icon={<CheckCircle />} color={colors.greenAccent[500]} trend="Completed" />
-          </Grid>
-          <Grid item xs={12} sm={6} md={2.4}>
-            <StatCard title="Pending" value={statistics.pendingEmergencies} subtitle="Awaiting response" icon={<PendingActions />} color={colors.redAccent[500]} trend="Requires attention" />
-          </Grid>
-          <Grid item xs={12} sm={6} md={2.4}>
-            <StatCard title="Medical" value={statistics.medicalEmergencies} subtitle="Health incidents" icon={<LocalHospital />} color={colors.redAccent[500]} trend="Critical priority" />
-          </Grid>
-          <Grid item xs={12} sm={6} md={2.4}>
-            <StatCard title="Fire/Police" value={statistics.fireEmergencies + statistics.policeRequired} subtitle="Security & Fire" icon={<FireTruck />} color={colors.blueAccent[500]} trend="High priority" />
-          </Grid>
-        </Grid>
+        <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="5px" mb="5px">
+          <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
+            <StatBox
+              title={String(statistics.totalEmergencies)}
+              subtitle="Total Emergencies"
+              progress={String(Math.min(statistics.totalEmergencies / 100, 1))}
+              increase="All types"
+              icon={<ReportProblemOutlinedIcon sx={{ color: colors.greenAccent[500], fontSize: "26px" }} />}
+              link="/emergency-notifications"
+            />
+          </Box>
+          <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
+            <StatBox
+              title={String(statistics.attendedEmergencies)}
+              subtitle="Attended"
+              progress={String(statistics.responseRate)}
+              increase="Resolved"
+              icon={<CheckCircleOutlinedIcon sx={{ color: colors.greenAccent[500], fontSize: "26px" }} />}
+              link="/emergency-notifications"
+            />
+          </Box>
+          <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
+            <StatBox
+              title={String(statistics.pendingEmergencies)}
+              subtitle="Pending"
+              progress={String(statistics.totalEmergencies > 0 ? statistics.pendingEmergencies / statistics.totalEmergencies : 0)}
+              increase="Needs attention"
+              icon={<PendingActionsOutlinedIcon sx={{ color: colors.greenAccent[500], fontSize: "26px" }} />}
+              link="/emergency-notifications"
+            />
+          </Box>
+          <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center">
+            <StatBox
+              title={String(statistics.medicalEmergencies)}
+              subtitle="Medical Alerts"
+              progress={String(statistics.totalEmergencies > 0 ? statistics.medicalEmergencies / statistics.totalEmergencies : 0)}
+              increase="Critical"
+              icon={<LocalHospitalOutlinedIcon sx={{ color: colors.greenAccent[500], fontSize: "26px" }} />}
+              link="/emergency-notifications"
+            />
+          </Box>
+        </Box>
       )}
 
-      <Box
-        sx={{
-          backgroundColor: colors.primary[400],
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
-        {loading && (
-          <Box sx={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0, 0, 0, 0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>
-            <Box textAlign="center">
-              <Typography variant="h5" color={colors.greenAccent[400]} mb={2}>Loading Emergency Notifications...</Typography>
-              <LinearProgress sx={{ width: 300, height: 8, backgroundColor: colors.grey[700], "& .MuiLinearProgress-bar": { backgroundColor: colors.greenAccent[500] } }} />
+      {/* Data Grid Section */}
+      <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gap="5px">
+        <Box gridColumn="span 12" backgroundColor={colors.primary[400]} p="20px" position="relative">
+          {loading && (
+            <Box sx={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(0, 0, 0, 0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>
+              <Box textAlign="center">
+                <Typography variant="h5" color={colors.greenAccent[400]} mb={2}>Loading Emergency Notifications...</Typography>
+                <LinearProgress sx={{ width: 300, height: 8, backgroundColor: colors.grey[700], "& .MuiLinearProgress-bar": { backgroundColor: colors.greenAccent[500] } }} />
+              </Box>
             </Box>
-          </Box>
-        )}
+          )}
 
-        {error && !loading && (
-          <Box p={3}>
+          {error && !loading && (
             <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
-          </Box>
-        )}
+          )}
 
-        {!loading && !error && (
-          <Box p={3}>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-              <Typography variant="h5" fontWeight="bold" color={colors.grey[100]}>
-                Emergency Response Dashboard ({emergencyData.length} active alerts)
-              </Typography>
-              {lastUpdated && (
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2" color={colors.grey[400]}>
-                    Last updated: {lastUpdated.toLocaleTimeString()}
-                  </Typography>
-                  <Box
-                    sx={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: "50%",
-                      backgroundColor: colors.greenAccent[500],
-                      animation: "pulse 2s infinite",
-                      "@keyframes pulse": { "0%": { opacity: 1 }, "50%": { opacity: 0.5 }, "100%": { opacity: 1 } },
-                    }}
-                  />
-                </Box>
-              )}
-            </Box>
+          {!loading && !error && (
+            <>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb="15px">
+                <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+                  Emergency Response Log ({emergencyData.length} alerts)
+                </Typography>
+                {lastUpdated && (
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Typography variant="body2" color={colors.grey[400]}>
+                      Updated: {lastUpdated.toLocaleTimeString()}
+                    </Typography>
+                    <Box
+                      sx={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        backgroundColor: colors.greenAccent[500],
+                        animation: "pulse 2s infinite",
+                        "@keyframes pulse": { "0%": { opacity: 1 }, "50%": { opacity: 0.5 }, "100%": { opacity: 1 } },
+                      }}
+                    />
+                  </Box>
+                )}
+              </Box>
 
-            <Box height="600px">
-              <DataGrid
-                rows={emergencyData}
-                columns={columns}
-                initialState={{
-                  pagination: { paginationModel: { pageSize: 15 } },
-                  sorting: { sortModel: [{ field: "date_time", sort: "desc" }] },
-                }}
-                pageSizeOptions={[15, 25, 50, 100]}
-                checkboxSelection
-                disableRowSelectionOnClick
-                sx={{
-                  backgroundColor: colors.primary[400],
-                  color: colors.primary[100],
-                  border: `1px solid ${colors.grey[600]}`,
-                  "& .MuiDataGrid-cell": { borderBottom: `1px solid ${colors.grey[700]}`, fontSize: "0.875rem", py: 1 },
-                  "& .MuiDataGrid-columnHeaders": { backgroundColor: colors.grey[800], borderBottom: `2px solid ${colors.blueAccent[500]}`, fontSize: "0.9rem", fontWeight: "bold" },
-                  "& .MuiDataGrid-virtualScroller": { backgroundColor: colors.primary[400] },
-                  "& .MuiDataGrid-footerContainer": { borderTop: `2px solid ${colors.grey[700]}`, backgroundColor: colors.grey[800] },
-                  "& .MuiCheckbox-root": { color: `${colors.greenAccent[300]} !important` },
-                  "& .MuiButton-root": { color: colors.primary[100] },
-                  "& .MuiDataGrid-row:hover": { backgroundColor: colors.grey[800] },
-                }}
-                slots={{ toolbar: GridToolbar }}
-                slotProps={{ toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 500 } } }}
-              />
-            </Box>
-          </Box>
-        )}
+              <Box height="600px">
+                <DataGrid
+                  rows={emergencyData}
+                  columns={columns}
+                  initialState={{
+                    pagination: { paginationModel: { pageSize: 15 } },
+                    sorting: { sortModel: [{ field: "date_time", sort: "desc" }] },
+                  }}
+                  pageSizeOptions={[15, 25, 50, 100]}
+                  checkboxSelection
+                  disableRowSelectionOnClick
+                  sx={{
+                    border: "none",
+                    "& .MuiDataGrid-cell": { borderBottom: `1px solid ${colors.grey[700]}` },
+                    "& .MuiDataGrid-columnHeaders": { backgroundColor: colors.blueAccent[700], borderBottom: "none" },
+                    "& .MuiDataGrid-virtualScroller": { backgroundColor: colors.primary[400] },
+                    "& .MuiDataGrid-footerContainer": { borderTop: "none", backgroundColor: colors.blueAccent[700] },
+                    "& .MuiCheckbox-root": { color: `${colors.greenAccent[200]} !important` },
+                    "& .MuiDataGrid-toolbarContainer .MuiButton-text": { color: `${colors.grey[100]} !important` },
+                  }}
+                  slots={{ toolbar: GridToolbar }}
+                  slotProps={{ toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 500 } } }}
+                />
+              </Box>
+            </>
+          )}
+        </Box>
       </Box>
 
       {/* Response Dialog */}
