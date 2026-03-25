@@ -484,11 +484,11 @@ export default function Vending() {
                 <TableBody>
                   {[
                     { label: "Amount Tendered", value: fmtN$(breakdown.amountTendered), color: colors.grey[100] },
-                    { label: `VAT (${tariffConfig.vatRate}%)`, value: `-${fmtN$(breakdown.vatAmount)}`, color: colors.redAccent[500] },
+                    { label: `VAT (${tariffConfigData.vatRate}%)`, value: `-${fmtN$(breakdown.vatAmount)}`, color: colors.redAccent[500] },
                     { label: "Fixed Charge", value: `-${fmtN$(breakdown.fixedCharge)}`, color: colors.redAccent[500] },
                     { label: "REL Levy", value: `-${fmtN$(breakdown.relLevy)}`, color: colors.redAccent[500] },
                     ...(breakdown.arrearsDeduction > 0
-                      ? [{ label: `Arrears (${tariffConfig.arrearsPercentage}%)`, value: `-${fmtN$(breakdown.arrearsDeduction)}`, color: colors.yellowAccent[500] }]
+                      ? [{ label: `Arrears (${tariffConfigData.arrearsPercentage}%)`, value: `-${fmtN$(breakdown.arrearsDeduction)}`, color: colors.yellowAccent[500] }]
                       : []),
                     { label: "Net Energy Amount", value: fmtN$(breakdown.netEnergy), color: colors.greenAccent[500] },
                   ].map((row) => (
