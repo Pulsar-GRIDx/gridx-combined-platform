@@ -37,6 +37,8 @@ import {
   Tooltip,
   Divider,
   Grid,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import {
   BoltOutlined,
@@ -72,6 +74,10 @@ import {
   HotTub,
   BluetoothDisabled,
   PersonRemoveOutlined,
+  BedtimeOutlined,
+  WbSunnyOutlined,
+  PersonAddOutlined,
+  SmsOutlined,
 } from "@mui/icons-material";
 import {
   AreaChart,
@@ -329,6 +335,11 @@ export default function MeterProfile() {
     action: "",
   });
   const [commandLoading, setCommandLoading] = useState(false);
+  const [configAuthNumber, setConfigAuthNumber] = useState("");
+  const [configSmsNumber, setConfigSmsNumber] = useState("");
+  const [configSmsEnabled, setConfigSmsEnabled] = useState(true);
+  const [configTokenId, setConfigTokenId] = useState("");
+  const [configStatus, setConfigStatus] = useState(null);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: "",
@@ -630,19 +641,53 @@ export default function MeterProfile() {
   };
 
   /* ---------- config action handler ---------- */
-  const handleConfigAction = async (actionType) => {
+  const handleConfigAction = async (actionType, payload) => {
     setCommandLoading(true);
     try {
-      if (actionType === "reset_ble") {
-        await meterConfigAPI.resetBLE(drn);
-        setSnackbar({ open: true, message: "Reset BLE PIN command sent successfully", severity: "success" });
-      } else if (actionType === "clear_auth") {
-        await meterConfigAPI.resetAuthNumbers(drn);
-        setSnackbar({ open: true, message: "Clear Authorized Numbers command sent successfully", severity: "success" });
-      } else if (actionType === "restart_meter") {
-        await meterConfigAPI.resetMeter(drn);
-        setSnackbar({ open: true, message: "Restart Meter command sent successfully", severity: "success" });
+      switch (actionType) {
+        case "reset_ble":
+          await meterConfigAPI.resetBLE(drn);
+          setSnackbar({ open: true, message: "Reset BLE PIN command sent", severity: "success" });
+          break;
+        case "clear_auth":
+          await meterConfigAPI.resetAuthNumbers(drn);
+          setSnackbar({ open: true, message: "Clear Authorized Numbers command sent", severity: "success" });
+          break;
+        case "restart_meter":
+          await meterConfigAPI.resetMeter(drn);
+          setSnackbar({ open: true, message: "Restart Meter command sent", severity: "success" });
+          break;
+        case "send_token":
+          if (!payload?.tokenId) break;
+          await meterConfigAPI.sendToken(drn, payload.tokenId);
+          setConfigTokenId("");
+          setSnackbar({ open: true, message: "Token sent to meter", severity: "success" });
+          break;
+        case "add_auth_number":
+          if (!payload?.number) break;
+          await meterConfigAPI.addAuthNumber(drn, payload.number);
+          setConfigAuthNumber("");
+          setSnackbar({ open: true, message: "Authorized number command sent", severity: "success" });
+          break;
+        case "set_sms":
+          await meterConfigAPI.setSMSResponse(drn, payload?.number || "", payload?.enabled ?? true);
+          setSnackbar({ open: true, message: "SMS configuration updated", severity: "success" });
+          break;
+        case "sleep_on":
+          await meterConfigAPI.setSleepMode(drn, true);
+          setSnackbar({ open: true, message: "Sleep mode enabled", severity: "warning" });
+          break;
+        case "sleep_off":
+          await meterConfigAPI.setSleepMode(drn, false);
+          setSnackbar({ open: true, message: "Sleep mode disabled (wake up)", severity: "success" });
+          break;
+        default:
+          break;
       }
+      try {
+        const statusRes = await meterConfigAPI.getStatus(drn);
+        setConfigStatus(statusRes?.data || null);
+      } catch (_) {}
     } catch (err) {
       setSnackbar({ open: true, message: `Failed: ${err.message}`, severity: "error" });
     } finally {
@@ -2148,34 +2193,7 @@ export default function MeterProfile() {
           gridAutoRows="140px"
           gap="5px"
         >
-          <Box
-            gridColumn="span 6"
-            gridRow="span 2"
-            backgroundColor={colors.primary[400]}
-            p="20px"
-            borderRadius="4px"
-            overflow="auto"
-          >
-            <Typography
-              variant="h6"
-              color={colors.grey[100]}
-              fontWeight="bold"
-              mb={1}
-            >
-              Meter Configuration
-            </Typography>
-            <InfoRow label="DRN" value={drn} mono />
-            <InfoRow label="Meter No" value={meterNo} mono />
-            <InfoRow label="Transformer" value={transformer} mono />
-            <InfoRow label="Area" value={meterArea} />
-            <InfoRow label="Suburb" value={meterSuburb} />
-            <InfoRow
-              label="Street"
-              value={profile?.StreetName || mockMeter?.street || "-"}
-            />
-            <InfoRow label="Tariff Type" value={tariffType} />
-          </Box>
-
+          {/* ── Device Actions ── */}
           <Box
             gridColumn="span 6"
             gridRow="span 2"
@@ -2183,65 +2201,147 @@ export default function MeterProfile() {
             p="20px"
             borderRadius="4px"
           >
-            <Typography
-              variant="h6"
-              color={colors.grey[100]}
-              fontWeight="bold"
-              mb={2}
-            >
-              Configuration Actions
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={2}>
+              Device Actions
             </Typography>
             <Box display="flex" flexDirection="column" gap={1.5}>
-              <Button
-                variant="outlined"
-                startIcon={<BluetoothDisabled />}
-                disabled={commandLoading}
-                onClick={() => {
-                  setConfirmDialog({ open: true, type: "config_reset_ble", action: "reset_ble" });
-                }}
-                sx={{
-                  textTransform: "none",
-                  justifyContent: "flex-start",
-                  color: "#00b4d8",
-                  borderColor: "#00b4d8",
-                }}
-              >
+              <Button variant="outlined" startIcon={<BluetoothDisabled />} disabled={commandLoading}
+                onClick={() => setConfirmDialog({ open: true, type: "config_reset_ble", action: "reset_ble" })}
+                sx={{ textTransform: "none", justifyContent: "flex-start", color: "#00b4d8", borderColor: "#00b4d8" }}>
                 Reset BLE PIN to Default
               </Button>
-              <Button
-                variant="outlined"
-                startIcon={<PersonRemoveOutlined />}
-                disabled={commandLoading}
-                onClick={() => {
-                  setConfirmDialog({ open: true, type: "config_clear_auth", action: "clear_auth" });
-                }}
-                sx={{
-                  textTransform: "none",
-                  justifyContent: "flex-start",
-                  color: "#f2b705",
-                  borderColor: "#f2b705",
-                }}
-              >
+              <Button variant="outlined" startIcon={<PersonRemoveOutlined />} disabled={commandLoading}
+                onClick={() => setConfirmDialog({ open: true, type: "config_clear_auth", action: "clear_auth" })}
+                sx={{ textTransform: "none", justifyContent: "flex-start", color: "#f2b705", borderColor: "#f2b705" }}>
                 Clear All Authorized Numbers
               </Button>
-              <Button
-                variant="outlined"
-                startIcon={<RestartAltOutlined />}
-                disabled={commandLoading}
-                onClick={() => {
-                  setConfirmDialog({ open: true, type: "config_restart", action: "restart_meter" });
-                }}
-                sx={{
-                  textTransform: "none",
-                  justifyContent: "flex-start",
-                  color: "#db4f4a",
-                  borderColor: "#db4f4a",
-                }}
-              >
+              <Button variant="outlined" startIcon={<RestartAltOutlined />} disabled={commandLoading}
+                onClick={() => setConfirmDialog({ open: true, type: "config_restart", action: "restart_meter" })}
+                sx={{ textTransform: "none", justifyContent: "flex-start", color: "#db4f4a", borderColor: "#db4f4a" }}>
                 Restart Meter
               </Button>
             </Box>
           </Box>
+
+          {/* ── Sleep Mode (sd) ── */}
+          <Box
+            gridColumn="span 6"
+            gridRow="span 2"
+            backgroundColor={colors.primary[400]}
+            p="20px"
+            borderRadius="4px"
+          >
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>
+              Sleep Mode
+            </Typography>
+            <Typography variant="body2" color={colors.grey[300]} mb={2}>
+              Put meter into deep sleep or wake it up. Deep sleep stops all meter activity until a wake-up command is sent.
+            </Typography>
+            <Box display="flex" gap={2}>
+              <Button variant="outlined" startIcon={<BedtimeOutlined />} disabled={commandLoading}
+                onClick={() => setConfirmDialog({ open: true, type: "config_sleep", action: "sleep_on" })}
+                sx={{ textTransform: "none", color: "#9c27b0", borderColor: "#9c27b0", flex: 1 }}>
+                Enter Deep Sleep
+              </Button>
+              <Button variant="outlined" startIcon={<WbSunnyOutlined />} disabled={commandLoading}
+                onClick={() => handleConfigAction("sleep_off")}
+                sx={{ textTransform: "none", color: "#ff9800", borderColor: "#ff9800", flex: 1 }}>
+                Wake Up
+              </Button>
+            </Box>
+            {configStatus?.sleepMode && (
+              <Typography variant="caption" color={colors.grey[400]} mt={1} display="block">
+                Last: {configStatus.sleepMode.sleep_mode_enabled ? "Sleep" : "Awake"} {configStatus.sleepMode.processed ? "(processed)" : "(pending)"}
+              </Typography>
+            )}
+          </Box>
+
+          {/* ── Send STS Token (tk) ── */}
+          <Box
+            gridColumn="span 6"
+            gridRow="span 1"
+            backgroundColor={colors.primary[400]}
+            p="20px"
+            borderRadius="4px"
+          >
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>
+              Send Token
+            </Typography>
+            <Box display="flex" gap={1} alignItems="center">
+              <TextField size="small" placeholder="Enter STS Token ID" value={configTokenId}
+                onChange={(e) => setConfigTokenId(e.target.value)}
+                sx={{ flex: 1, "& .MuiInputBase-root": { color: "#fff", backgroundColor: colors.primary[500] } }} />
+              <Button variant="contained" size="small" disabled={commandLoading || !configTokenId}
+                startIcon={<SendOutlined />}
+                onClick={() => handleConfigAction("send_token", { tokenId: configTokenId })}
+                sx={{ backgroundColor: colors.greenAccent[600], textTransform: "none" }}>
+                Send
+              </Button>
+            </Box>
+            {configStatus?.pendingToken && (
+              <Typography variant="caption" color={colors.grey[400]} mt={0.5} display="block">
+                Last: {configStatus.pendingToken.token_ID} {configStatus.pendingToken.processed ? "(processed)" : "(pending)"}
+              </Typography>
+            )}
+          </Box>
+
+          {/* ── Add Authorized Number (an) ── */}
+          <Box
+            gridColumn="span 6"
+            gridRow="span 1"
+            backgroundColor={colors.primary[400]}
+            p="20px"
+            borderRadius="4px"
+          >
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>
+              Authorized Number
+            </Typography>
+            <Box display="flex" gap={1} alignItems="center">
+              <TextField size="small" placeholder="+264 81 123 4567" value={configAuthNumber}
+                onChange={(e) => setConfigAuthNumber(e.target.value)}
+                sx={{ flex: 1, "& .MuiInputBase-root": { color: "#fff", backgroundColor: colors.primary[500] } }} />
+              <Button variant="contained" size="small" disabled={commandLoading || !configAuthNumber}
+                startIcon={<PersonAddOutlined />}
+                onClick={() => handleConfigAction("add_auth_number", { number: configAuthNumber })}
+                sx={{ backgroundColor: "#00b4d8", textTransform: "none" }}>
+                Add Number
+              </Button>
+            </Box>
+          </Box>
+
+          {/* ── SMS Response Config (as/ase/sm) ── */}
+          <Box
+            gridColumn="span 12"
+            gridRow="span 1"
+            backgroundColor={colors.primary[400]}
+            p="20px"
+            borderRadius="4px"
+          >
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>
+              SMS Response Configuration
+            </Typography>
+            <Box display="flex" gap={2} alignItems="center">
+              <TextField size="small" placeholder="SMS Response Number" value={configSmsNumber}
+                onChange={(e) => setConfigSmsNumber(e.target.value)}
+                sx={{ flex: 1, "& .MuiInputBase-root": { color: "#fff", backgroundColor: colors.primary[500] } }} />
+              <FormControlLabel
+                control={<Switch checked={configSmsEnabled} onChange={(e) => setConfigSmsEnabled(e.target.checked)} color="success" />}
+                label={<Typography variant="body2" color={colors.grey[300]}>{configSmsEnabled ? "Enabled" : "Disabled"}</Typography>}
+              />
+              <Button variant="contained" size="small" disabled={commandLoading || !configSmsNumber}
+                startIcon={<SmsOutlined />}
+                onClick={() => handleConfigAction("set_sms", { number: configSmsNumber, enabled: configSmsEnabled })}
+                sx={{ backgroundColor: "#7b1fa2", textTransform: "none" }}>
+                Set SMS
+              </Button>
+            </Box>
+            {configStatus?.smsResponse && (
+              <Typography variant="caption" color={colors.grey[400]} mt={0.5} display="block">
+                Current: {configStatus.smsResponse.sms_response_number || "none"} | {configStatus.smsResponse.sms_response_enabled ? "Enabled" : "Disabled"} {configStatus.smsResponse.processed ? "(processed)" : "(pending)"}
+              </Typography>
+            )}
+          </Box>
+
         </Box>
         </Box>
       )}

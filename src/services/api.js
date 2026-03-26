@@ -216,6 +216,14 @@ export const meterConfigAPI = {
   resetBLE: (drn) => post(`/meterResetBLE/update/${drn}`, { state: 1, processed: 0 }),
   resetAuthNumbers: (drn) => post(`/meterResetAuthNumber/update/${drn}`, { state: 1, processed: 0 }),
   resetMeter: (drn) => post(`/meterReset/update/${drn}`, { state: 1, processed: 0 }),
+  setMainsControl: (drn, state) => post(`/meterMainsControl/update/${drn}`, { state, processed: 0, reason: 'Web UI' }),
+  setHeaterControl: (drn, state) => post(`/meterHeaterControl/update/${drn}`, { state, processed: 0, reason: 'Web UI' }),
+  sendToken: (drn, tokenId) => post(`/meterSendSTSToken/update/${drn}`, { token_ID: tokenId, processed: 0 }),
+  addAuthNumber: (drn, number) => post(`/meter-config/auth-number/${drn}`, { number }),
+  setSMSResponse: (drn, number, enabled) => post(`/smsResponse/update/${drn}`, { sms_response_number: number, sms_response_enabled: enabled ? 1 : 0, processed: 0 }),
+  setSleepMode: (drn, enabled) => post(`/meter-config/sleep/${drn}`, { sleep_mode_enabled: enabled ? 1 : 0, processed: 0 }),
+  setBaseUrl: (drn, url) => post(`/meter-config/base-url/${drn}`, { base_url: url }),
+  getStatus: (drn) => get(`/meter-config/status/${drn}`),
 };
 
 // ===== METER BILLING =====
