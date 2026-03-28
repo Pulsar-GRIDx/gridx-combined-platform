@@ -238,6 +238,7 @@ app.use('/emergency', hwMeterEmergencyRoutes);
 app.use('/tariffStatus', hwTariffUpdateStatusRoutes);
 app.use('/meterRelayEvents/MeterLog', relayEventsRoutes);
 app.use('/meterHealth/MeterLog', meterHealthRoutes);
+app.use('/meterAuthorizedNumbers', authorizedNumbersRoutes);
 app.use('/api/meters', hwRegistrationLimiter, hwMeterRegistrationRoutes);
 app.post('/meter-validate/confirm', confirmValidation);
 
