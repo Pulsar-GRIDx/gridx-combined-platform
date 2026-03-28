@@ -23,6 +23,12 @@ import {
   PersonOutlined,
   AccessTime,
   SecurityOutlined,
+  CheckCircleOutlined,
+  CancelOutlined,
+  AppRegistrationOutlined,
+  PhoneAndroidOutlined,
+  HowToRegOutlined,
+  AssignmentTurnedInOutlined,
 } from "@mui/icons-material";
 import { Link, useNavigate } from "react-router-dom";
 import Header from "../components/Header";
@@ -62,7 +68,9 @@ export default function MeterProfiles() {
     const tampered = meters.filter((m) => m.security === "Tampered").length;
     const secure = total - tampered;
     const totalKwh = meters.reduce((sum, m) => sum + parseFloat(m.kWh || 0), 0);
-    return { total, online, offline, tampered, secure, totalKwh };
+    const commissioned = meters.filter((m) => m.commissioned === 1).length;
+    const appUsers = meters.filter((m) => m.hasAppUser === 1).length;
+    return { total, online, offline, tampered, secure, totalKwh, commissioned, appUsers };
   }, [meters]);
 
   const fmt = (n) => Number(n || 0).toLocaleString();
@@ -183,6 +191,115 @@ export default function MeterProfiles() {
                 color: "inherit",
                 fontSize: 14,
               },
+            }}
+          />
+        );
+      },
+    },
+    {
+      field: "commissioned",
+      headerName: "Commissioned",
+      flex: 0.09,
+      minWidth: 100,
+      renderCell: ({ row }) => {
+        const done = row.commissioned === 1;
+        const label = done ? row.commissionStatus : "No";
+        const isPass = row.commissionStatus === "Passed";
+        return (
+          <Chip
+            icon={done ? <AssignmentTurnedInOutlined /> : <CancelOutlined />}
+            label={label}
+            size="small"
+            sx={{
+              backgroundColor: done
+                ? isPass ? `${colors.greenAccent[500]}22` : `${colors.redAccent[500]}22`
+                : `${colors.grey[600]}22`,
+              color: done
+                ? isPass ? colors.greenAccent[400] : colors.redAccent[400]
+                : colors.grey[500],
+              border: `1px solid ${done ? (isPass ? colors.greenAccent[500] : colors.redAccent[500]) : colors.grey[600]}44`,
+              fontWeight: 600,
+              fontSize: "12px",
+              "& .MuiChip-icon": { color: "inherit", fontSize: 14 },
+            }}
+          />
+        );
+      },
+    },
+    {
+      field: "registrationStatus",
+      headerName: "Self-Registered",
+      flex: 0.09,
+      minWidth: 110,
+      renderCell: ({ value }) => {
+        const isActive = value === "ACTIVE";
+        const isPending = value === "PENDING";
+        const isRegistered = isActive || isPending;
+        const label = isActive ? "Active" : isPending ? "Pending" : "No";
+        return (
+          <Chip
+            icon={isRegistered ? <AppRegistrationOutlined /> : <CancelOutlined />}
+            label={label}
+            size="small"
+            sx={{
+              backgroundColor: isActive
+                ? `${colors.greenAccent[500]}22`
+                : isPending ? `${colors.blueAccent[500]}22` : `${colors.grey[600]}22`,
+              color: isActive
+                ? colors.greenAccent[400]
+                : isPending ? colors.blueAccent[400] : colors.grey[500],
+              border: `1px solid ${isActive ? colors.greenAccent[500] : isPending ? colors.blueAccent[500] : colors.grey[600]}44`,
+              fontWeight: 600,
+              fontSize: "12px",
+              "& .MuiChip-icon": { color: "inherit", fontSize: 14 },
+            }}
+          />
+        );
+      },
+    },
+    {
+      field: "hasAppUser",
+      headerName: "App User",
+      flex: 0.09,
+      minWidth: 100,
+      renderCell: ({ row }) => {
+        const has = row.hasAppUser === 1;
+        return (
+          <Chip
+            icon={has ? <PhoneAndroidOutlined /> : <CancelOutlined />}
+            label={has ? row.appUserName || "Yes" : "No"}
+            size="small"
+            sx={{
+              backgroundColor: has ? `${colors.blueAccent[500]}22` : `${colors.grey[600]}22`,
+              color: has ? colors.blueAccent[400] : colors.grey[500],
+              border: `1px solid ${has ? colors.blueAccent[500] : colors.grey[600]}44`,
+              fontWeight: 600,
+              fontSize: "12px",
+              "& .MuiChip-icon": { color: "inherit", fontSize: 14 },
+            }}
+          />
+        );
+      },
+    },
+    {
+      field: "registrationComplete",
+      headerName: "Reg. Complete",
+      flex: 0.09,
+      minWidth: 100,
+      renderCell: ({ value }) => {
+        const done = value === true;
+        return (
+          <Chip
+            icon={done ? <HowToRegOutlined /> : <CancelOutlined />}
+            label={done ? "Complete" : "Incomplete"}
+            size="small"
+            sx={{
+              backgroundColor: done ? `${colors.greenAccent[500]}22` : `${colors.grey[600]}22`,
+              color: done ? colors.greenAccent[400] : colors.grey[500],
+              border: `1px solid ${done ? colors.greenAccent[500] : colors.grey[600]}44`,
+              fontWeight: 600,
+              fontSize: "12px",
+              "& .MuiChip-icon": { color: "inherit", fontSize: 14 },
             }}
           />
         );

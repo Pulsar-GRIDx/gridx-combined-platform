@@ -3280,8 +3280,6 @@ export default function MeterProfile() {
                           <SectionCard title="OWNER INFORMATION" accentColor="#F472B6"
                             icon={<HomeOutlined sx={{ color: "#F472B6", fontSize: 20 }} />}>
                             {report.owner_name && <DetailRow label="Name" value={`${report.owner_name} ${report.owner_surname || ""}`} />}
-                            {report.owner_phone && <DetailRow label="Phone" value={report.owner_phone} />}
-                            {report.owner_email && <DetailRow label="Email" value={report.owner_email} />}
                           </SectionCard>
                         </Grid>
 
