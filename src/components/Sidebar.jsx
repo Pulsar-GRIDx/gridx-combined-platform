@@ -26,6 +26,7 @@ import BuildIcon from "@mui/icons-material/Build";
 import SecurityIcon from "@mui/icons-material/Security";
 import GppBadIcon from "@mui/icons-material/GppBad";
 import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
+import ElectricMeterOutlinedIcon from "@mui/icons-material/ElectricMeterOutlined";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
@@ -334,6 +335,14 @@ const Sidebar = () => {
           icon={<HomeOutlinedIcon />}
           isCollapsed={isCollapsed}
           accentColor={colors.blueAccent[500]}
+        />
+
+        <NavItem
+          title="Meter Profiles"
+          to="/meter-profiles"
+          icon={<ElectricMeterOutlinedIcon />}
+          isCollapsed={isCollapsed}
+          accentColor={colors.greenAccent[500]}
         />
 
         {/* System */}

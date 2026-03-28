@@ -29,6 +29,7 @@ import Integrations from "./pages/Integrations";
 import Installers from "./pages/Installers";
 import TamperDetection from "./pages/TamperDetection";
 import VsmTesting from "./pages/VsmTesting";
+import MeterProfiles from "./pages/MeterProfiles";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -66,6 +67,7 @@ function App() {
               <Route path="installers" element={<Installers />} />
               <Route path="tamper-detection" element={<TamperDetection />} />
               <Route path="vsm-testing" element={<VsmTesting />} />
+              <Route path="meter-profiles" element={<MeterProfiles />} />
             </Route>
           </Routes>
         </AuthProvider>

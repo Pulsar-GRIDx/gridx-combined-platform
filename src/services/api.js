@@ -224,6 +224,7 @@ export const meterConfigAPI = {
   setSleepMode: (drn, enabled) => post(`/meter-config/sleep/${drn}`, { sleep_mode_enabled: enabled ? 1 : 0, processed: 0 }),
   setBaseUrl: (drn, url) => post(`/meter-config/base-url/${drn}`, { base_url: url }),
   getStatus: (drn) => get(`/meter-config/status/${drn}`),
+  getMeterProfiles: () => get('/meter-config/meter-profiles'),
 };
 
 // ===== METER BILLING =====
