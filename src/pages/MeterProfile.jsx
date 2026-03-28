@@ -429,6 +429,12 @@ export default function MeterProfile() {
     fetchRelays();
   }, [drn, tab, relayPage, relayRowsPerPage, relayFilter, relayTypeFilter]);
 
+  /* ---------- Fetch config status when Configuration tab is selected ---------- */
+  useEffect(() => {
+    if (tab !== 4 || !drn) return;
+    meterConfigAPI.getStatus(drn).then(r => setConfigStatus(r?.data || null)).catch(() => {});
+  }, [tab, drn]);
+
   /* ---------- Fetch hourly energy data when Energy Charts tab is selected ---------- */
   useEffect(() => {
     if (tab !== 5) return;
@@ -2288,15 +2294,16 @@ export default function MeterProfile() {
           {/* ── Add Authorized Number (an) ── */}
           <Box
             gridColumn="span 6"
-            gridRow="span 1"
+            gridRow="span 2"
             backgroundColor={colors.primary[400]}
             p="20px"
             borderRadius="4px"
+            overflow="auto"
           >
             <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>
-              Authorized Number
+              Authorized Numbers
             </Typography>
-            <Box display="flex" gap={1} alignItems="center">
+            <Box display="flex" gap={1} alignItems="center" mb={2}>
               <TextField size="small" placeholder="+264 81 123 4567" value={configAuthNumber}
                 onChange={(e) => setConfigAuthNumber(e.target.value)}
                 sx={{ flex: 1, "& .MuiInputBase-root": { color: "#fff", backgroundColor: colors.primary[500] } }} />
@@ -2307,6 +2314,34 @@ export default function MeterProfile() {
                 Add Number
               </Button>
             </Box>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[700]}`, fontWeight: "bold" }}>#</TableCell>
+                    <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[700]}`, fontWeight: "bold" }}>Phone Number</TableCell>
+                    <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[700]}`, fontWeight: "bold" }}>Added</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {configStatus?.authorizedNumbers && configStatus.authorizedNumbers.length > 0 ? (
+                    configStatus.authorizedNumbers.map((num, idx) => (
+                      <TableRow key={num.id || idx}>
+                        <TableCell sx={{ color: colors.grey[100], borderBottom: `1px solid ${colors.grey[700]}` }}>{idx + 1}</TableCell>
+                        <TableCell sx={{ color: colors.grey[100], borderBottom: `1px solid ${colors.grey[700]}` }}>{num.phone_number}</TableCell>
+                        <TableCell sx={{ color: colors.grey[400], borderBottom: `1px solid ${colors.grey[700]}` }}>{num.synced_at ? new Date(num.synced_at).toLocaleDateString() : "-"}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={3} sx={{ color: colors.grey[500], borderBottom: `1px solid ${colors.grey[700]}`, textAlign: "center" }}>
+                        No authorized numbers registered
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
           </Box>
 
           {/* ── SMS Response Config (as/ase/sm) ── */}
