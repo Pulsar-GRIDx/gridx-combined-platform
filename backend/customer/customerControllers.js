@@ -140,11 +140,11 @@ exports.forgotPassword = async function(req, res) {
 
     // Send email
     await transporter.sendMail({
-      from: '"NamPower SmartPay" <' + EMAIL_FROM + '>',
+      from: '"Pulsar GRIDx meter" <' + EMAIL_FROM + '>',
       to: Email,
-      subject: 'NamPower SmartPay - Password Reset Code',
+      subject: 'Pulsar GRIDx meter - Password Reset Code',
       html: '<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:20px;">' +
-        '<h2 style="color:#2E7D32;">NamPower SmartPay</h2>' +
+        '<h2 style="color:#2E7D32;">Pulsar GRIDx meter</h2>' +
         '<p>You requested a password reset. Your verification code is:</p>' +
         '<div style="background:#f5f5f5;padding:15px;text-align:center;font-size:28px;font-weight:bold;letter-spacing:6px;color:#2E7D32;border-radius:8px;">' + pin + '</div>' +
         '<p style="margin-top:15px;">This code is valid for <b>10 minutes</b>.</p>' +
