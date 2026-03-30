@@ -98,26 +98,32 @@ export default function Dashboard() {
   const [hourlyData, setHourlyData] = useState([]);
   const [hourlyTotals, setHourlyTotals] = useState({ averagePower: 0, peakPower: 0 });
   const [suburbEnergy, setSuburbEnergy] = useState({});
+  const [hourlyTokenCounts, setHourlyTokenCounts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const withTimeout = (promise, ms = 8000) =>
+      Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))]);
+
     const fetchData = async () => {
       try {
-        // Fetch multiple endpoints in parallel
+        // Fetch multiple endpoints in parallel with 8s timeout each
         const results = await Promise.allSettled([
-          meterAPI.getDashboard(),
-          tokenAPI.getAmount(),
-          tokenAPI.getCount(),
-          financeAPI.getPastWeekTokens(),
-          energyAPI.getCurrentDay(),
-          tokenAPI.getAllProcessed(),
-          meterAPI.getAreaSummary(),
-          energyAPI.getHourlyPower(),
-          energyAPI.getWeeklyAmount(),
-          energyAPI.getSuburbHourlyEnergy(ALL_SUBURBS),
+          withTimeout(meterAPI.getDashboard()),
+          withTimeout(tokenAPI.getAmount()),
+          withTimeout(tokenAPI.getCount()),
+          withTimeout(financeAPI.getPastWeekTokens()),
+          withTimeout(energyAPI.getCurrentDay()),
+          withTimeout(tokenAPI.getAllProcessed()),
+          withTimeout(meterAPI.getAreaSummary()),
+          withTimeout(energyAPI.getHourlyPower()),
+          withTimeout(energyAPI.getWeeklyAmount()),
+          withTimeout(energyAPI.getSuburbHourlyEnergy(ALL_SUBURBS), 10000),
+          withTimeout(tokenAPI.getAllTokenEntries()),
+          withTimeout(tokenAPI.getHourlyTokenCounts()),
         ]);
 
-        const [meterDash, tokenAmt, tokenCnt, weekTokens, dayEnergy, processedTokens, areaSummaryResult, hourlyPowerResult, weeklyAmountResult, suburbEnergyResult] = results;
+        const [meterDash, tokenAmt, tokenCnt, weekTokens, dayEnergy, processedTokens, areaSummaryResult, hourlyPowerResult, weeklyAmountResult, suburbEnergyResult, allTokenEntries, hourlyTokenResult] = results;
 
         // Build KPIs from meter dashboard
         if (meterDash.status === "fulfilled" && meterDash.value?.data) {
@@ -215,20 +221,29 @@ export default function Dashboard() {
           }
         }
 
-        // Processed tokens as recent transactions
-        if (processedTokens.status === "fulfilled" && processedTokens.value?.data) {
-          const txns = processedTokens.value.data.slice(0, 10).map((t, i) => ({
-            id: t.token_id || `TXN-${i}`,
-            time: t.date_time || t.createdAt || new Date().toISOString(),
-            customer: t.customer || t.DRN || `Meter ${t.DRN || ""}`,
-            meterNo: t.DRN || t.meter_number || "-",
-            amount: parseFloat(t.token_amount || t.amount || 0),
-            kWh: parseFloat(t.kwh || 0),
-            token: t.sts_token || t.token || "-",
-            operator: t.operator || "-",
-            status: "Completed",
+        // All token entries from STSTokesInfo as recent transactions
+        if (allTokenEntries.status === "fulfilled") {
+          const data = Array.isArray(allTokenEntries.value?.data) ? allTokenEntries.value.data : Array.isArray(allTokenEntries.value) ? allTokenEntries.value : [];
+          const channels = ["Console", "Touch Screen", "SMS", "BLE", "Server"];
+          const txns = data.slice(0, 50).map((t, i) => ({
+            id: t.id || `TXN-${i}`,
+            time: t.date_time || new Date().toISOString(),
+            customer: t.DRN || "-",
+            meterNo: t.DRN || "-",
+            amount: parseFloat(t.token_amount || 0),
+            channel: channels[parseInt(t.submission_Method)] || t.submission_Method || "-",
+            token: t.token_id || "-",
+            status: (t.display_msg || "").toLowerCase().includes("accept") ? "Accepted"
+              : (t.display_msg || "").toLowerCase().includes("reject") || (t.display_msg || "").toLowerCase().includes("not authentic") || (t.display_msg || "").toLowerCase().includes("error") ? "Rejected"
+              : t.display_msg || "Unknown",
           }));
           if (txns.length > 0) setRecentTxns(txns);
+        }
+
+        // Hourly cumulative token counts for today
+        if (hourlyTokenResult.status === "fulfilled") {
+          const hData = Array.isArray(hourlyTokenResult.value?.data) ? hourlyTokenResult.value.data : Array.isArray(hourlyTokenResult.value) ? hourlyTokenResult.value : [];
+          if (hData.length > 0) setHourlyTokenCounts(hData);
         }
       } catch (err) {
         console.error("Dashboard fetch error:", err);
@@ -724,12 +739,12 @@ export default function Dashboard() {
             color={colors.grey[100]}
             mb="10px"
           >
-            Token Transaction Revenue
+            Token Transaction Revenue (Today — Cumulative)
           </Typography>
           <Box height="calc(100% - 40px)">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={salesTrend}
+                data={hourlyTokenCounts.length > 0 ? hourlyTokenCounts : salesTrend}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
                 <defs>
@@ -737,13 +752,27 @@ export default function Dashboard() {
                     <stop offset="5%" stopColor={colors.greenAccent[500]} stopOpacity={0.35} />
                     <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
                   </linearGradient>
+                  <linearGradient id="gradAmount" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={colors.blueAccent[500]} stopOpacity={0.25} />
+                    <stop offset="95%" stopColor={colors.blueAccent[500]} stopOpacity={0} />
+                  </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
-                <XAxis dataKey="day" stroke={colors.grey[300]} tick={{ fontSize: 12 }} />
+                <XAxis dataKey="label" stroke={colors.grey[300]} tick={{ fontSize: 11 }} interval={2} />
                 <YAxis
+                  yAxisId="left"
                   stroke={colors.grey[300]}
                   tick={{ fontSize: 11 }}
                   tickFormatter={(v) => `${v}`}
+                  label={{ value: "Tokens", angle: -90, position: "insideLeft", style: { fill: colors.grey[300], fontSize: 11 } }}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  stroke={colors.grey[300]}
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => `${v}`}
+                  label={{ value: "kWh", angle: 90, position: "insideRight", style: { fill: colors.grey[300], fontSize: 11 } }}
                 />
                 <Tooltip
                   contentStyle={{
@@ -752,14 +781,25 @@ export default function Dashboard() {
                     borderRadius: 4,
                     color: colors.grey[100],
                   }}
+                  formatter={(value, name) => [value, name]}
                 />
                 <Area
+                  yAxisId="left"
                   type="monotone"
                   dataKey="tokens"
                   stroke={colors.greenAccent[500]}
                   strokeWidth={2}
                   fill="url(#gradTokens)"
-                  name="Tokens Generated"
+                  name="Cumulative Tokens"
+                />
+                <Area
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="amount"
+                  stroke={colors.blueAccent[500]}
+                  strokeWidth={2}
+                  fill="url(#gradAmount)"
+                  name="Cumulative kWh"
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -899,13 +939,13 @@ export default function Dashboard() {
             color={colors.grey[100]}
             mb="15px"
           >
-            Recent Transactions
+            Recent Token Entries
           </Typography>
           <TableContainer>
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  {["Time", "Customer", "Meter", "Amount (N$)", "kWh", "Token", "Status"].map(
+                  {["Date/Time", "Meter (DRN)", "Token ID", "Amount (kWh)", "Channel", "Status"].map(
                     (col) => (
                       <TableCell
                         key={col}
@@ -940,17 +980,16 @@ export default function Dashboard() {
                     }}
                   >
                     <TableCell>{formatTime(txn.time)}</TableCell>
-                    <TableCell>{txn.customer}</TableCell>
                     <TableCell sx={{ fontFamily: "monospace", fontSize: "11px !important" }}>
                       {txn.meterNo}
                     </TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>
-                      {fmt(Number(txn.amount).toFixed(2))}
-                    </TableCell>
-                    <TableCell>{fmt(Number(txn.kWh).toFixed(2))}</TableCell>
                     <TableCell sx={{ fontFamily: "monospace", fontSize: "10px !important" }}>
                       {txn.token}
                     </TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>
+                      {txn.amount > 0 ? `${txn.amount} kWh` : "-"}
+                    </TableCell>
+                    <TableCell>{txn.channel}</TableCell>
                     <TableCell>
                       <Box
                         sx={{
@@ -959,14 +998,17 @@ export default function Dashboard() {
                           py: 0.3,
                           borderRadius: "4px",
                           backgroundColor:
-                            txn.status === "Completed"
+                            txn.status === "Accepted"
                               ? "rgba(76,206,172,0.15)"
-                              : txn.status === "Failed"
+                              : txn.status === "Rejected"
                               ? "rgba(219,79,74,0.15)"
-                              : txn.status === "Reversed"
-                              ? "rgba(242,183,5,0.15)"
-                              : "rgba(104,112,250,0.15)",
-                          color: statusColor[txn.status] || colors.grey[100],
+                              : "rgba(242,183,5,0.15)",
+                          color:
+                            txn.status === "Accepted"
+                              ? colors.greenAccent[500]
+                              : txn.status === "Rejected"
+                              ? "#db4f4a"
+                              : "#f2b705",
                           fontWeight: 600,
                           fontSize: "11px",
                         }}

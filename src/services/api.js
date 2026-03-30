@@ -125,6 +125,8 @@ export const meterAPI = {
   getCellNetwork: (drn) => get(`/meterCellNetwork/getLastUpdate/${drn}`),
   getWeekMonthData: (drn) => get(`/meterWeekAndMonthData/${drn}`),
   getStsTokens: (drn) => get(`/stsTokensByDRN/${drn}`),
+  getTokenInfo: (drn) => get(`/settings/tokenInformation/${drn}`),
+  getSendTokenHistory: (drn) => get(`/settings/stsTokenHistory/${drn}`),
   // Locations for map
   getLocation: (drn) => get(`/meterLocation/${drn}`),
   getAllLocations: () => get('/meterLocation/getAll'),
@@ -186,6 +188,8 @@ export const tokenAPI = {
   getAmount: () => get('/tokenAmount'),
   getCount: () => get('/totalTokensBought'),
   getAllProcessed: () => get('/get-system-processed-tokens'),
+  getAllTokenEntries: () => get('/get-all-token-entries'),
+  getHourlyTokenCounts: () => get('/hourly-token-counts'),
 };
 
 // ===== NOTIFICATIONS =====
