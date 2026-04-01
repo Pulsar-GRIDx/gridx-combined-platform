@@ -27,6 +27,9 @@ const TOPICS = [
   'gx/+/load',
   'gx/+/token',
   'gx/+/ack',
+  'gx/+/health',
+  'gx/+/relay_log',
+  'gx/+/auth_numbers',
 ];
 
 // ==================== Binary Parser Helpers ====================
@@ -107,10 +110,64 @@ async function fixEmqxAuth() {
   }
 }
 
+// ==================== Table Initialization ====================
+
+function ensureTables() {
+  // MeterAuthorizedNumbers already exists with (drn, phone_number) schema — no need to create
+
+  db.query(`CREATE TABLE IF NOT EXISTS MeterHealthReport (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    DRN VARCHAR(50) NOT NULL,
+    health_score INT,
+    uart_errors INT, relay_mismatches INT, power_anomalies INT,
+    voltage FLOAT, current_val FLOAT, active_power FLOAT,
+    frequency FLOAT, power_factor FLOAT, temperature FLOAT,
+    mains_state TINYINT, mains_control TINYINT,
+    geyser_state TINYINT, geyser_control TINYINT,
+    firmware VARCHAR(20), uptime INT,
+    record_time INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_drn (DRN)
+  )`, (err) => { if (err) console.error('[MQTT] MeterHealthReport table error:', err.message); });
+
+  db.query(`CREATE TABLE IF NOT EXISTS MeterRelayEvents (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    DRN VARCHAR(50) NOT NULL,
+    event_timestamp INT,
+    relay_index TINYINT,
+    entry_type TINYINT,
+    state TINYINT,
+    control TINYINT,
+    reason TINYINT,
+    reason_text VARCHAR(64),
+    trigger_val TINYINT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_drn (DRN)
+  )`, (err) => { if (err) console.error('[MQTT] MeterRelayEvents table error:', err.message); });
+
+  db.query(`CREATE TABLE IF NOT EXISTS CreditTransfers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    source_drn VARCHAR(50) NOT NULL,
+    target_drn VARCHAR(50) NOT NULL,
+    watt_hours INT NOT NULL,
+    token VARCHAR(255),
+    status ENUM('pending','token_generated','forwarded','completed','failed') DEFAULT 'pending',
+    source_ack_at TIMESTAMP NULL,
+    target_ack_at TIMESTAMP NULL,
+    error_detail VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_source (source_drn),
+    INDEX idx_target (target_drn),
+    INDEX idx_status (status)
+  )`, (err) => { if (err) console.error('[MQTT] CreditTransfers table error:', err.message); });
+}
+
 // ==================== Init ====================
 
 async function init() {
   await fixEmqxAuth();
+  ensureTables();
 
   const brokerUrl = process.env.MQTT_BROKER || 'mqtt://localhost:1883';
   mqttClient = mqtt.connect(brokerUrl, {
@@ -149,21 +206,18 @@ function handleMessage(topic, buf) {
   const drn = parts[1];
   const type = parts[2];
 
-  // Handle command acknowledgments from ESP32
-  if (type === 'ack') {
+  // JSON-only topics (ack, health, relay_log, auth_numbers)
+  if (['ack', 'health', 'relay_log', 'auth_numbers'].includes(type)) {
     try {
-      const ackData = JSON.parse(buf.toString());
-      console.log(`[MQTT] ACK from ${drn}: type=${ackData.type}, status=${ackData.status}`);
-      // Mark command as processed in heater control table if applicable
-      if (ackData.type === 'geyser_control' || ackData.type === 'geyser_timer') {
-        db.query(
-          'UPDATE MeterHeaterControlTable SET processed = 1 WHERE DRN = ? AND processed = 0',
-          [drn],
-          (err) => { if (err) console.error('[MQTT] ACK update error:', err.message); }
-        );
+      const data = JSON.parse(buf.toString());
+      switch (type) {
+        case 'ack':          handleAckJson(drn, data); break;
+        case 'health':       handleHealthJson(drn, data); break;
+        case 'relay_log':    handleRelayLogJson(drn, data); break;
+        case 'auth_numbers': handleAuthNumbersJson(drn, data); break;
       }
     } catch (e) {
-      console.log(`[MQTT] ACK from ${drn}: ${buf.toString()}`);
+      console.error(`[MQTT] Invalid JSON on ${topic}:`, e.message);
     }
     return;
   }
@@ -274,6 +328,234 @@ function handleTokenBin(drn, buf) {
   }, (err) => { if (err) console.error('[MQTT] Token insert error:', err.message); });
 }
 
+// ==================== JSON Handlers (new MQTT topics) ====================
+
+function handleAckJson(drn, data) {
+  console.log(`[MQTT] ACK from ${drn}: type=${data.type}, status=${data.status}${data.detail ? ', detail=' + data.detail : ''}${data.amount !== undefined ? ', amount=' + data.amount : ''}`);
+
+  // On successful geyser control ACK, immediately update MeterLoadControl
+  // so the app can poll and see the new state without waiting 15 min for the load topic
+  if (data.type === 'geyser_control' && data.status === 'ok') {
+    const geyserState = data.detail === 'on' ? 1 : 0;
+    // Get last known mains values to build a complete record
+    db.query(
+      'SELECT mains_state, mains_control FROM MeterLoadControl WHERE DRN = ? ORDER BY date_time DESC LIMIT 1',
+      [drn],
+      (err, rows) => {
+        const mainsState = (!err && rows && rows.length > 0) ? rows[0].mains_state : 0;
+        const mainsControl = (!err && rows && rows.length > 0) ? rows[0].mains_control : 0;
+        db.query('INSERT INTO MeterLoadControl SET ?', {
+          DRN: drn,
+          geyser_state: geyserState,
+          geyser_control: geyserState,
+          mains_state: mainsState,
+          mains_control: mainsControl,
+        }, (err2) => {
+          if (err2) console.error('[MQTT] ACK LoadControl insert error:', err2.message);
+          else console.log(`[MQTT] ACK updated MeterLoadControl: geyser_state=${geyserState} for ${drn}`);
+        });
+      }
+    );
+
+    // Also keep GeyserConfig in sync
+    db.query('UPDATE GeyserConfig SET geyser_state = ? WHERE DRN = ?', [geyserState, drn], (err) => {
+      if (err) console.error('[MQTT] ACK GeyserConfig update error:', err.message);
+    });
+
+    // Insert into MeterHeaterStateTable so "Last turned ON/OFF" on home page updates
+    db.query('INSERT INTO MeterHeaterStateTable SET ?', {
+      DRN: drn,
+      user: 'MQTT_ACK',
+      state: geyserState,
+      processed: '1',
+      reason: data.detail === 'on' ? 'MQTT geyser ON confirmed' : 'MQTT geyser OFF confirmed',
+    }, (err) => {
+      if (err) console.error('[MQTT] ACK HeaterState insert error:', err.message);
+    });
+  }
+
+  // On successful credit_transfer ACK from source meter — token was generated
+  // Forward the token to the target meter automatically
+  if (data.type === 'credit_transfer') {
+    if (data.status === 'ok' && data.token && data.target_meter) {
+      console.log(`[MQTT] Credit transfer ACK: source=${drn}, target=${data.target_meter}, token=${data.token}, wh=${data.watt_hours}`);
+
+      // Update transfer record: status = token_generated
+      db.query(
+        'UPDATE CreditTransfers SET status = ?, token = ?, source_ack_at = NOW() WHERE source_drn = ? AND target_drn = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
+        ['token_generated', data.token, drn, data.target_meter, 'pending'],
+        (err) => {
+          if (err) console.error('[MQTT] CreditTransfer update error:', err.message);
+        }
+      );
+
+      // Forward the token to the target meter
+      const targetDrn = data.target_meter;
+      try {
+        publishCommand(targetDrn, {
+          type: 'credit_accept',
+          token: data.token,
+          source_meter: drn,
+          watt_hours: data.watt_hours,
+        }, 1); // QoS 1 for reliability
+        console.log(`[MQTT] Forwarded credit token to target meter ${targetDrn}`);
+
+        // Update status to 'forwarded'
+        db.query(
+          'UPDATE CreditTransfers SET status = ? WHERE source_drn = ? AND target_drn = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
+          ['forwarded', drn, targetDrn, 'token_generated'],
+          (err) => {
+            if (err) console.error('[MQTT] CreditTransfer forward update error:', err.message);
+          }
+        );
+      } catch (pubErr) {
+        console.error(`[MQTT] Failed to forward token to ${targetDrn}:`, pubErr.message);
+        db.query(
+          'UPDATE CreditTransfers SET status = ?, error_detail = ? WHERE source_drn = ? AND target_drn = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
+          ['failed', 'MQTT publish to target failed: ' + pubErr.message, drn, targetDrn, 'token_generated'],
+          (err) => { if (err) console.error('[MQTT] CreditTransfer fail update error:', err.message); }
+        );
+      }
+    } else if (data.status === 'error') {
+      console.error(`[MQTT] Credit transfer failed on source ${drn}: ${data.detail || 'unknown'}`);
+      db.query(
+        'UPDATE CreditTransfers SET status = ?, error_detail = ?, source_ack_at = NOW() WHERE source_drn = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
+        ['failed', data.detail || 'Source meter rejected transfer', drn, 'pending'],
+        (err) => { if (err) console.error('[MQTT] CreditTransfer fail update error:', err.message); }
+      );
+    }
+  }
+
+  // On credit_accept ACK from target meter — credit was applied
+  if (data.type === 'credit_accept') {
+    if (data.status === 'ok') {
+      console.log(`[MQTT] Credit accept ACK: target=${drn} applied credit successfully`);
+      db.query(
+        'UPDATE CreditTransfers SET status = ?, target_ack_at = NOW() WHERE target_drn = ? AND status IN (?, ?) ORDER BY created_at DESC LIMIT 1',
+        ['completed', drn, 'token_generated', 'forwarded'],
+        (err) => {
+          if (err) console.error('[MQTT] CreditTransfer complete update error:', err.message);
+          else console.log(`[MQTT] Credit transfer to ${drn} marked COMPLETED`);
+        }
+      );
+    } else {
+      console.error(`[MQTT] Credit accept failed on target ${drn}: ${data.detail || 'unknown'}`);
+      db.query(
+        'UPDATE CreditTransfers SET status = ?, error_detail = ?, target_ack_at = NOW() WHERE target_drn = ? AND status IN (?, ?) ORDER BY created_at DESC LIMIT 1',
+        ['failed', 'Target meter rejected: ' + (data.detail || 'unknown'), drn, 'token_generated', 'forwarded'],
+        (err) => { if (err) console.error('[MQTT] CreditTransfer fail update error:', err.message); }
+      );
+    }
+  }
+
+  // On successful mains control ACK, same pattern
+  if (data.type === 'mains_control' && data.status === 'ok') {
+    const mainsState = data.detail === 'on' ? 1 : 0;
+    db.query(
+      'SELECT geyser_state, geyser_control FROM MeterLoadControl WHERE DRN = ? ORDER BY date_time DESC LIMIT 1',
+      [drn],
+      (err, rows) => {
+        const geyserState = (!err && rows && rows.length > 0) ? rows[0].geyser_state : 0;
+        const geyserControl = (!err && rows && rows.length > 0) ? rows[0].geyser_control : 0;
+        db.query('INSERT INTO MeterLoadControl SET ?', {
+          DRN: drn,
+          geyser_state: geyserState,
+          geyser_control: geyserControl,
+          mains_state: mainsState,
+          mains_control: mainsState,
+        }, (err2) => {
+          if (err2) console.error('[MQTT] ACK LoadControl insert error:', err2.message);
+          else console.log(`[MQTT] ACK updated MeterLoadControl: mains_state=${mainsState} for ${drn}`);
+        });
+      }
+    );
+  }
+}
+
+function handleHealthJson(drn, data) {
+  console.log(`[MQTT] Health from ${drn}: score=${data.health_score}, uptime=${data.uptime}s`);
+  db.query('INSERT INTO MeterHealthReport SET ?', {
+    DRN: drn,
+    health_score: data.health_score || 0,
+    uart_errors: data.uart_errors || 0,
+    relay_mismatches: data.relay_mismatches || 0,
+    power_anomalies: data.power_anomalies || 0,
+    voltage: data.voltage || 0,
+    current_val: data.current || 0,
+    active_power: data.active_power || 0,
+    frequency: data.frequency || 0,
+    power_factor: data.power_factor || 0,
+    temperature: data.temperature || 0,
+    mains_state: data.mains_state != null ? data.mains_state : 0,
+    mains_control: data.mains_control != null ? data.mains_control : 0,
+    geyser_state: data.geyser_state != null ? data.geyser_state : 0,
+    geyser_control: data.geyser_control != null ? data.geyser_control : 0,
+    firmware: data.firmware || '',
+    uptime: data.uptime || 0,
+    record_time: data.timestamp || Math.floor(Date.now() / 1000),
+  }, (err) => { if (err) console.error('[MQTT] Health insert error:', err.message); });
+}
+
+function handleRelayLogJson(drn, data) {
+  const events = data.events;
+  if (!Array.isArray(events)) return console.error('[MQTT] relay_log: missing events array');
+  console.log(`[MQTT] Relay log from ${drn}: ${events.length} events`);
+
+  for (const evt of events) {
+    db.query('INSERT INTO MeterRelayEvents SET ?', {
+      DRN: drn,
+      event_timestamp: evt.timestamp || 0,
+      relay_index: evt.relay_index != null ? evt.relay_index : 0,
+      entry_type: evt.entry_type != null ? evt.entry_type : 0,
+      state: evt.state != null ? evt.state : 0,
+      control: evt.control != null ? evt.control : 0,
+      reason: evt.reason != null ? evt.reason : 0,
+      reason_text: evt.reason_text || '',
+      trigger_val: evt.trigger != null ? evt.trigger : 0,
+    }, (err) => { if (err) console.error('[MQTT] Relay event insert error:', err.message); });
+  }
+
+  // Also update MeterLoadControl from the latest relay events for immediate state visibility
+  // relay_index: 0 = mains, 1 = geyser
+  const latestGeyser = [...events].reverse().find(e => e.relay_index === 1);
+  const latestMains  = [...events].reverse().find(e => e.relay_index === 0);
+  if (latestGeyser || latestMains) {
+    db.query(
+      'SELECT geyser_state, geyser_control, mains_state, mains_control FROM MeterLoadControl WHERE DRN = ? ORDER BY date_time DESC LIMIT 1',
+      [drn],
+      (err, rows) => {
+        const prev = (!err && rows && rows.length > 0) ? rows[0] : { geyser_state: 0, geyser_control: 0, mains_state: 0, mains_control: 0 };
+        db.query('INSERT INTO MeterLoadControl SET ?', {
+          DRN: drn,
+          geyser_state:   latestGeyser ? (latestGeyser.state != null ? latestGeyser.state : prev.geyser_state) : prev.geyser_state,
+          geyser_control: latestGeyser ? (latestGeyser.control != null ? latestGeyser.control : prev.geyser_control) : prev.geyser_control,
+          mains_state:    latestMains ? (latestMains.state != null ? latestMains.state : prev.mains_state) : prev.mains_state,
+          mains_control:  latestMains ? (latestMains.control != null ? latestMains.control : prev.mains_control) : prev.mains_control,
+        }, (err2) => {
+          if (err2) console.error('[MQTT] Relay LoadControl insert error:', err2.message);
+          else console.log(`[MQTT] Relay log updated MeterLoadControl for ${drn}`);
+        });
+      }
+    );
+  }
+}
+
+function handleAuthNumbersJson(drn, data) {
+  const numbers = data.numbers;
+  if (!Array.isArray(numbers)) return console.error('[MQTT] auth_numbers: missing numbers array');
+  console.log(`[MQTT] Auth numbers from ${drn}: ${numbers.length} numbers`);
+
+  // Existing table uses (drn, phone_number) rows — delete old and insert fresh
+  db.query('DELETE FROM MeterAuthorizedNumbers WHERE drn = ?', [drn], (err) => {
+    if (err) return console.error('[MQTT] Auth numbers delete error:', err.message);
+    if (numbers.length === 0) return;
+    const values = numbers.map(n => [drn, n]);
+    db.query('INSERT INTO MeterAuthorizedNumbers (drn, phone_number) VALUES ?', [values], (err2) => {
+      if (err2) console.error('[MQTT] Auth numbers insert error:', err2.message);
+    });
+  });
+}
+
 // ==================== Legacy JSON Fallback ====================
 
 function handleJsonMessage(drn, type, data) {
@@ -331,15 +613,15 @@ function handleJsonMessage(drn, type, data) {
 
 // ==================== Command Publishing ====================
 
-function publishCommand(drn, command) {
+function publishCommand(drn, command, qos = 0) {
   if (!mqttClient || !mqttClient.connected) {
     throw new Error('MQTT client not connected');
   }
   const topic = `gx/${drn}/cmd`;
   const payload = JSON.stringify(command);
-  mqttClient.publish(topic, payload, { qos: 1, retain: false }, (err) => {
+  mqttClient.publish(topic, payload, { qos }, (err) => {
     if (err) console.error(`[MQTT] Publish error to ${topic}:`, err.message);
-    else console.log(`[MQTT] Command sent to ${drn} (QoS 1):`, payload);
+    else console.log(`[MQTT] Command sent to ${drn} (QoS ${qos}):`, payload);
   });
 }
 

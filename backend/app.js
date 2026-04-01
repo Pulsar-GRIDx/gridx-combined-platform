@@ -59,13 +59,15 @@ const mqttRoutes = require('./routes/mqttRoutes');
 let otaRoutes;
 try { otaRoutes = require('./routes/otaRoutes'); } catch (e) { /* optional */ }
 const groupControlRoutes = require('./routes/groupControlRoutes');
-const geyserControlRoutes = require('./routes/geyserControlRoutes');
 const vendingRoutes = require('./vending/vendingRoutes');
 const integrationRoutes = require('./vending/integrationRoutes');
 const customerAuthRoutes = require('./routes/customerAuthRoutes');
 const tamperRoutes = require('./routes/tamperRoutes');
 const vsmRoutes = require('./routes/vsmRoutes');
+const dpoRoutes = require("./routes/dpoRoutes");
+const geyserControlRoutes = require("./routes/geyserControlRoutes");
 const meterValidationRoutes = require('./routes/meterValidationRoutes');
+const authorizedNumbersRoutes = require('./meter/authorizedNumbersRoutes');
 const { confirmValidation } = require('./customer/meterValidationController');
 
 // ─── Hardware routes (merged from GridX_express_generator2) ───
@@ -132,6 +134,7 @@ apiRouter.use('/api/v1/meter-health', meterHealthRoutes);
 // Customer auth routes (public — before admin auth middleware)
 apiRouter.use('/customer', customerAuthRoutes);
 apiRouter.use('/customer', meterValidationRoutes);
+apiRouter.use('/meterAuthorizedNumbers', authorizedNumbersRoutes);
 
 // Authenticated routes
 apiRouter.use('/', getRoutes);
@@ -149,10 +152,25 @@ apiRouter.use('/billing', billingNotificationRoutes);
 apiRouter.use('/', meterDataRoutes);
 apiRouter.use('/', mqttRoutes);
 apiRouter.use('/', groupControlRoutes);
-apiRouter.use('/', geyserControlRoutes);
 apiRouter.use('/vending', vendingRoutes);
 apiRouter.use('/', tamperRoutes);
 apiRouter.use('/', vsmRoutes);
+apiRouter.use("/", dpoRoutes);
+apiRouter.use("/", geyserControlRoutes);
+// Meter config commands (auth number, sleep mode, base URL, status)
+const meterConfigRoutes = require('./meterProfile/meterConfigRoutes');
+apiRouter.use('/meter-config', meterConfigRoutes);
+
+// Also mount hardware command routes under /cb for frontend access
+apiRouter.use('/meterMainsControl', hwMeterMainsControlRoutes);
+apiRouter.use('/meterHeaterControl', hwMeterHeaterControlRoutes);
+apiRouter.use('/meterMainsState', hwMeterMainsStateRoutes);
+apiRouter.use('/meterHeaterState', hwMeterHeaterstateRoutes);
+apiRouter.use('/meterSendSTSToken', hwMeterSendSTSTokenRoutes);
+apiRouter.use('/meterReset', hwMeterResetRoutes);
+apiRouter.use('/meterResetBLE', hwMeterResetBLERoutes);
+apiRouter.use('/meterResetAuthNumber', hwMeterResetAuthNumbersRoutes);
+apiRouter.use('/smsResponse', hwMeterResponseNumberRoutes);
 
 // Fast meters-list endpoint (avoids slow JOINs in meterService)
 const db = require('./config/db');
@@ -224,6 +242,7 @@ app.use('/emergency', hwMeterEmergencyRoutes);
 app.use('/tariffStatus', hwTariffUpdateStatusRoutes);
 app.use('/meterRelayEvents/MeterLog', relayEventsRoutes);
 app.use('/meterHealth/MeterLog', meterHealthRoutes);
+app.use('/meterAuthorizedNumbers', authorizedNumbersRoutes);
 app.use('/api/meters', hwRegistrationLimiter, hwMeterRegistrationRoutes);
 app.post('/meter-validate/confirm', confirmValidation);
 

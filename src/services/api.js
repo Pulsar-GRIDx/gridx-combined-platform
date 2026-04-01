@@ -125,8 +125,6 @@ export const meterAPI = {
   getCellNetwork: (drn) => get(`/meterCellNetwork/getLastUpdate/${drn}`),
   getWeekMonthData: (drn) => get(`/meterWeekAndMonthData/${drn}`),
   getStsTokens: (drn) => get(`/stsTokensByDRN/${drn}`),
-  getTokenInfo: (drn) => get(`/settings/tokenInformation/${drn}`),
-  getSendTokenHistory: (drn) => get(`/settings/stsTokenHistory/${drn}`),
   // Locations for map
   getLocation: (drn) => get(`/meterLocation/${drn}`),
   getAllLocations: () => get('/meterLocation/getAll'),
@@ -188,8 +186,6 @@ export const tokenAPI = {
   getAmount: () => get('/tokenAmount'),
   getCount: () => get('/totalTokensBought'),
   getAllProcessed: () => get('/get-system-processed-tokens'),
-  getAllTokenEntries: () => get('/get-all-token-entries'),
-  getHourlyTokenCounts: () => get('/hourly-token-counts'),
 };
 
 // ===== NOTIFICATIONS =====
@@ -222,13 +218,14 @@ export const meterConfigAPI = {
   resetMeter: (drn) => post(`/meterReset/update/${drn}`, { state: 1, processed: 0 }),
   setMainsControl: (drn, state) => post(`/meterMainsControl/update/${drn}`, { state, processed: 0, reason: 'Web UI' }),
   setHeaterControl: (drn, state) => post(`/meterHeaterControl/update/${drn}`, { state, processed: 0, reason: 'Web UI' }),
+  setMainsState: (drn, state) => post(`/meterMainsState/update/${drn}`, { state, processed: 0, reason: 'Web UI' }),
+  setHeaterState: (drn, state) => post(`/meterHeaterState/update/${drn}`, { state, processed: 0, reason: 'Web UI' }),
   sendToken: (drn, tokenId) => post(`/meterSendSTSToken/update/${drn}`, { token_ID: tokenId, processed: 0 }),
   addAuthNumber: (drn, number) => post(`/meter-config/auth-number/${drn}`, { number }),
   setSMSResponse: (drn, number, enabled) => post(`/smsResponse/update/${drn}`, { sms_response_number: number, sms_response_enabled: enabled ? 1 : 0, processed: 0 }),
   setSleepMode: (drn, enabled) => post(`/meter-config/sleep/${drn}`, { sleep_mode_enabled: enabled ? 1 : 0, processed: 0 }),
   setBaseUrl: (drn, url) => post(`/meter-config/base-url/${drn}`, { base_url: url }),
   getStatus: (drn) => get(`/meter-config/status/${drn}`),
-  getMeterProfiles: () => get('/meter-config/meter-profiles'),
 };
 
 // ===== METER BILLING =====
@@ -239,10 +236,14 @@ export const billingAPI = {
   setTier: (data) => post('/meter-billing/config/tier', data),
 };
 
-// ===== METER PROFILE =====
-export const meterProfileAPI = {
-  get: () => get('/settings/meterProfile'),
-  update: (data) => post('/settings/meterProfile', data),
+// ===== GRIDX METER TARIFF RATES =====
+export const meterTariffAPI = {
+  getRates: (drn) => get(`/meter-billing/config/tariff-rates/${drn}`),
+  getGlobalRates: () => get('/meter-billing/config/tariff-rates/global'),
+  updateRates: (DRN, rates) => post('/meter-billing/config/tariff-rates', { DRN, rates }),
+  updateRatesAll: (rates) => post('/meter-billing/config/tariff-rates/all', { rates }),
+  setActiveIndex: (DRN, index) => post('/meter-billing/config/tariff-index', { DRN, index }),
+  setActiveIndexAll: (index) => post('/meter-billing/config/tariff-index/all', { index }),
 };
 
 // ===== TAMPER DETECTION =====
@@ -261,6 +262,12 @@ export const vsmAPI = {
   serverGenerate: (data) => post('/vsm/server-generate', data),
   logComparison: (data) => post('/vsm/log-comparison', data),
   getTestHistory: (limit) => get('/vsm/test-history' + (limit ? '?limit=' + limit : '')),
+};
+
+// ===== METER PROFILE =====
+export const meterProfileAPI = {
+  get: () => get('/settings/meterProfile'),
+  update: (data) => post('/settings/meterProfile', data),
 };
 
 // ===== COMMISSION REPORTS =====
@@ -321,6 +328,35 @@ export const mqttAPI = {
   getStatus: () => get('/mqtt/status'),
   sendCommand: (drn, command) => post(`/mqtt/command/${drn}`, command),
   testPublish: (drn) => post('/mqtt/test-publish', { drn }),
+  // Token delivery via MQTT
+  sendToken: (drn, token) => post(`/mqtt/send-token/${drn}`, { token }),
+  // Authorized numbers
+  getAuthNumbers: (drn) => get(`/mqtt/auth-numbers/${drn}`),
+  addAuthNumber: (drn, number) => post(`/mqtt/auth-numbers/${drn}/add`, { number }),
+  removeAuthNumber: (drn, number) => post(`/mqtt/auth-numbers/${drn}/remove`, { number }),
+  syncAuthNumbers: (drn) => post(`/mqtt/auth-numbers/${drn}/sync`, {}),
+  // Health & relay logs
+  getHealth: (drn) => get(`/mqtt/health/${drn}`),
+  getRelayLogs: (drn) => get(`/mqtt/relay-logs/${drn}`),
+  requestRelayLogs: (drn) => post(`/mqtt/relay-logs/${drn}/request`, {}),
+  // Load control via MQTT
+  sendLoadControl: (drn, cmd) => post(`/mqtt/load-control/${drn}`, cmd),
+  // Credit transfer
+  transferCredit: (drn, target_meter, watt_hours) =>
+    post(`/mqtt/credit-transfer/${drn}`, { target_meter, watt_hours }),
+  getTransferStatus: (drn, id) => get(`/mqtt/credit-transfer/${drn}/status/${id}`),
+};
+
+// ===== GEYSER CONTROL =====
+export const geyserAPI = {
+  getStatus: (drn) => get(`/geyser/status/${drn}`),
+  getConfig: (drn) => get(`/geyser/config/${drn}`),
+  updateConfig: (drn, data) => put(`/geyser/config/${drn}`, data),
+  control: (drn, action) => post(`/geyser/control/${drn}`, { action }),
+  setTimer: (drn, data) => post(`/geyser/timer/${drn}`, data),
+  getSchedules: (drn) => get(`/geyser/schedules/${drn}`),
+  createSchedule: (drn, data) => post(`/geyser/schedules/${drn}`, data),
+  deleteSchedule: (drn, id) => del(`/geyser/schedules/${drn}/${id}`),
 };
 
 // ===== SUBURB ENERGY =====
@@ -433,6 +469,13 @@ export const nonGridxAPI = {
   getProviders: () => get('/vending/non-gridx-customers/providers/list'),
 };
 
+// ===== EMERGENCY NOTIFICATIONS =====
+export const emergencyAPI = {
+  getNotifications: () => get('/emergencyNotifications'),
+  respond: (notificationId, userId, summary) =>
+    post(`/respond/${notificationId}`, { summary, userId }),
+};
+
 export default {
   auth: authAPI,
   meter: meterAPI,
@@ -448,6 +491,7 @@ export default {
   loadControl: loadControlAPI,
   groupControl: groupControlAPI,
   mqtt: mqttAPI,
+  geyser: geyserAPI,
   commissionReport: commissionReportAPI,
   homeClassification: homeClassificationAPI,
   meterHealth: meterHealthAPI,
@@ -456,13 +500,4 @@ export default {
   integration: integrationAPI,
   nonGridx: nonGridxAPI,
   emergency: emergencyAPI,
-};
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   EMERGENCY NOTIFICATIONS API
-   ═══════════════════════════════════════════════════════════════════════════ */
-export const emergencyAPI = {
-  getNotifications: () => get('/emergencyNotifications'),
-  respond: (notificationId, userId, summary) =>
-    post(`/respond/${notificationId}`, { summary, userId }),
 };

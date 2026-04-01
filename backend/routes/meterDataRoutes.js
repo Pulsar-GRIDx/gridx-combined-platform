@@ -7,6 +7,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { authenticateToken } = require('../admin/authMiddllware');
+const mqttHandler = require('../services/mqttHandler');
 
 // Helper: run a query and return first row
 function queryOne(sql, params) {
@@ -127,7 +128,12 @@ router.post('/meterMainsControl/update/:id', authenticateToken, async (req, res)
         (err, result) => err ? reject(err) : resolve(result)
       );
     });
-    res.json({ success: true, message: `Mains ${state == 1 ? 'enabled' : 'disabled'} command sent` });
+
+    // Also publish MQTT command to meter
+    try { mqttHandler.publishCommand(DRN, { mc: parseInt(state) }); }
+    catch (e) { console.error('[MeterData] MQTT mains publish error:', e.message); }
+
+    res.json({ success: true, message: `Mains ${state == 1 ? 'enabled' : 'disabled'} command sent`, mqtt_sent: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -161,7 +167,12 @@ router.post('/meterHeaterControl/update/:id', authenticateToken, async (req, res
         (err, result) => err ? reject(err) : resolve(result)
       );
     });
-    res.json({ success: true, message: `Heater ${state == 1 ? 'enabled' : 'disabled'} command sent` });
+
+    // Also publish MQTT command to meter
+    try { mqttHandler.publishCommand(DRN, { gc: parseInt(state) }); }
+    catch (e) { console.error('[MeterData] MQTT heater publish error:', e.message); }
+
+    res.json({ success: true, message: `Heater ${state == 1 ? 'enabled' : 'disabled'} command sent`, mqtt_sent: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

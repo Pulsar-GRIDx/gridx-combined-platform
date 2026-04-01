@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { authenticateToken } = require('../admin/authMiddllware');
+const mqttHandler = require('../services/mqttHandler');
 
 // Helper: run a query and return all rows
 function queryAll(sql, params) {
@@ -247,6 +248,9 @@ router.post('/loadcontrol/execute', authenticateToken, async (req, res) => {
     let successCount = 0;
     let failCount = 0;
 
+    // Build MQTT command: { mc: 0|1 } for mains, { gc: 0|1 } for geyser
+    const mqttCmd = isMainsAction ? { mc: parseInt(state) } : { gc: parseInt(state) };
+
     for (const drn of targetMeters) {
       try {
         await execute(
@@ -254,6 +258,14 @@ router.post('/loadcontrol/execute', authenticateToken, async (req, res) => {
            VALUES (?, ?, ?, '0', ?)`,
           [drn, executed_by || 'Admin', state, controlReason]
         );
+
+        // Publish MQTT command to the meter
+        try {
+          mqttHandler.publishCommand(drn, mqttCmd);
+        } catch (mqttErr) {
+          console.error(`[GroupControl] MQTT publish to ${drn} failed:`, mqttErr.message);
+        }
+
         successCount++;
       } catch (e) {
         failCount++;

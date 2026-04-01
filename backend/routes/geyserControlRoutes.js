@@ -187,8 +187,8 @@ router.post('/geyser/control/:drn', authenticateToken, async (req, res) => {
 
     // Record in heater control table
     await execute(
-      'INSERT INTO MeterHeaterControlTable (DRN, state, processed, reason) VALUES (?, ?, 0, ?)',
-      [drn, state, `API manual ${action}`]
+      'INSERT INTO MeterHeaterControlTable (DRN, user, state, processed, reason) VALUES (?, ?, ?, 0, ?)',
+      [drn, req.user?.Username || "api", state, `API manual ${action}`]
     );
 
     // Send MQTT command to ESP32 (structured format)
