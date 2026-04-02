@@ -17,7 +17,6 @@ import Admin from "./pages/Admin";
 import Map from "./pages/Map";
 import MeterProfile from "./pages/MeterProfile";
 import MeterSummary from "./pages/MeterSummary";
-import EmergencyNotifications from "./pages/EmergencyNotifications";
 import Topology from "./pages/Topology";
 import Analysis from "./pages/Analysis";
 import Billing from "./pages/Billing";
@@ -29,7 +28,6 @@ import Integrations from "./pages/Integrations";
 import Installers from "./pages/Installers";
 import TamperDetection from "./pages/TamperDetection";
 import VsmTesting from "./pages/VsmTesting";
-import MeterProfiles from "./pages/MeterProfiles";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -54,7 +52,7 @@ function App() {
               <Route path="admin" element={<Admin />} />
               <Route path="map" element={<Map />} />
               <Route path="meter/:drn" element={<MeterProfile />} />
-              <Route path="emergency-notifications" element={<EmergencyNotifications />} />
+              <Route path="meter-summary" element={<MeterSummary />} />
               <Route path="topology" element={<Topology />} />
               <Route path="analysis" element={<Analysis />} />
               <Route path="billing" element={<Billing />} />
@@ -67,7 +65,6 @@ function App() {
               <Route path="installers" element={<Installers />} />
               <Route path="tamper-detection" element={<TamperDetection />} />
               <Route path="vsm-testing" element={<VsmTesting />} />
-              <Route path="meter-profiles" element={<MeterProfiles />} />
             </Route>
           </Routes>
         </AuthProvider>

@@ -25,8 +25,6 @@ import HubIcon from "@mui/icons-material/Hub";
 import BuildIcon from "@mui/icons-material/Build";
 import SecurityIcon from "@mui/icons-material/Security";
 import GppBadIcon from "@mui/icons-material/GppBad";
-import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
-import ElectricMeterOutlinedIcon from "@mui/icons-material/ElectricMeterOutlined";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
@@ -337,14 +335,6 @@ const Sidebar = () => {
           accentColor={colors.blueAccent[500]}
         />
 
-        <NavItem
-          title="Meter Profiles"
-          to="/meter-profiles"
-          icon={<ElectricMeterOutlinedIcon />}
-          isCollapsed={isCollapsed}
-          accentColor={colors.greenAccent[500]}
-        />
-
         {/* System */}
         <SectionHeader
           title="System"
@@ -366,11 +356,11 @@ const Sidebar = () => {
           accentColor={colors.greenAccent[500]}
         />
         <NavItem
-          title="Emergency Alerts"
-          to="/emergency-notifications"
-          icon={<ReportProblemOutlinedIcon />}
+          title="Meter Summary"
+          to="/meter-summary"
+          icon={<SpeedIcon />}
           isCollapsed={isCollapsed}
-          accentColor={colors.redAccent[500]}
+          accentColor={colors.greenAccent[500]}
         />
         <NavItem
           title="New System Node"
