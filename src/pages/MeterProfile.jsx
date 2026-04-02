@@ -2257,9 +2257,9 @@ export default function MeterProfile() {
                 </TableBody></Table></TableContainer>
               </Box>
             )}
-            <Button variant="contained" startIcon={<SendOutlined />} onClick={handleVend} disabled={vendLoading || !vendAmount || parseFloat(vendAmount) < 5}
+            <Button variant="contained" startIcon={<SendOutlined />} onClick={handleVend} disabled={!vendAmount || parseFloat(vendAmount) < 5}
               sx={{ backgroundColor: colors.greenAccent[700], "&:hover": { backgroundColor: colors.greenAccent[600] }, textTransform: "none" }}>
-              {vendLoading ? 'Generating...' : 'Generate Token'}
+              Generate Token
             </Button>
             {generatedToken && (
               <Box mt={2} p={2} backgroundColor="rgba(76,206,172,0.1)" borderRadius="4px" border={`1px solid ${colors.greenAccent[700]}`}>
