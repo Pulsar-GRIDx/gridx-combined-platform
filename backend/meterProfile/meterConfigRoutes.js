@@ -73,4 +73,65 @@ router.post('/base-url/:drn', (req, res) => {
   });
 });
 
+// GET /meter-profiles - Get all meters with enriched data for Meter Profiles page
+router.get("/meter-profiles", (req, res) => {
+  const sql = `
+    SELECT 
+      mpr.DRN as drn,
+      CONCAT(mpr.Name, " ", mpr.Surname) as customerName,
+      mpr.City as area,
+      mpr.Region as suburb,
+      mpr.StreetName as street,
+      mpr.SIMNumber as simNumber,
+      mpr.tariff_type as tariffType,
+      mpr.TransformerDRN as transformer,
+      COALESCE(energy.units, 0) as kWh,
+      COALESCE(energy.tamper_state, 0) as tamperState,
+      energy.date_time as lastEnergyUpdate,
+      COALESCE(lc.mains_state, "0") as mainsState,
+      COALESCE(auth_count.total, 0) as authorizedCount,
+      CASE WHEN mcr.id IS NOT NULL THEN 1 ELSE 0 END as commissioned,
+      CASE WHEN mcr.overall_passed = 1 THEN "Passed" WHEN mcr.overall_passed = 0 AND mcr.id IS NOT NULL THEN "Failed" ELSE "N/A" END as commissionStatus,
+      CASE WHEN m.id IS NOT NULL THEN m.status ELSE "unregistered" END as registrationStatus,
+      m.registered_at as registeredAt,
+      CASE WHEN su.UserID IS NOT NULL THEN 1 ELSE 0 END as hasAppUser,
+      su.FirstName as appUserName
+    FROM MeterProfileReal mpr
+    LEFT JOIN (
+      SELECT t.DRN, t.units, t.tamper_state, t.date_time
+      FROM MeterCumulativeEnergyUsage t
+      INNER JOIN (SELECT DRN, MAX(id) as max_id FROM MeterCumulativeEnergyUsage GROUP BY DRN) latest ON t.id = latest.max_id
+    ) energy ON mpr.DRN = energy.DRN
+    LEFT JOIN (
+      SELECT t.DRN, t.mains_state
+      FROM MeterLoadControl t
+      INNER JOIN (SELECT DRN, MAX(id) as max_id FROM MeterLoadControl WHERE date_time >= NOW() - INTERVAL 30 DAY GROUP BY DRN) latest ON t.id = latest.max_id
+    ) lc ON mpr.DRN = lc.DRN
+    LEFT JOIN (
+      SELECT drn, COUNT(*) as total FROM MeterAuthorizedNumbers GROUP BY drn
+    ) auth_count ON mpr.DRN = auth_count.drn
+    LEFT JOIN (
+      SELECT t.DRN, t.id, t.overall_passed
+      FROM MeterCommissionReport t
+      INNER JOIN (SELECT DRN, MAX(id) as max_id FROM MeterCommissionReport WHERE report_type = "commissioning" OR report_type = "full_system" GROUP BY DRN) latest ON t.id = latest.max_id
+    ) mcr ON mpr.DRN = mcr.DRN
+    LEFT JOIN meters m ON mpr.DRN = m.DRN COLLATE utf8mb4_0900_ai_ci
+    LEFT JOIN SystemUsers su ON mpr.DRN = su.DRN
+    ORDER BY mpr.DRN
+  `;
+
+  db.query(sql, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const data = (rows || []).map(m => ({
+      ...m,
+      id: m.drn,
+      status: m.mainsState === "1" ? "Online" : "Offline",
+      security: m.tamperState == 1 ? "Tampered" : "Secure",
+      location: [m.street, m.suburb, m.area].filter(Boolean).join(", ") || "-",
+      selfRegistered: m.registrationStatus === "active",
+      registrationComplete: m.commissioned === 1 && m.registrationStatus === "active" ? true : false,
+    }));
+    res.json({ success: true, data });
+  });
+});
 module.exports = router;
