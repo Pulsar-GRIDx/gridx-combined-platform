@@ -533,7 +533,6 @@ function handleAckJson(drn, data) {
       (err) => { if (err) console.error('[MQTT] ACK MainsState processed update error:', err.message); }
     );
   }
-}
 
   // On calibration ACK — log results from auto-calibrate or verify
   if ((data.type === 'calibrate' || data.type === 'cal') && data.status === 'ok') {
