@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Box, Typography, useTheme, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress } from "@mui/material";
+import { Box, Typography, useTheme, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, CircularProgress, Skeleton } from "@mui/material";
 import { tokens } from "../theme";
 import Header from "../components/Header";
 import DataBadge from "../components/DataBadge";
@@ -105,27 +105,16 @@ export default function Dashboard() {
     const withTimeout = (promise, ms = 8000) =>
       Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))]);
 
-    const fetchData = async () => {
+    // Fire-and-forget: each call updates state as soon as it resolves
+    // KPIs load fast, charts load in background — UI is never blocked
+    const fetchKpis = async () => {
       try {
-        // Fetch multiple endpoints in parallel with 8s timeout each
-        const results = await Promise.allSettled([
+        const [meterDash, tokenAmt, tokenCnt, dayEnergy] = await Promise.allSettled([
           withTimeout(meterAPI.getDashboard()),
           withTimeout(tokenAPI.getAmount()),
           withTimeout(tokenAPI.getCount()),
-          withTimeout(financeAPI.getPastWeekTokens()),
           withTimeout(energyAPI.getCurrentDay()),
-          withTimeout(tokenAPI.getAllProcessed()),
-          withTimeout(meterAPI.getAreaSummary()),
-          withTimeout(energyAPI.getHourlyPower()),
-          withTimeout(energyAPI.getWeeklyAmount()),
-          withTimeout(energyAPI.getSuburbHourlyEnergy(ALL_SUBURBS), 10000),
-          withTimeout(tokenAPI.getAllTokenEntries()),
-          withTimeout(tokenAPI.getHourlyTokenCounts()),
         ]);
-
-        const [meterDash, tokenAmt, tokenCnt, weekTokens, dayEnergy, processedTokens, areaSummaryResult, hourlyPowerResult, weeklyAmountResult, suburbEnergyResult, allTokenEntries, hourlyTokenResult] = results;
-
-        // Build KPIs from meter dashboard
         if (meterDash.status === "fulfilled" && meterDash.value?.data) {
           const d = meterDash.value.data;
           setKpis((prev) => ({
@@ -136,38 +125,25 @@ export default function Dashboard() {
             systemLoad: d.systemLoad || prev.systemLoad,
           }));
         }
-
-        // Token amount = today's revenue
         if (tokenAmt.status === "fulfilled") {
-          const data = tokenAmt.value;
-          setKpis((prev) => ({
-            ...prev,
-            todayRevenue: parseFloat(data?.grandTotal) || prev.todayRevenue,
-          }));
+          setKpis((prev) => ({ ...prev, todayRevenue: parseFloat(tokenAmt.value?.grandTotal) || prev.todayRevenue }));
         }
-
-        // Token count
         if (tokenCnt.status === "fulfilled") {
-          const data = tokenCnt.value;
-          setKpis((prev) => ({
-            ...prev,
-            todayTokens: data?.grandTotal || prev.todayTokens,
-          }));
+          setKpis((prev) => ({ ...prev, todayTokens: tokenCnt.value?.grandTotal || prev.todayTokens }));
         }
-
-        // Current day energy
         if (dayEnergy.status === "fulfilled") {
-          const data = dayEnergy.value;
-          setKpis((prev) => ({
-            ...prev,
-            avgConsumption: data?.totalEnergy || prev.avgConsumption,
-          }));
+          setKpis((prev) => ({ ...prev, avgConsumption: dayEnergy.value?.totalEnergy || prev.avgConsumption }));
         }
+      } catch (e) { console.error("KPI fetch:", e); }
+      setLoading(false);
+    };
 
-        // Past week tokens for trend chart
-        if (weekTokens.status === "fulfilled" && Array.isArray(weekTokens.value)) {
+    const fetchCharts = async () => {
+      // Week trend
+      withTimeout(financeAPI.getPastWeekTokens()).then((val) => {
+        if (Array.isArray(val)) {
           const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-          const trend = weekTokens.value.map((item) => {
+          const trend = val.map((item) => {
             const d = new Date(item.date || item.Date);
             return {
               day: dayNames[d.getDay()] || "?",
@@ -178,90 +154,79 @@ export default function Dashboard() {
           });
           if (trend.length > 0) setSalesTrend(trend);
         }
+      }).catch(() => {});
 
-        // Area summary (power + revenue)
-        if (areaSummaryResult.status === "fulfilled" && areaSummaryResult.value) {
-          const { areaPower: ap, areaRevenue: ar } = areaSummaryResult.value;
-          if (Array.isArray(ap)) setAreaPower(ap);
-          if (Array.isArray(ar)) setAreaRevenue(ar);
+      // Area summary
+      withTimeout(meterAPI.getAreaSummary()).then((val) => {
+        if (val) {
+          if (Array.isArray(val.areaPower)) setAreaPower(val.areaPower);
+          if (Array.isArray(val.areaRevenue)) setAreaRevenue(val.areaRevenue);
         }
+      }).catch(() => {});
 
-        // Hourly power consumption (24-hour data)
-        if (hourlyPowerResult.status === "fulfilled" && hourlyPowerResult.value) {
-          const hData = hourlyPowerResult.value;
-          if (Array.isArray(hData.sums)) {
-            const chartData = hData.sums.map((val, i) => ({
-              hour: `${i < 10 ? '0' + i : i}:00`,
-              kWh: Number(val) || 0,
-            }));
-            setHourlyData(chartData);
-          }
+      // Hourly power
+      withTimeout(energyAPI.getHourlyPower()).then((hData) => {
+        if (Array.isArray(hData?.sums)) {
+          setHourlyData(hData.sums.map((val, i) => ({
+            hour: `${i < 10 ? '0' + i : i}:00`,
+            kWh: Number(val) || 0,
+          })));
         }
+      }).catch(() => {});
 
-        // Weekly data with average/peak power
-        if (weeklyAmountResult.status === "fulfilled" && weeklyAmountResult.value) {
-          const wData = weeklyAmountResult.value;
-          const avgPower = typeof wData?.averagePower === "number"
+      // Weekly amount
+      withTimeout(energyAPI.getWeeklyAmount()).then((wData) => {
+        if (wData) {
+          const avgPower = typeof wData.averagePower === "number"
             ? wData.averagePower
             : wData?.enhancedSystemPowerAnalysis?.daily_analysis?.overall_average_power || 0;
-          const peakPower = typeof wData?.peakPower === "number"
+          const peakPower = typeof wData.peakPower === "number"
             ? wData.peakPower
             : wData?.enhancedSystemPowerAnalysis?.daily_analysis?.overall_peak_power || 0;
           setHourlyTotals({ averagePower: avgPower, peakPower: peakPower });
         }
+      }).catch(() => {});
 
-        // Suburb hourly energy (for regional consumption chart)
-        if (suburbEnergyResult.status === "fulfilled" && suburbEnergyResult.value) {
-          const sData = suburbEnergyResult.value?.data || suburbEnergyResult.value;
-          if (typeof sData === "object" && !Array.isArray(sData)) {
-            // Ensure all suburbs are present (even with 0)
-            const fullData = {};
-            ALL_SUBURBS.forEach((s) => { fullData[s] = Number(sData[s]) || 0; });
-            setSuburbEnergy(fullData);
-          }
+      // Suburb energy (slowest — 10s timeout)
+      withTimeout(energyAPI.getSuburbHourlyEnergy(ALL_SUBURBS), 10000).then((val) => {
+        const sData = val?.data || val;
+        if (typeof sData === "object" && !Array.isArray(sData)) {
+          const fullData = {};
+          ALL_SUBURBS.forEach((s) => { fullData[s] = Number(sData[s]) || 0; });
+          setSuburbEnergy(fullData);
         }
+      }).catch(() => {});
 
-        // All token entries from STSTokesInfo as recent transactions
-        if (allTokenEntries.status === "fulfilled") {
-          const data = Array.isArray(allTokenEntries.value?.data) ? allTokenEntries.value.data : Array.isArray(allTokenEntries.value) ? allTokenEntries.value : [];
-          const channels = ["Console", "Touch Screen", "SMS", "BLE", "Server"];
-          const txns = data.slice(0, 50).map((t, i) => ({
-            id: t.id || `TXN-${i}`,
-            time: t.date_time || new Date().toISOString(),
-            customer: t.DRN || "-",
-            meterNo: t.DRN || "-",
-            amount: parseFloat(t.token_amount || 0),
-            channel: channels[parseInt(t.submission_Method)] || t.submission_Method || "-",
-            token: t.token_id || "-",
-            status: (t.display_msg || "").toLowerCase().includes("accept") ? "Accepted"
-              : (t.display_msg || "").toLowerCase().includes("reject") || (t.display_msg || "").toLowerCase().includes("not authentic") || (t.display_msg || "").toLowerCase().includes("error") ? "Rejected"
-              : t.display_msg || "Unknown",
-          }));
-          if (txns.length > 0) setRecentTxns(txns);
-        }
+      // Token entries
+      withTimeout(tokenAPI.getAllTokenEntries()).then((val) => {
+        const data = Array.isArray(val?.data) ? val.data : Array.isArray(val) ? val : [];
+        const channels = ["Console", "Touch Screen", "SMS", "BLE", "Server"];
+        const txns = data.slice(0, 50).map((t, i) => ({
+          id: t.id || `TXN-${i}`,
+          time: t.date_time || new Date().toISOString(),
+          customer: t.DRN || "-",
+          meterNo: t.DRN || "-",
+          amount: parseFloat(t.token_amount || 0),
+          channel: channels[parseInt(t.submission_Method)] || t.submission_Method || "-",
+          token: t.token_id || "-",
+          status: (t.display_msg || "").toLowerCase().includes("accept") ? "Accepted"
+            : (t.display_msg || "").toLowerCase().includes("reject") || (t.display_msg || "").toLowerCase().includes("not authentic") || (t.display_msg || "").toLowerCase().includes("error") ? "Rejected"
+            : t.display_msg || "Unknown",
+        }));
+        if (txns.length > 0) setRecentTxns(txns);
+      }).catch(() => {});
 
-        // Hourly cumulative token counts for today
-        if (hourlyTokenResult.status === "fulfilled") {
-          const hData = Array.isArray(hourlyTokenResult.value?.data) ? hourlyTokenResult.value.data : Array.isArray(hourlyTokenResult.value) ? hourlyTokenResult.value : [];
-          if (hData.length > 0) setHourlyTokenCounts(hData);
-        }
-      } catch (err) {
-        console.error("Dashboard fetch error:", err);
-      } finally {
-        setLoading(false);
-      }
+      // Hourly token counts
+      withTimeout(tokenAPI.getHourlyTokenCounts()).then((val) => {
+        const hData = Array.isArray(val?.data) ? val.data : Array.isArray(val) ? val : [];
+        if (hData.length > 0) setHourlyTokenCounts(hData);
+      }).catch(() => {});
     };
 
-    fetchData();
+    // KPIs first (fast), then charts stream in
+    fetchKpis();
+    fetchCharts();
   }, []);
-
-  if (loading) {
-    return (
-      <Box m="20px" display="flex" justifyContent="center" alignItems="center" height="60vh">
-        <CircularProgress sx={{ color: colors.greenAccent[500] }} />
-      </Box>
-    );
-  }
 
   return (
     <Box m="20px">
@@ -440,6 +405,9 @@ export default function Dashboard() {
               </Box>
 
               <Box height="350px">
+                {suburbChartData.length === 0 ? (
+                  <Skeleton variant="rectangular" width="100%" height="100%" sx={{ bgcolor: colors.primary[500], borderRadius: 1 }} />
+                ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={suburbChartData} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
@@ -474,6 +442,7 @@ export default function Dashboard() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+                )}
               </Box>
             </Box>
           );
@@ -541,6 +510,9 @@ export default function Dashboard() {
               </Box>
 
               <Box height="350px">
+                {hourlyData.length === 0 ? (
+                  <Skeleton variant="rectangular" width="100%" height="100%" sx={{ bgcolor: colors.primary[500], borderRadius: 1 }} />
+                ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={hourlyData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                     <defs>
@@ -595,6 +567,7 @@ export default function Dashboard() {
                     />
                   </AreaChart>
                 </ResponsiveContainer>
+                )}
               </Box>
             </Box>
           );
