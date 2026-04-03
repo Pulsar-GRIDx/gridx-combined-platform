@@ -728,7 +728,7 @@ export default function MeterProfile() {
 
   // Load config status and authorized numbers when switching to config tab
   useEffect(() => {
-    if (tab === 4 && drn) {
+    if (tab === 3 && drn) {
       meterConfigAPI.getStatus(drn).then(r => setConfigStatus(r?.data || null)).catch(() => {});
       meterConfigAPI.getAuthorizedNumbers(drn).then(r => setAuthorizedNumbers(r?.data?.numbers || [])).catch(() => {});
     }
