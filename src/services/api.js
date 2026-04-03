@@ -237,6 +237,8 @@ export const meterConfigAPI = {
   getStatus: (drn) => get(`/meter-config/status/${drn}`),
   // Meter profiles
   getMeterProfiles: () => get('/meter-config/meter-profiles'),
+  // Authorized numbers
+  getAuthorizedNumbers: (drn) => get(`/meterAuthorizedNumbers/${drn}`),
 };
 
 // ===== METER BILLING =====

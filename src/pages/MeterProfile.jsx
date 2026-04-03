@@ -340,7 +340,7 @@ export default function MeterProfile() {
   });
   const [commandLoading, setCommandLoading] = useState(false);
   /* ---------- Config tab input state ---------- */
-  const [configAuthNumber, setConfigAuthNumber] = useState("");
+  const [authorizedNumbers, setAuthorizedNumbers] = useState([]);
   const [configSmsNumber, setConfigSmsNumber] = useState("");
   const [configSmsEnabled, setConfigSmsEnabled] = useState(true);
   const [configBaseUrl, setConfigBaseUrl] = useState("");
@@ -692,10 +692,6 @@ export default function MeterProfile() {
           setSnackbar({ open: true, message: "Token sent to meter", severity: "success" });
           break;
         case "add_auth_number":
-          if (!payload?.number) break;
-          await meterConfigAPI.addAuthNumber(drn, payload.number);
-          setConfigAuthNumber("");
-          setSnackbar({ open: true, message: "Authorized number command sent", severity: "success" });
           break;
         case "set_sms":
           await meterConfigAPI.setSMSResponse(drn, payload?.number || "", payload?.enabled ?? true);
@@ -730,10 +726,11 @@ export default function MeterProfile() {
     }
   };
 
-  // Load config status when switching to config tab
+  // Load config status and authorized numbers when switching to config tab
   useEffect(() => {
     if (tab === 4 && drn) {
       meterConfigAPI.getStatus(drn).then(r => setConfigStatus(r?.data || null)).catch(() => {});
+      meterConfigAPI.getAuthorizedNumbers(drn).then(r => setAuthorizedNumbers(r?.data?.numbers || [])).catch(() => {});
     }
   }, [tab, drn]);
 
@@ -2413,7 +2410,7 @@ export default function MeterProfile() {
             )}
           </Box>
 
-          {/* ── Add Authorized Number (an) ── */}
+          {/* ── Authorized Numbers (read-only) ── */}
           <Box
             gridColumn="span 6"
             gridRow="span 1"
@@ -2422,19 +2419,28 @@ export default function MeterProfile() {
             borderRadius="4px"
           >
             <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>
-              Authorized Number
+              Authorized Numbers
             </Typography>
-            <Box display="flex" gap={1} alignItems="center">
-              <TextField size="small" placeholder="+264 81 123 4567" value={configAuthNumber}
-                onChange={(e) => setConfigAuthNumber(e.target.value)}
-                sx={{ flex: 1, "& .MuiInputBase-root": { color: "#fff", backgroundColor: colors.primary[500] } }} />
-              <Button variant="contained" size="small" disabled={commandLoading || !configAuthNumber}
-                startIcon={<PersonAddOutlined />}
-                onClick={() => handleConfigAction("add_auth_number", { number: configAuthNumber })}
-                sx={{ backgroundColor: "#00b4d8", textTransform: "none" }}>
-                Add Number
-              </Button>
-            </Box>
+            {authorizedNumbers.length > 0 ? (
+              <Box>
+                {authorizedNumbers.map((num, idx) => (
+                  <Box key={idx} display="flex" alignItems="center" gap={1} py={0.5}
+                    borderBottom={idx < authorizedNumbers.length - 1 ? `1px solid ${colors.primary[500]}` : "none"}>
+                    <PhoneAndroidOutlined sx={{ color: colors.greenAccent[500], fontSize: 18 }} />
+                    <Typography color={colors.grey[100]} fontFamily="monospace" fontSize="0.9rem">
+                      {num.phone_number}
+                    </Typography>
+                    <Typography color={colors.grey[300]} fontSize="0.75rem" ml="auto">
+                      {num.synced_at ? new Date(num.synced_at).toLocaleDateString() : ""}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            ) : (
+              <Typography color={colors.grey[300]} fontSize="0.85rem">
+                No authorized numbers found
+              </Typography>
+            )}
           </Box>
 
           {/* ── SMS Response Config (as/ase/sm) ── */}
