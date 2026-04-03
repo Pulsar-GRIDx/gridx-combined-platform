@@ -30,6 +30,7 @@ const TOPICS = [
   'gx/+/health',
   'gx/+/relay_log',
   'gx/+/auth_numbers',
+  'gx/+/energy_usage',
 ];
 
 // ==================== Binary Parser Helpers ====================
@@ -114,6 +115,19 @@ async function fixEmqxAuth() {
 
 function ensureTables() {
   // MeterAuthorizedNumbers already exists with (drn, phone_number) schema — no need to create
+
+  db.query(`CREATE TABLE IF NOT EXISTS MeterHourlyEnergy (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    DRN VARCHAR(50) NOT NULL,
+    hourly_data JSON,
+    cumulative INT,
+    peak_power INT,
+    total INT,
+    record_time INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_drn (DRN),
+    INDEX idx_created (created_at)
+  )`, (err) => { if (err) console.error('[MQTT] MeterHourlyEnergy table error:', err.message); });
 
   db.query(`CREATE TABLE IF NOT EXISTS MeterHealthReport (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -229,8 +243,8 @@ function handleMessage(topic, buf) {
   const drn = parts[1];
   const type = parts[2];
 
-  // JSON-only topics (ack, health, relay_log, auth_numbers)
-  if (['ack', 'health', 'relay_log', 'auth_numbers'].includes(type)) {
+  // JSON-only topics (ack, health, relay_log, auth_numbers, energy_usage)
+  if (['ack', 'health', 'relay_log', 'auth_numbers', 'energy_usage'].includes(type)) {
     try {
       const data = JSON.parse(buf.toString());
       switch (type) {
@@ -238,6 +252,7 @@ function handleMessage(topic, buf) {
         case 'health':       handleHealthJson(drn, data); break;
         case 'relay_log':    handleRelayLogJson(drn, data); break;
         case 'auth_numbers': handleAuthNumbersJson(drn, data); break;
+        case 'energy_usage': handleEnergyUsageJson(drn, data); break;
       }
     } catch (e) {
       console.error(`[MQTT] Invalid JSON on ${topic}:`, e.message);
@@ -672,6 +687,23 @@ function handleAuthNumbersJson(drn, data) {
       if (err2) console.error('[MQTT] Auth numbers insert error:', err2.message);
     });
   });
+}
+
+function handleEnergyUsageJson(drn, data) {
+  const hourly = data.hourly;
+  if (!Array.isArray(hourly) || hourly.length !== 24) {
+    return console.error('[MQTT] energy_usage: invalid hourly array');
+  }
+  console.log(`[MQTT] Hourly energy from ${drn}: total=${data.total}Wh, peak=${data.peak_power}W`);
+
+  db.query('INSERT INTO MeterHourlyEnergy SET ?', {
+    DRN: drn,
+    hourly_data: JSON.stringify(hourly),
+    cumulative: data.cumulative || 0,
+    peak_power: data.peak_power || 0,
+    total: data.total || 0,
+    record_time: data.ts || Math.floor(Date.now() / 1000),
+  }, (err) => { if (err) console.error('[MQTT] HourlyEnergy insert error:', err.message); });
 }
 
 // ==================== Legacy JSON Fallback ====================

@@ -573,4 +573,41 @@ router.get('/calibration-log/:drn', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /hourly-energy/:drn — get latest hourly energy usage for a meter
+router.get('/hourly-energy/:drn', authenticateToken, async (req, res) => {
+  try {
+    const row = await queryOne(
+      `SELECT * FROM MeterHourlyEnergy WHERE DRN = ? ORDER BY created_at DESC LIMIT 1`,
+      [req.params.drn]
+    );
+    if (!row) {
+      return res.json({ success: true, data: null, sums: [] });
+    }
+    // Parse JSON hourly_data and return as "sums" for backward compat with existing app
+    let sums = [];
+    try { sums = JSON.parse(row.hourly_data); } catch (e) { sums = []; }
+    res.json({
+      success: true,
+      sums,
+      cumulative: row.cumulative,
+      peak_power: row.peak_power,
+      total: row.total,
+      record_time: row.record_time,
+      created_at: row.created_at,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /hourly-energy/:drn/request — request fresh hourly data from meter via MQTT
+router.post('/hourly-energy/:drn/request', authenticateToken, async (req, res) => {
+  try {
+    mqttHandler.publishCommand(req.params.drn, { type: 'energy_usage_request' });
+    res.json({ success: true, message: 'Energy usage request sent to meter' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
