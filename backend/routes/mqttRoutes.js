@@ -69,7 +69,7 @@ router.post('/mqtt/command/:drn', authenticateToken, (req, res) => {
 router.post('/mqtt/send-token/:drn', authenticateToken, (req, res) => {
   try {
     const drn = req.params.drn;
-    const { token } = req.body;
+    const { token, amount, kWh } = req.body;
 
     if (!token || !/^\d{20}$/.test(token)) {
       return res.status(400).json({ error: 'Token must be exactly 20 digits' });
@@ -78,11 +78,25 @@ router.post('/mqtt/send-token/:drn', authenticateToken, (req, res) => {
     // Use QoS 1 for critical token delivery
     mqttHandler.publishCommand(drn, { type: 'token', token }, 1);
 
+    // Log to VendingTransactions so it appears in Vending & Credit Transfer History
+    const operatorName = req.user ? ((req.user.FirstName || '') + ' ' + (req.user.LastName || '')).trim() || 'System' : 'System';
+    const operatorId = (req.user && req.user.Admin_ID) || null;
+    const refNo = 'TXN-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+
+    db.query(
+      'INSERT INTO VendingTransactions (refNo, meterNo, amount, kWh, token, operator, operatorId, type, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, "Completed")',
+      [refNo, drn, amount || 0, kWh || 0, token, operatorName, operatorId, 'MQTT Token Send'],
+      (err) => {
+        if (err) console.error('[MQTT] VendingTransaction log error:', err.message);
+      }
+    );
+
     res.json({
       success: true,
       message: `Token sent to ${drn} via MQTT`,
       drn,
       token_length: token.length,
+      refNo,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
