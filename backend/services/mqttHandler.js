@@ -372,6 +372,20 @@ function handleAckJson(drn, data) {
     }, (err) => {
       if (err) console.error('[MQTT] ACK HeaterState insert error:', err.message);
     });
+
+    // Mark pending heater control commands as processed
+    db.query(
+      'UPDATE MeterHeaterControlTable SET processed = 1 WHERE DRN = ? AND processed = 0',
+      [drn],
+      (err) => { if (err) console.error('[MQTT] ACK HeaterControl processed update error:', err.message); }
+    );
+
+    // Mark pending heater state commands as processed
+    db.query(
+      'UPDATE MeterHeaterStateTable SET processed = 1 WHERE DRN = ? AND processed = 0',
+      [drn],
+      (err) => { if (err) console.error('[MQTT] ACK HeaterState processed update error:', err.message); }
+    );
   }
 
   // On successful credit_transfer ACK from source meter — token was generated
@@ -468,6 +482,31 @@ function handleAckJson(drn, data) {
           else console.log(`[MQTT] ACK updated MeterLoadControl: mains_state=${mainsState} for ${drn}`);
         });
       }
+    );
+
+    // Insert into MeterMainsStateTable so relay state UI updates
+    db.query('INSERT INTO MeterMainsStateTable SET ?', {
+      DRN: drn,
+      user: 'MQTT_ACK',
+      state: mainsState,
+      processed: '1',
+      reason: data.detail === 'on' ? 'MQTT mains ON confirmed' : 'MQTT mains OFF confirmed',
+    }, (err) => {
+      if (err) console.error('[MQTT] ACK MainsState insert error:', err.message);
+    });
+
+    // Mark pending mains control commands as processed
+    db.query(
+      'UPDATE MeterMainsControlTable SET processed = 1 WHERE DRN = ? AND processed = 0',
+      [drn],
+      (err) => { if (err) console.error('[MQTT] ACK MainsControl processed update error:', err.message); }
+    );
+
+    // Mark pending mains state commands as processed
+    db.query(
+      'UPDATE MeterMainsStateTable SET processed = 1 WHERE DRN = ? AND processed = 0',
+      [drn],
+      (err) => { if (err) console.error('[MQTT] ACK MainsState processed update error:', err.message); }
     );
   }
 }

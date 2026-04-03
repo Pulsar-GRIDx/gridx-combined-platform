@@ -217,7 +217,11 @@ router.post('/meterMainsState/update/:id', authenticateToken, async (req, res) =
         (err, result) => err ? reject(err) : resolve(result)
       );
     });
-    res.json({ success: true, message: `Mains state ${state == 1 ? 'ON' : 'OFF'} command sent` });
+    // Publish MQTT command to meter
+    try { mqttHandler.publishCommand(DRN, { mc: parseInt(state) }); }
+    catch (e) { console.error('[MeterData] MQTT mains state publish error:', e.message); }
+
+    res.json({ success: true, message: `Mains state ${state == 1 ? 'ON' : 'OFF'} command sent`, mqtt_sent: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -236,7 +240,12 @@ router.post('/meterHeaterState/update/:id', authenticateToken, async (req, res) 
         (err, result) => err ? reject(err) : resolve(result)
       );
     });
-    res.json({ success: true, message: `Heater state ${state == 1 ? 'ON' : 'OFF'} command sent` });
+
+    // Publish MQTT command to meter
+    try { mqttHandler.publishCommand(DRN, { gc: parseInt(state) }); }
+    catch (e) { console.error('[MeterData] MQTT heater state publish error:', e.message); }
+
+    res.json({ success: true, message: `Heater state ${state == 1 ? 'ON' : 'OFF'} command sent`, mqtt_sent: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

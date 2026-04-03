@@ -631,12 +631,20 @@ export default function MeterProfile() {
 
       // Refresh control data
       try {
-        if (type === "mains") {
+        if (baseType === "mains") {
           const mc = await loadControlAPI.getMainsControl(drn);
           setMainsControl(mc);
+          if (isStateControl) {
+            const ms = await loadControlAPI.getMainsState(drn);
+            setMainsState(ms);
+          }
         } else {
           const hc = await loadControlAPI.getHeaterControl(drn);
           setHeaterControl(hc);
+          if (isStateControl) {
+            const hs = await loadControlAPI.getHeaterState(drn);
+            setHeaterState(hs);
+          }
         }
       } catch (e) {
         /* ignore refresh error */
