@@ -257,7 +257,8 @@ function handleMessage(topic, buf) {
     `INSERT INTO MeterLastSeen (DRN, last_seen, last_topic, message_count)
      VALUES (?, NOW(), ?, 1)
      ON DUPLICATE KEY UPDATE last_seen = NOW(), last_topic = ?, message_count = message_count + 1`,
-    [drn, type, type]
+    [drn, type, type],
+    (err) => { if (err) console.error('[MQTT] MeterLastSeen update error:', err.message); }
   );
 
   // JSON-only topics (ack, health, relay_log, auth_numbers, energy_usage)

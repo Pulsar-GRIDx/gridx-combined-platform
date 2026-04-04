@@ -6,7 +6,7 @@ import DataBadge from "../components/DataBadge";
 import StatBox from "../components/StatBox";
 import { meterAPI, tokenAPI, financeAPI, energyAPI, mqttAPI } from "../services/api";
 import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
-import { dashboardData as mockDashboard, notifications as mockNotifications } from "../services/mockData";
+// Mock data removed — dashboard uses only real MQTT data
 import ElectricBoltOutlinedIcon from "@mui/icons-material/ElectricBoltOutlined";
 import BatteryChargingFullIcon from "@mui/icons-material/BatteryChargingFull";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
@@ -89,10 +89,14 @@ export default function Dashboard() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
 
-  const [kpis, setKpis] = useState(mockDashboard.kpis);
-  const [salesTrend, setSalesTrend] = useState(mockDashboard.salesTrend);
-  const [recentTxns, setRecentTxns] = useState(mockDashboard.recentTransactions);
-  const [notifs, setNotifs] = useState(mockNotifications);
+  const [kpis, setKpis] = useState({
+    totalMeters: 0, activeMeters: 0, inactiveMeters: 0, todayRevenue: 0,
+    todayTokens: 0, systemLoad: 0, avgConsumption: 0, liveMeters: 0,
+    offlineMeters: 0, avgPower: 0, peakPower: 0, avgVoltage: 0, reportingMeters: 0,
+  });
+  const [salesTrend, setSalesTrend] = useState([]);
+  const [recentTxns, setRecentTxns] = useState([]);
+  const [notifs, setNotifs] = useState([]);
   const [areaPower, setAreaPower] = useState([]);
   const [areaRevenue, setAreaRevenue] = useState([]);
   const [hourlyData, setHourlyData] = useState([]);

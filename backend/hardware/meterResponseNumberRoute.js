@@ -2,6 +2,7 @@ const express = require("express");
 const connection = require("./service/hwDatabase.js");
 const meter = require("./models/meterResponseNumberModel.js");
 const auth = require("./middleware/hwAuth");
+const mqttHandler = require("../services/mqttHandler");
 const router = express.Router();
 
 router.get("/getAll", auth, async function (req, res, next) {
@@ -69,20 +70,33 @@ router.get("/getByDRNLastItem", auth, function (req, res) {
 router.post("/update/:id", auth, async function (req, res) {
   // Validate request
   if (!req.body) {
-    res.status(400).send("400");
+    return res.status(400).send("400");
   }
 
+  const drn = req.params.id;
+  const smsNumber = req.body.sms_response_number;
+  const smsEnabled = req.body.sms_response_enabled;
 
-  const meterCell = new meter(req.params.id, req.body);
-  // Save power data in the database
+  // Also send via MQTT for immediate delivery
+  try {
+    mqttHandler.publishCommand(drn, {
+      type: 'sms_config',
+      sms_response_number: smsNumber || '',
+      sms_response_enabled: smsEnabled !== undefined ? parseInt(smsEnabled) : 1,
+    });
+    console.log(`[SMSConfig] MQTT config sent to ${drn}: number=${smsNumber}, enabled=${smsEnabled}`);
+  } catch (e) {
+    console.error(`[SMSConfig] MQTT publish failed for ${drn}:`, e.message);
+  }
+
+  const meterCell = new meter(drn, req.body);
+  // Save to database (fallback for meter polling)
   meter.create(meterCell, (err, data) => {
     if (err) {
       res.send({err});
-    }
-      
-    else {
+    } else {
       res.send({data});
-    } 
+    }
   });
 });
 

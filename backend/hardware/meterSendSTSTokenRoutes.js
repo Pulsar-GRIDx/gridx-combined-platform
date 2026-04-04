@@ -2,6 +2,7 @@ const express = require("express");
 const meter = require("./models/meterSendTokenModel");
 const auth = require("./middleware/hwAuth");
 const authMeter = require("./middleware/meterAuth");
+const mqttHandler = require("../services/mqttHandler");
 const router = express.Router();
 
 router.get("/getAll", auth, async function (req, res, next) {
@@ -53,21 +54,30 @@ router.get("/getByDRNLastItem", auth, function (req, res) {
 router.post("/update/:id", auth, async function (req, res) {
   // Validate request
   if (!req.body) {
-    res.status(400).send("400");
+    return res.status(400).send("400");
   }
 
+  const drn = req.params.id;
+  const tokenId = req.body.token_ID;
 
-  const meterCell = new meter(req.params.id, req.body);
-  // Save power data in the database
+  // Also send via MQTT for immediate delivery (don't wait for meter poll)
+  if (tokenId) {
+    try {
+      mqttHandler.publishCommand(drn, { tk: tokenId }, 1);
+      console.log(`[SendToken] MQTT token sent to ${drn}: ${tokenId}`);
+    } catch (e) {
+      console.error(`[SendToken] MQTT publish failed for ${drn}:`, e.message);
+    }
+  }
+
+  const meterCell = new meter(drn, req.body);
+  // Save to database (fallback for meter polling)
   meter.create(meterCell, (err, data) => {
     if (err) {
       res.send({err});
-    }
-      
-    else {
-      
+    } else {
       res.send({data});
-    } 
+    }
   });
 });
 
