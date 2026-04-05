@@ -3256,16 +3256,25 @@ export default function MeterProfile() {
                           <Box mt={1.5} sx={{ backgroundColor: tk.innerBg, borderRadius: "6px", p: 1.4, border: `1px solid ${tk.border}` }}>
                             <Typography color={colors.grey[300]} fontSize={fs.sm} fontWeight={700} mb={0.5} letterSpacing="0.3px">PASS/FAIL CRITERIA</Typography>
                             {[
-                              { l: "Voltage Accuracy", v: report.voltage_error, p: report.voltage_passed },
-                              { l: "Current Accuracy", v: report.current_error, p: report.current_passed },
-                              ...(report.power_error != null ? [{ l: "Power Accuracy", v: report.power_error, p: report.power_passed }] : []),
+                              { l: "Voltage Accuracy", v: report.voltage_error, p: report.voltage_passed, criteria: true },
+                              { l: "Current Accuracy", v: report.current_error, p: report.current_passed, criteria: true },
+                              ...(report.power_error != null ? [{ l: "Power Accuracy", v: report.power_error, p: report.power_passed, criteria: false }] : []),
                             ].map(c => (
                               <Box key={c.l} display="grid" gridTemplateColumns="1fr auto" alignItems="center" py={0.3}
                                 sx={{ "&:hover": { backgroundColor: tk.rowHover }, px: 0.5, borderRadius: "4px" }}>
-                                <Typography color={tk.textMuted} fontSize={fs.sm}>{c.l}: {c.v != null ? `${Math.abs(Number(c.v)).toFixed(2)}%` : "N/A"} {"\u2264"} 5.0%</Typography>
+                                <Typography color={tk.textMuted} fontSize={fs.sm}>
+                                  {c.l}: {c.v != null ? `${Math.abs(Number(c.v)).toFixed(2)}%` : "N/A"} {"\u2264"} 5.0%
+                                  {!c.criteria && <span style={{color: tk.textDim, fontStyle: "italic"}}> (recorded only)</span>}
+                                </Typography>
                                 <Box display="flex" alignItems="center" gap={0.5}>
-                                  {c.p ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 14 }} /> : <CancelOutlined sx={{ color: tk.fail, fontSize: 14 }} />}
-                                  <Typography color={c.p ? tk.pass : tk.fail} fontSize={fs.sm} fontWeight={700}>{c.p ? "PASS" : "FAIL"}</Typography>
+                                  {c.criteria ? (
+                                    <>
+                                      {c.p ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 14 }} /> : <CancelOutlined sx={{ color: tk.fail, fontSize: 14 }} />}
+                                      <Typography color={c.p ? tk.pass : tk.fail} fontSize={fs.sm} fontWeight={700}>{c.p ? "PASS" : "FAIL"}</Typography>
+                                    </>
+                                  ) : (
+                                    <Typography color={tk.textDim} fontSize={fs.sm} fontWeight={600}>RECORDED</Typography>
+                                  )}
                                 </Box>
                               </Box>
                             ))}
@@ -3300,8 +3309,13 @@ export default function MeterProfile() {
                             <Box ml={2.3} mt={0.4}>
                               <Typography color={tk.textMuted} fontSize={fs.sm}>
                                 Current: <span style={{color: report.load_off_passed ? tk.pass : tk.fail, fontWeight: 600}}>{Number(report.load_off_current).toFixed(3)} A</span>
-                                <span style={{color: tk.textDim}}> (threshold: &lt; 0.2A)</span>
+                                <span style={{color: tk.textDim}}> (threshold: &lt; {report.calibrated_load_off_threshold ? Number(report.calibrated_load_off_threshold).toFixed(3) : "0.200"}A{report.calibrated_load_off_threshold ? " calibrated" : ""})</span>
                               </Typography>
+                              {report.baseline_current != null && (
+                                <Typography color={tk.textDim} fontSize={fs.sm} mt={0.2}>
+                                  Baseline no-load: {Number(report.baseline_current).toFixed(3)} A
+                                </Typography>
+                              )}
                             </Box>
                           </Box>
                           {/* Load ON */}
@@ -3836,6 +3850,22 @@ export default function MeterProfile() {
                             )}
                           </SectionCard>
                         </Grid>
+
+                        {/* Baseline Calibration */}
+                        {report.baseline_current != null && (
+                          <Grid item xs={12} md={6}>
+                            <SectionCard title="BASELINE CALIBRATION" accentColor={tk.purple}
+                              icon={<TuneOutlined sx={{ color: tk.purple, fontSize: 20 }} />}>
+                              <DetailRow label="No-Load Voltage" value={`${Number(report.baseline_voltage).toFixed(1)} V`} />
+                              <DetailRow label="No-Load Current" value={`${Number(report.baseline_current).toFixed(3)} A`} />
+                              <DetailRow label="No-Load Power" value={`${Number(report.baseline_power).toFixed(1)} W`} />
+                              {report.calibrated_load_off_threshold != null && (
+                                <DetailRow label="Calibrated OFF Threshold" value={`< ${Number(report.calibrated_load_off_threshold).toFixed(3)} A`}
+                                  color={tk.amber} bold />
+                              )}
+                            </SectionCard>
+                          </Grid>
+                        )}
                       </>
                     )}
 
@@ -3876,7 +3906,7 @@ export default function MeterProfile() {
                             <Typography color={tk.fail} fontSize={fs.md} fontWeight={600}>One or more tests failed. Review the following:</Typography>
                             {report.voltage_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Review voltage measurement setup and check calibration equipment</Typography>}
                             {report.current_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Verify current measurement sensor and expected reference values</Typography>}
-                            {report.power_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Check power calculation — may indicate voltage or current sensor issues</Typography>}
+                            {report.power_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Power accuracy outside tolerance (recorded for reference, not a pass/fail criterion)</Typography>}
                             {report.load_off_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Load isolation failed — physically inspect relay contacts and wiring</Typography>}
                             {report.load_on_passed === false && <Typography color={tk.textMuted} fontSize={fs.sm}>- Load ON test failed — verify load wiring, check relay coil voltage, consider relay replacement</Typography>}
                             {report.api_tests_passed != null && report.api_tests_passed < report.api_tests_total && (

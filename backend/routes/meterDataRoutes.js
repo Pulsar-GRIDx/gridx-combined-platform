@@ -584,8 +584,9 @@ router.get('/hourly-energy/:drn', authenticateToken, async (req, res) => {
       return res.json({ success: true, data: null, sums: [] });
     }
     // Parse JSON hourly_data and return as "sums" for backward compat with existing app
-    let sums = [];
-    try { sums = JSON.parse(row.hourly_data); } catch (e) { sums = []; }
+    let sums = row.hourly_data;
+    if (typeof sums === 'string') { try { sums = JSON.parse(sums); } catch (e) { sums = []; } }
+    if (!Array.isArray(sums)) sums = [];
     res.json({
       success: true,
       sums,
@@ -600,6 +601,55 @@ router.get('/hourly-energy/:drn', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /hourlyEnergyByDRN — get hourly energy for the authenticated meter (used by Android app)
+// Accepts DRN from JWT token (customer auth: DRN field, hardware auth: meterDRN/drn field)
+router.get('/hourlyEnergyByDRN', (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(403).json({ error: 'No token' });
+
+  const jwt = require('jsonwebtoken');
+  const secret = process.env.ACCESS_TOKEN_SECRET || process.env.SECRET_KEY;
+  let drn;
+  try {
+    const decoded = jwt.verify(token, secret);
+    drn = decoded.DRN || decoded.meterDRN || decoded.drn;
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+  if (!drn) return res.status(400).json({ error: 'No DRN in token' });
+
+  // First try MeterHourlyEnergy (MQTT energy_usage data from meter)
+  db.query(
+    `SELECT * FROM MeterHourlyEnergy WHERE DRN = ? ORDER BY created_at DESC LIMIT 1`,
+    [drn], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      if (rows && rows.length > 0) {
+        let sums = rows[0].hourly_data;
+        if (typeof sums === 'string') { try { sums = JSON.parse(sums); } catch (e) { sums = []; } }
+        if (!Array.isArray(sums)) sums = [];
+        return res.json({ sums, cumulative: rows[0].cumulative, peak_power: rows[0].peak_power, total: rows[0].total });
+      }
+
+      // Fallback: calculate from MeteringPower table (real-time power readings)
+      db.query(
+        `SELECT HOUR(date_time) as hour, ROUND(AVG(active_power), 0) as avgPower
+         FROM MeteringPower WHERE DRN = ? AND DATE(date_time) = CURDATE()
+         GROUP BY HOUR(date_time) ORDER BY hour`,
+        [drn], (err2, rows2) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+          const sums = new Array(24).fill(0);
+          (rows2 || []).forEach(r => { sums[r.hour] = r.avgPower; });
+          const total = sums.reduce((a, b) => a + b, 0);
+          const peak = Math.max(...sums);
+          res.json({ sums, total, peak_power: peak });
+        }
+      );
+    }
+  );
+});
+
 // POST /hourly-energy/:drn/request — request fresh hourly data from meter via MQTT
 router.post('/hourly-energy/:drn/request', authenticateToken, async (req, res) => {
   try {
@@ -608,6 +658,116 @@ router.post('/hourly-energy/:drn/request', authenticateToken, async (req, res) =
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// GET /weeklyTotalEnergyByDRN — weekly energy for Android app (current week + last week)
+// Returns { lastweek: [Mon..Sun], currentweek: [Mon..Sun] } in Wh
+router.get('/weeklyTotalEnergyByDRN', (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(403).json({ error: 'No token' });
+
+  const jwt = require('jsonwebtoken');
+  const secret = process.env.ACCESS_TOKEN_SECRET || process.env.SECRET_KEY;
+  let drn;
+  try {
+    const decoded = jwt.verify(token, secret);
+    drn = decoded.DRN || decoded.meterDRN || decoded.drn;
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+  if (!drn) return res.status(400).json({ error: 'No DRN in token' });
+
+  // Get daily average power for current week and last week
+  // DAYOFWEEK: 1=Sun,2=Mon..7=Sat; we map to Mon=0..Sun=6
+  const sql = `
+    SELECT DATE(date_time) as day,
+           ROUND(AVG(CAST(active_power AS DECIMAL(10,2))), 0) as avgPower,
+           DAYOFWEEK(date_time) as dow
+    FROM MeteringPower
+    WHERE DRN = ?
+      AND date_time >= DATE_SUB(CURDATE(), INTERVAL (WEEKDAY(CURDATE()) + 7) DAY)
+    GROUP BY DATE(date_time)
+    ORDER BY day`;
+
+  db.query(sql, [drn], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const currentweek = new Array(7).fill(0);
+    const lastweek = new Array(7).fill(0);
+
+    const now = new Date();
+    // Monday of current week
+    const currentMonday = new Date(now);
+    currentMonday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    currentMonday.setHours(0, 0, 0, 0);
+    // Monday of last week
+    const lastMonday = new Date(currentMonday);
+    lastMonday.setDate(currentMonday.getDate() - 7);
+
+    (rows || []).forEach(r => {
+      const d = new Date(r.day);
+      d.setHours(0, 0, 0, 0);
+      // Map DAYOFWEEK (1=Sun..7=Sat) to index (Mon=0..Sun=6)
+      const idx = (r.dow + 5) % 7;
+      if (d >= currentMonday) {
+        currentweek[idx] = parseInt(r.avgPower, 10) || 0;
+      } else if (d >= lastMonday) {
+        lastweek[idx] = parseInt(r.avgPower, 10) || 0;
+      }
+    });
+
+    res.json({ lastweek, currentweek });
+  });
+});
+
+// GET /monthlyEnergyByDRN — monthly energy for Android app (this year + last year)
+// Returns { Last: [Jan..Dec], Current: [Jan..Dec] } in Wh
+router.get('/monthlyEnergyByDRN', (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(403).json({ error: 'No token' });
+
+  const jwt = require('jsonwebtoken');
+  const secret = process.env.ACCESS_TOKEN_SECRET || process.env.SECRET_KEY;
+  let drn;
+  try {
+    const decoded = jwt.verify(token, secret);
+    drn = decoded.DRN || decoded.meterDRN || decoded.drn;
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+  if (!drn) return res.status(400).json({ error: 'No DRN in token' });
+
+  const currentYear = new Date().getFullYear();
+  const lastYear = currentYear - 1;
+
+  const sql = `
+    SELECT YEAR(date_time) as yr, MONTH(date_time) as mo,
+           ROUND(AVG(CAST(active_power AS DECIMAL(10,2))), 0) as avgPower
+    FROM MeteringPower
+    WHERE DRN = ?
+      AND YEAR(date_time) IN (?, ?)
+    GROUP BY YEAR(date_time), MONTH(date_time)
+    ORDER BY yr, mo`;
+
+  db.query(sql, [drn, lastYear, currentYear], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const Current = new Array(12).fill(0);
+    const Last = new Array(12).fill(0);
+
+    (rows || []).forEach(r => {
+      const idx = r.mo - 1; // 0-based month index
+      if (r.yr === currentYear) {
+        Current[idx] = parseInt(r.avgPower, 10) || 0;
+      } else if (r.yr === lastYear) {
+        Last[idx] = parseInt(r.avgPower, 10) || 0;
+      }
+    });
+
+    res.json({ Last, Current });
+  });
 });
 
 module.exports = router;
