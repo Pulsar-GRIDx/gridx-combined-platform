@@ -3228,6 +3228,7 @@ export default function MeterProfile() {
                         {[
                           { label: "Measurement Test", passed: report.measurement_test_passed, icon: <BoltOutlined sx={{ fontSize: 22 }} />, color: tk.blue },
                           { label: "Load Test", passed: report.load_test_passed, icon: <PowerOutlined sx={{ fontSize: 22 }} />, color: tk.amber },
+                          { label: "Energy Test", passed: report.energy_test_passed, icon: <BoltOutlined sx={{ fontSize: 22 }} />, color: tk.blue },
                           { label: "MQTT API Test", passed: report.api_test_passed, icon: <TuneOutlined sx={{ fontSize: 22 }} />, color: tk.purple },
                         ].map((t) => {
                           const pending = t.passed == null;
@@ -3239,9 +3240,9 @@ export default function MeterProfile() {
                           const borderColor = pending ? "rgba(251,191,36,0.35)" : t.passed ? tk.passBorder : tk.failBorder;
                           const statusColor = pending ? tk.amber : t.passed ? tk.pass : tk.fail;
                           return (
-                          <Grid item xs={4} key={t.label}>
+                          <Grid item xs={3} key={t.label}>
                             <Box sx={{ background: bg, border: `1px solid ${borderColor}`,
-                              borderRadius: "8px", p: 1.8, textAlign: "center", boxShadow: tk.shadow,
+                              borderRadius: "8px", p: 1.4, textAlign: "center", boxShadow: tk.shadow,
                               transition: "all 0.3s ease", "&:hover": { transform: "translateY(-1px)" } }}>
                               <Box sx={{ color: statusColor, mb: 0.5 }}>
                                 {pending
@@ -3427,6 +3428,51 @@ export default function MeterProfile() {
                                 {report.api_tests_passed === report.api_tests_total
                                   ? "All API endpoints responding correctly"
                                   : `${report.api_tests_total - report.api_tests_passed} endpoint(s) failed - review meter connectivity`}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </SectionCard>
+                      </Grid>
+                    )}
+
+                    {/* ── Energy Accounting Test Results ── */}
+                    {report.energy_test_avg_power != null && (
+                      <Grid item xs={12} md={6}>
+                        <SectionCard title="ENERGY ACCOUNTING TEST" accentColor={tk.blue}
+                          icon={<BoltOutlined sx={{ fontSize: 20, color: tk.blue }} />}>
+                          <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
+                            <Typography color={colors.grey[300]} fontSize={fs.sm}>Test Duration</Typography>
+                            <Typography color={colors.grey[100]} fontSize={fs.md} fontWeight={600}>
+                              {report.energy_test_duration || 60}s ({report.energy_test_samples || 0} samples)
+                            </Typography>
+                          </Box>
+                          <Grid container spacing={1}>
+                            {[
+                              { label: "Avg Voltage", value: `${Number(report.energy_test_avg_voltage || 0).toFixed(1)} V` },
+                              { label: "Avg Current", value: `${Number(report.energy_test_avg_current || 0).toFixed(3)} A` },
+                              { label: "Avg Power", value: `${Number(report.energy_test_avg_power || 0).toFixed(1)} W` },
+                              { label: "Expected", value: `${Number(report.energy_test_expected_wh || 0).toFixed(3)} Wh` },
+                              { label: "Actual", value: `${Number(report.energy_test_actual_wh || 0).toFixed(3)} Wh` },
+                              { label: "Deviation", value: `${Number(report.energy_test_deviation_pct || 0).toFixed(1)}%` },
+                            ].map((item) => (
+                              <Grid item xs={4} key={item.label}>
+                                <Box sx={{ backgroundColor: tk.innerBg, borderRadius: "6px", p: 1, textAlign: "center",
+                                  border: `1px solid ${tk.border}` }}>
+                                  <Typography color={colors.grey[400]} fontSize={fs.xs}>{item.label}</Typography>
+                                  <Typography color={colors.grey[100]} fontSize={fs.md} fontWeight={600}>{item.value}</Typography>
+                                </Box>
+                              </Grid>
+                            ))}
+                          </Grid>
+                          <Box mt={1.5} sx={{ backgroundColor: tk.innerBg, borderRadius: "6px", p: 1.4, border: `1px solid ${tk.border}` }}>
+                            <Box display="flex" alignItems="center" gap={0.6}>
+                              {report.energy_test_passed
+                                ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 16 }} />
+                                : <CancelOutlined sx={{ color: tk.fail, fontSize: 16 }} />}
+                              <Typography color={report.energy_test_passed ? tk.pass : tk.fail} fontSize={fs.md} fontWeight={600}>
+                                {report.energy_test_passed
+                                  ? "Energy accounting verified - deviation within 5% tolerance"
+                                  : `Energy accounting deviation ${Number(report.energy_test_deviation_pct || 0).toFixed(1)}% exceeds 5% tolerance`}
                               </Typography>
                             </Box>
                           </Box>

@@ -138,11 +138,29 @@ exports.updateCommission = function(req, res) {
     'overall_passed',
     'baseline_voltage', 'baseline_current', 'baseline_power',
     'calibrated_load_off_threshold',
+    // Energy accounting test fields
+    'energy_test_duration', 'energy_test_samples', 'energy_test_avg_voltage',
+    'energy_test_avg_current', 'energy_test_avg_power', 'energy_test_expected_wh',
+    'energy_test_actual_wh', 'energy_test_deviation_pct', 'energy_test_passed',
   ];
 
   fields.forEach(f => {
     if (data[f] != null) update[f] = data[f];
   });
+
+  // Handle energy_test step data (sent as nested object from app)
+  if (data.step === 'energy_test' && data.energy_test) {
+    const et = data.energy_test;
+    if (et.duration_seconds != null) update.energy_test_duration = et.duration_seconds;
+    if (et.sample_count != null) update.energy_test_samples = et.sample_count;
+    if (et.avg_voltage != null) update.energy_test_avg_voltage = et.avg_voltage;
+    if (et.avg_current != null) update.energy_test_avg_current = et.avg_current;
+    if (et.avg_power_w != null) update.energy_test_avg_power = et.avg_power_w;
+    if (et.expected_wh != null) update.energy_test_expected_wh = et.expected_wh;
+    if (et.actual_wh != null) update.energy_test_actual_wh = et.actual_wh;
+    if (et.deviation_pct != null) update.energy_test_deviation_pct = et.deviation_pct;
+    if (et.passed != null) update.energy_test_passed = et.passed ? 1 : 0;
+  }
 
   // Handle report_data specially - merge with existing
   if (data.report_data) {
