@@ -31,6 +31,7 @@ const TOPICS = [
   'gx/+/relay_log',
   'gx/+/auth_numbers',
   'gx/+/energy_usage',
+  'gx/+/emergency',
 ];
 
 // ==================== Binary Parser Helpers ====================
@@ -261,8 +262,8 @@ function handleMessage(topic, buf) {
     (err) => { if (err) console.error('[MQTT] MeterLastSeen update error:', err.message); }
   );
 
-  // JSON-only topics (ack, health, relay_log, auth_numbers, energy_usage)
-  if (['ack', 'health', 'relay_log', 'auth_numbers', 'energy_usage'].includes(type)) {
+  // JSON-only topics (ack, health, relay_log, auth_numbers, energy_usage, emergency)
+  if (['ack', 'health', 'relay_log', 'auth_numbers', 'energy_usage', 'emergency'].includes(type)) {
     try {
       const data = JSON.parse(buf.toString());
       switch (type) {
@@ -271,6 +272,7 @@ function handleMessage(topic, buf) {
         case 'relay_log':    handleRelayLogJson(drn, data); break;
         case 'auth_numbers': handleAuthNumbersJson(drn, data); break;
         case 'energy_usage': handleEnergyUsageJson(drn, data); break;
+        case 'emergency':    handleEmergencyJson(drn, data); break;
       }
     } catch (e) {
       console.error(`[MQTT] Invalid JSON on ${topic}:`, e.message);
@@ -722,6 +724,29 @@ function handleEnergyUsageJson(drn, data) {
     total: data.total || 0,
     record_time: data.ts || Math.floor(Date.now() / 1000),
   }, (err) => { if (err) console.error('[MQTT] HourlyEnergy insert error:', err.message); });
+}
+
+function handleEmergencyJson(drn, data) {
+  const code = data.emergency_code;
+  const ts = data.timestamp || Math.floor(Date.now() / 1000);
+  console.log(`[MQTT] Emergency from ${drn}: code=${code}`);
+
+  db.query('INSERT INTO MeterEmergencyResponse SET ?', {
+    DRN: drn,
+    emergency_code: code,
+    timestamp: ts,
+  }, (err) => {
+    if (err) {
+      // Table might have different name — try legacy table
+      db.query('INSERT INTO EmergencyResponse SET ?', {
+        DRN: drn,
+        emergency_code: code,
+        timestamp: ts,
+      }, (err2) => {
+        if (err2) console.error('[MQTT] Emergency insert error:', err2.message);
+      });
+    }
+  });
 }
 
 // ==================== Legacy JSON Fallback ====================

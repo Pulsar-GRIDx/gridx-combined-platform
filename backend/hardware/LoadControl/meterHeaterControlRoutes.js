@@ -1,6 +1,7 @@
 const express = require("express");
 const meter = require("../models/LoadControl/meterHeaterControlModel")
 const auth = require("../middleware/hwAuth");
+const mqttHandler = require("../../services/mqttHandler");
 const router = express.Router();
 
 router.get("/getAll", auth, async function (req, res, next) {
@@ -68,20 +69,28 @@ router.get("/getByDRNLastItem", auth, function (req, res) {
 router.post("/update/:id", auth, async function (req, res) {
   // Validate request
   if (!req.body) {
-    res.status(400).send("400");
+    return res.status(400).send("400");
   }
 
+  const drn = req.params.id;
+  const state = req.body.state;
 
-  const meterCell = new meter(req.params.id, req.body);
-  // Save power data in the database
+  // Send heater/geyser control command via MQTT for immediate delivery
+  try {
+    mqttHandler.publishCommand(drn, { gc: state }, 1);
+    console.log(`[HeaterControl] MQTT command sent to ${drn}: state=${state}`);
+  } catch (e) {
+    console.error(`[HeaterControl] MQTT publish failed for ${drn}:`, e.message);
+  }
+
+  const meterCell = new meter(drn, req.body);
+  // Save to database (fallback for meter polling)
   meter.create(meterCell, (err, data) => {
     if (err) {
       res.send({err});
-    }
-      
-    else {
+    } else {
       res.send({data});
-    } 
+    }
   });
 });
 

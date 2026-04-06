@@ -8,54 +8,57 @@ exports.saveReport = function(req, res) {
     return res.status(400).json({ error: 'DRN and report_type are required' });
   }
 
+  // Helper: preserve 0 and false as valid values, only null/undefined become null
+  const val = (v) => v != null ? v : null;
+
   // Build the row to insert
   const row = {
     DRN: report.DRN,
     report_type: report.report_type,
-    overall_passed: report.overall_passed || false,
-    voltage_expected: report.voltage_expected || null,
-    voltage_measured: report.voltage_measured || null,
-    voltage_error: report.voltage_error || null,
-    voltage_passed: report.voltage_passed != null ? report.voltage_passed : null,
-    current_expected: report.current_expected || null,
-    current_measured: report.current_measured || null,
-    current_error: report.current_error || null,
-    current_passed: report.current_passed != null ? report.current_passed : null,
-    power_expected: report.power_expected || null,
-    power_measured: report.power_measured || null,
-    power_error: report.power_error || null,
-    power_passed: report.power_passed != null ? report.power_passed : null,
-    sample_count: report.sample_count || null,
-    attempts: report.attempts || null,
-    load_off_current: report.load_off_current || null,
-    load_off_passed: report.load_off_passed != null ? report.load_off_passed : null,
-    load_on_current: report.load_on_current || null,
-    load_on_passed: report.load_on_passed != null ? report.load_on_passed : null,
-    api_tests_passed: report.api_tests_passed || null,
-    api_tests_total: report.api_tests_total || null,
-    measurement_test_passed: report.measurement_test_passed != null ? report.measurement_test_passed : null,
-    load_test_passed: report.load_test_passed != null ? report.load_test_passed : null,
-    api_test_passed: report.api_test_passed != null ? report.api_test_passed : null,
+    overall_passed: report.overall_passed != null ? report.overall_passed : false,
+    voltage_expected: val(report.voltage_expected),
+    voltage_measured: val(report.voltage_measured),
+    voltage_error: val(report.voltage_error),
+    voltage_passed: val(report.voltage_passed),
+    current_expected: val(report.current_expected),
+    current_measured: val(report.current_measured),
+    current_error: val(report.current_error),
+    current_passed: val(report.current_passed),
+    power_expected: val(report.power_expected),
+    power_measured: val(report.power_measured),
+    power_error: val(report.power_error),
+    power_passed: val(report.power_passed),
+    sample_count: val(report.sample_count),
+    attempts: val(report.attempts),
+    load_off_current: val(report.load_off_current),
+    load_off_passed: val(report.load_off_passed),
+    load_on_current: val(report.load_on_current),
+    load_on_passed: val(report.load_on_passed),
+    api_tests_passed: val(report.api_tests_passed),
+    api_tests_total: val(report.api_tests_total),
+    measurement_test_passed: val(report.measurement_test_passed),
+    load_test_passed: val(report.load_test_passed),
+    api_test_passed: val(report.api_test_passed),
     // Commissioning fields
-    sim_number: report.sim_number || null,
-    region: report.region || null,
-    sub_region: report.sub_region || null,
-    area: report.area || null,
-    gps_latitude: report.gps_latitude || null,
-    gps_longitude: report.gps_longitude || null,
-    street_name: report.street_name || null,
-    erf_number: report.erf_number || null,
-    owner_name: report.owner_name || null,
-    owner_surname: report.owner_surname || null,
-    owner_phone: report.owner_phone || null,
-    owner_email: report.owner_email || null,
-    firmware_version: report.firmware_version || null,
-    nextion_connected: report.nextion_connected != null ? report.nextion_connected : null,
-    gsm_registered: report.gsm_registered != null ? report.gsm_registered : null,
+    sim_number: val(report.sim_number) || null,
+    region: val(report.region) || null,
+    sub_region: val(report.sub_region) || null,
+    area: val(report.area) || null,
+    gps_latitude: val(report.gps_latitude),
+    gps_longitude: val(report.gps_longitude),
+    street_name: val(report.street_name) || null,
+    erf_number: val(report.erf_number) || null,
+    owner_name: val(report.owner_name) || null,
+    owner_surname: val(report.owner_surname) || null,
+    owner_phone: val(report.owner_phone) || null,
+    owner_email: val(report.owner_email) || null,
+    firmware_version: val(report.firmware_version) || null,
+    nextion_connected: val(report.nextion_connected),
+    gsm_registered: val(report.gsm_registered),
     report_data: report.report_data
       ? (typeof report.report_data === 'string' ? report.report_data : JSON.stringify(report.report_data))
       : null,
-    tester_app_version: report.tester_app_version || null,
+    tester_app_version: val(report.tester_app_version) || null,
   };
 
   commissionReportService.saveReport(row)
@@ -65,6 +68,118 @@ exports.saveReport = function(req, res) {
     .catch(error => {
       console.error('Error saving commission report:', error);
       res.status(500).json({ error: 'Failed to save commission report', details: error.message });
+    });
+};
+
+// POST - Start a new commission session (creates row, returns ID)
+exports.startCommission = function(req, res) {
+  const report = req.body;
+
+  if (!report.DRN) {
+    return res.status(400).json({ error: 'DRN is required' });
+  }
+
+  const val = (v) => v != null ? v : null;
+
+  const row = {
+    DRN: report.DRN,
+    report_type: 'full_system',
+    overall_passed: false,
+    sim_number: val(report.sim_number) || null,
+    region: val(report.region) || null,
+    sub_region: val(report.sub_region) || null,
+    area: val(report.area) || null,
+    gps_latitude: val(report.gps_latitude),
+    gps_longitude: val(report.gps_longitude),
+    street_name: val(report.street_name) || null,
+    erf_number: val(report.erf_number) || null,
+    owner_name: val(report.owner_name) || null,
+    owner_surname: val(report.owner_surname) || null,
+    owner_phone: val(report.owner_phone) || null,
+    owner_email: val(report.owner_email) || null,
+    firmware_version: val(report.firmware_version) || null,
+    nextion_connected: val(report.nextion_connected),
+    gsm_registered: val(report.gsm_registered),
+    tester_app_version: val(report.tester_app_version) || null,
+  };
+
+  // Clear old reports for this DRN then insert new
+  commissionReportService.saveReport(row)
+    .then(result => {
+      res.status(201).json({ success: true, id: result.insertId });
+    })
+    .catch(error => {
+      console.error('Error starting commission:', error);
+      res.status(500).json({ error: 'Failed to start commission', details: error.message });
+    });
+};
+
+// PUT - Update commission report with incremental test data
+exports.updateCommission = function(req, res) {
+  const id = parseInt(req.params.id);
+  const data = req.body;
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: 'Valid report ID is required' });
+  }
+
+  const val = (v) => v != null ? v : undefined; // undefined = don't include in UPDATE
+
+  // Build update object with only provided fields
+  const update = {};
+  const fields = [
+    'voltage_expected', 'voltage_measured', 'voltage_error', 'voltage_passed',
+    'current_expected', 'current_measured', 'current_error', 'current_passed',
+    'power_expected', 'power_measured', 'power_error', 'power_passed',
+    'sample_count', 'attempts',
+    'load_off_current', 'load_off_passed', 'load_on_current', 'load_on_passed',
+    'api_tests_passed', 'api_tests_total',
+    'measurement_test_passed', 'load_test_passed', 'api_test_passed',
+    'overall_passed',
+    'baseline_voltage', 'baseline_current', 'baseline_power',
+    'calibrated_load_off_threshold',
+    // Energy accounting test fields
+    'energy_test_duration', 'energy_test_samples', 'energy_test_avg_voltage',
+    'energy_test_avg_current', 'energy_test_avg_power', 'energy_test_expected_wh',
+    'energy_test_actual_wh', 'energy_test_deviation_pct', 'energy_test_passed',
+  ];
+
+  fields.forEach(f => {
+    if (data[f] != null) update[f] = data[f];
+  });
+
+  // Handle energy_test step data (sent as nested object from app)
+  if (data.step === 'energy_test' && data.energy_test) {
+    const et = data.energy_test;
+    if (et.duration_seconds != null) update.energy_test_duration = et.duration_seconds;
+    if (et.sample_count != null) update.energy_test_samples = et.sample_count;
+    if (et.avg_voltage != null) update.energy_test_avg_voltage = et.avg_voltage;
+    if (et.avg_current != null) update.energy_test_avg_current = et.avg_current;
+    if (et.avg_power_w != null) update.energy_test_avg_power = et.avg_power_w;
+    if (et.expected_wh != null) update.energy_test_expected_wh = et.expected_wh;
+    if (et.actual_wh != null) update.energy_test_actual_wh = et.actual_wh;
+    if (et.deviation_pct != null) update.energy_test_deviation_pct = et.deviation_pct;
+    if (et.passed != null) update.energy_test_passed = et.passed ? 1 : 0;
+  }
+
+  // Handle report_data specially - merge with existing
+  if (data.report_data) {
+    update.report_data = typeof data.report_data === 'string'
+      ? data.report_data
+      : JSON.stringify(data.report_data);
+  }
+
+  if (Object.keys(update).length === 0) {
+    return res.json({ success: true, message: 'No fields to update' });
+  }
+
+  commissionReportService.updateReport(id, update)
+    .then(result => {
+      res.json({ success: true, updated: result.affectedRows });
+    })
+    .catch(error => {
+      console.error('Error updating commission:', error);
+      res.status(500).json({ error: 'Failed to update commission', details: error.message });
     });
 };
 

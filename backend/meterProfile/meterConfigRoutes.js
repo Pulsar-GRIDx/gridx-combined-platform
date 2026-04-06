@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { authenticateToken } = require('../admin/authMiddllware');
+const mqttHandler = require('../services/mqttHandler');
 
 // All routes require admin auth
 router.use(authenticateToken);
@@ -51,11 +52,27 @@ router.post('/auth-number/:drn', (req, res) => {
 router.post('/sleep/:drn', (req, res) => {
   const { drn } = req.params;
   const { sleep_mode_enabled } = req.body;
+  const sleepOn = sleep_mode_enabled ? 1 : 0;
+
+  // Send via MQTT for immediate delivery
+  try {
+    if (sleepOn) {
+      // Enter deep sleep
+      mqttHandler.publishCommand(drn, { type: 'sleep', sleep_mode_enabled: 1 }, 1);
+      console.log(`[Sleep] MQTT deep sleep command sent to ${drn}`);
+    } else {
+      // Wake up - turn on Nextion display at full brightness
+      mqttHandler.publishCommand(drn, { type: 'wake', brightness: 100 }, 1);
+      console.log(`[Wake] MQTT wake command sent to ${drn} (brightness 100%)`);
+    }
+  } catch (e) {
+    console.error(`[Sleep/Wake] MQTT publish failed for ${drn}:`, e.message);
+  }
 
   const sql = `INSERT INTO MeterRemoteCommandFlags (DRN, user, sleep_mode_enabled, processed, reason, date_time) VALUES (?, 'WebUI', ?, 0, 'Web UI', NOW())`;
-  db.query(sql, [drn, sleep_mode_enabled ? 1 : 0], (err, result) => {
+  db.query(sql, [drn, sleepOn], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true, message: 'Sleep mode command queued' });
+    res.json({ success: true, message: sleepOn ? 'Sleep mode command sent' : 'Wake up command sent (brightness 100%)' });
   });
 });
 
