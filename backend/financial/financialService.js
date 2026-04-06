@@ -246,7 +246,23 @@ exports.getPastWeekTokens = function(callback) {
       return callback({ error: 'Database query failed', details: err });
     }
 
-    callback(null, results);
+    // Fill all 7 days (including days with no data)
+    const resultMap = {};
+    results.forEach(r => { resultMap[r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10)] = r; });
+
+    const fullWeek = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      if (resultMap[key]) {
+        fullWeek.push(resultMap[key]);
+      } else {
+        fullWeek.push({ date: key, token_count: 0, total_amount: 0, accepted_amount: 0, accepted_count: 0 });
+      }
+    }
+
+    callback(null, fullWeek);
   });
 }
 

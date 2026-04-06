@@ -262,8 +262,8 @@ function handleMessage(topic, buf) {
     (err) => { if (err) console.error('[MQTT] MeterLastSeen update error:', err.message); }
   );
 
-  // JSON-only topics (ack, health, relay_log, auth_numbers, energy_usage, emergency)
-  if (['ack', 'health', 'relay_log', 'auth_numbers', 'energy_usage', 'emergency'].includes(type)) {
+  // JSON-only topics (ack, health, relay_log, auth_numbers, energy_usage, emergency, token)
+  if (['ack', 'health', 'relay_log', 'auth_numbers', 'energy_usage', 'emergency', 'token'].includes(type)) {
     try {
       const data = JSON.parse(buf.toString());
       switch (type) {
@@ -273,6 +273,7 @@ function handleMessage(topic, buf) {
         case 'auth_numbers': handleAuthNumbersJson(drn, data); break;
         case 'energy_usage': handleEnergyUsageJson(drn, data); break;
         case 'emergency':    handleEmergencyJson(drn, data); break;
+        case 'token':        handleJsonMessage(drn, 'token', data); break;
       }
     } catch (e) {
       console.error(`[MQTT] Invalid JSON on ${topic}:`, e.message);

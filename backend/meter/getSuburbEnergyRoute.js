@@ -355,11 +355,13 @@ router.get('/getHourlyDataByDrn/:drn', authenticateToken, async (req, res) => {
     const hourlyData = [];
     for (let h = 0; h < 24; h++) {
       const row = result.find(r => r.hour === h);
+      const avg = row ? parseFloat(row.avg_power) || 0 : 0;
+      const max = row ? parseFloat(row.max_power) || 0 : 0;
       hourlyData.push({
         hour: `${String(h).padStart(2, '0')}:00`,
-        kWh: row ? parseFloat((row.avg_power / 1000).toFixed(2)) : 0,
-        avgPower: row ? parseFloat(row.avg_power.toFixed(1)) : 0,
-        maxPower: row ? parseFloat(row.max_power.toFixed(1)) : 0,
+        kWh: parseFloat((avg / 1000).toFixed(2)),
+        avgPower: parseFloat(avg.toFixed(1)),
+        maxPower: parseFloat(max.toFixed(1)),
       });
     }
 
