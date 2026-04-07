@@ -442,9 +442,9 @@ export default function MeterProfile() {
         ]);
         if (eventsRes.status === "fulfilled") {
           setRelayEvents(eventsRes.value?.data || []);
-          setRelayTotal(eventsRes.value?.pagination?.total || 0);
+          setRelayTotal(eventsRes.value?.total || eventsRes.value?.pagination?.total || 0);
         }
-        if (summaryRes.status === "fulfilled") setRelaySummary(summaryRes.value?.data || null);
+        if (summaryRes.status === "fulfilled") setRelaySummary(summaryRes.value || summaryRes.value?.data || null);
       } catch (e) { /* ignore */ }
       setRelayLoading(false);
     };

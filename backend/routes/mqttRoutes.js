@@ -525,6 +525,8 @@ router.get('/mqtt/dashboard-stats', authenticateToken, async (req, res) => {
       hourlyPower,
       recentTokens,
       hourlyTokenCounts,
+      remainingUnits,
+      hourlyEnergy,
     ] = await Promise.allSettled([
       // 1. Live/offline from MeterLastSeen
       queryAll(
@@ -612,6 +614,30 @@ router.get('/mqtt/dashboard-stats', authenticateToken, async (req, res) => {
          ORDER BY hour`,
         []
       ),
+      // 9. Total remaining units (credits) across all meters — latest reading per meter
+      queryAll(
+        `SELECT ROUND(COALESCE(SUM(latest_units), 0), 2) as totalRemainingUnits,
+                COUNT(*) as metersWithUnits
+         FROM (
+           SELECT e.DRN, e.units as latest_units
+           FROM MeterCumulativeEnergyUsage e
+           INNER JOIN (SELECT DRN, MAX(id) as maxId FROM MeterCumulativeEnergyUsage GROUP BY DRN) m
+             ON e.DRN = m.DRN AND e.id = m.maxId
+           WHERE e.units > 0
+         ) u`,
+        []
+      ),
+      // 10. Hourly energy consumption for today (kWh per hour from power readings)
+      queryAll(
+        `SELECT
+           HOUR(date_time) as hour,
+           ROUND(AVG(active_power) / 1000, 3) as kWh
+         FROM MeteringPower
+         WHERE DATE(date_time) = CURDATE()
+         GROUP BY HOUR(date_time)
+         ORDER BY hour`,
+        []
+      ),
     ]);
 
     // Build 24-hour array for hourly power
@@ -635,6 +661,7 @@ router.get('/mqtt/dashboard-stats', authenticateToken, async (req, res) => {
     const power = systemPower.status === 'fulfilled' ? systemPower.value[0] || {} : {};
     const energy = todayEnergy.status === 'fulfilled' ? todayEnergy.value[0] || {} : {};
     const tokens = todayTokens.status === 'fulfilled' ? todayTokens.value[0] || {} : {};
+    const units = remainingUnits.status === 'fulfilled' ? remainingUnits.value[0] || {} : {};
 
     res.json({
       success: true,
@@ -665,8 +692,297 @@ router.get('/mqtt/dashboard-stats', authenticateToken, async (req, res) => {
       hourlyPower: hourlyPowerArr,
       hourlyTokens: hourlyTokenArr,
       recentTokens: recentTokens.status === 'fulfilled' ? recentTokens.value : [],
+      credits: {
+        totalRemainingUnits: parseFloat(units.totalRemainingUnits) || 0,
+        metersWithUnits: parseInt(units.metersWithUnits) || 0,
+      },
+      hourlyEnergy: (() => {
+        const arr = new Array(24).fill(0);
+        if (hourlyEnergy.status === 'fulfilled') {
+          hourlyEnergy.value.forEach(row => { arr[row.hour] = parseFloat(row.kWh) || 0; });
+        }
+        return arr;
+      })(),
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== Meter Health Report (computed from MQTT power/energy data) =====
+router.get('/mqtt/meter-health/:drn', authenticateToken, async (req, res) => {
+  const drn = req.params.drn;
+  try {
+    // First check if we have actual health reports from ESP32
+    const existing = await queryAll(
+      'SELECT * FROM MeterHealthReport WHERE DRN = ? ORDER BY created_at DESC LIMIT 1', [drn]
+    );
+    if (existing.length > 0) {
+      return res.json({ success: true, source: 'mqtt', data: existing[0] });
+    }
+
+    // Compute health from existing MQTT power/energy data
+    const [powerStats, energyStats, lastSeen, loadStats] = await Promise.all([
+      queryAll(
+        `SELECT
+           ROUND(AVG(CAST(active_power AS DECIMAL(10,2))), 2) as avgPower,
+           ROUND(MAX(CAST(active_power AS DECIMAL(10,2))), 2) as maxPower,
+           ROUND(AVG(CAST(voltage AS DECIMAL(10,2))), 2) as avgVoltage,
+           ROUND(AVG(CAST(current AS DECIMAL(10,4))), 4) as avgCurrent,
+           ROUND(AVG(CAST(frequency AS DECIMAL(10,3))), 3) as avgFrequency,
+           ROUND(AVG(CAST(power_factor AS DECIMAL(10,3))), 3) as avgPF,
+           ROUND(AVG(CAST(temperature AS DECIMAL(10,1))), 1) as avgTemp,
+           COUNT(*) as readings,
+           ROUND(STDDEV(CAST(voltage AS DECIMAL(10,2))), 2) as voltageStdDev,
+           ROUND(STDDEV(CAST(active_power AS DECIMAL(10,2))), 2) as powerStdDev
+         FROM MeteringPower
+         WHERE DRN = ? AND date_time >= NOW() - INTERVAL 24 HOUR`, [drn]
+      ),
+      queryAll(
+        `SELECT
+           ROUND(MAX(CAST(active_energy AS DECIMAL(12,2))) - MIN(CAST(active_energy AS DECIMAL(12,2))), 2) as dayEnergy,
+           ROUND(MAX(CAST(units AS DECIMAL(12,2))), 2) as remainingUnits
+         FROM MeterCumulativeEnergyUsage
+         WHERE DRN = ? AND date_time >= NOW() - INTERVAL 24 HOUR`, [drn]
+      ),
+      queryAll('SELECT last_seen, message_count FROM MeterLastSeen WHERE DRN = ?', [drn]),
+      queryAll(
+        `SELECT geyser_state, geyser_control, mains_state, mains_control
+         FROM MeterLoadControl WHERE DRN = ? ORDER BY date_time DESC LIMIT 1`, [drn]
+      ),
+    ]);
+
+    const pw = powerStats[0] || {};
+    const en = energyStats[0] || {};
+    const ls = lastSeen[0] || {};
+    const ld = loadStats[0] || {};
+
+    // Compute health score (0-100)
+    let score = 100;
+    const issues = [];
+
+    // Voltage check (should be ~220-240V)
+    const v = parseFloat(pw.avgVoltage) || 0;
+    if (v > 0 && (v < 200 || v > 260)) { score -= 15; issues.push(`Voltage ${v.toFixed(1)}V outside normal range`); }
+    else if (v > 0 && (v < 210 || v > 250)) { score -= 5; issues.push(`Voltage ${v.toFixed(1)}V slightly off`); }
+
+    // Power factor (should be close to 1.0)
+    const pf = parseFloat(pw.avgPF) || 0;
+    if (pf > 0 && pf < 0.7) { score -= 10; issues.push(`Low power factor: ${pf.toFixed(2)}`); }
+
+    // Temperature check
+    const temp = parseFloat(pw.avgTemp) || 0;
+    if (temp > 60) { score -= 20; issues.push(`High temperature: ${temp.toFixed(1)}C`); }
+    else if (temp > 45) { score -= 5; issues.push(`Elevated temperature: ${temp.toFixed(1)}C`); }
+
+    // Voltage stability (high stddev = fluctuating)
+    const vStd = parseFloat(pw.voltageStdDev) || 0;
+    if (vStd > 15) { score -= 10; issues.push(`Voltage unstable (stddev: ${vStd.toFixed(1)}V)`); }
+
+    // Data freshness
+    if (ls.last_seen) {
+      const minsSinceUpdate = (Date.now() - new Date(ls.last_seen).getTime()) / 60000;
+      if (minsSinceUpdate > 30) { score -= 15; issues.push(`No data for ${Math.round(minsSinceUpdate)} min`); }
+      else if (minsSinceUpdate > 10) { score -= 5; issues.push(`Last update ${Math.round(minsSinceUpdate)} min ago`); }
+    } else {
+      score -= 25; issues.push('No communication detected');
+    }
+
+    // Reading count check
+    const readings = parseInt(pw.readings) || 0;
+    if (readings < 10) { score -= 10; issues.push(`Low reading count: ${readings} in 24h`); }
+
+    score = Math.max(0, Math.min(100, score));
+
+    res.json({
+      success: true,
+      source: 'computed',
+      data: {
+        DRN: drn,
+        health_score: score,
+        voltage: parseFloat(pw.avgVoltage) || 0,
+        current_val: parseFloat(pw.avgCurrent) || 0,
+        active_power: parseFloat(pw.avgPower) || 0,
+        frequency: parseFloat(pw.avgFrequency) || 0,
+        power_factor: parseFloat(pw.avgPF) || 0,
+        temperature: parseFloat(pw.avgTemp) || 0,
+        mains_state: ld.mains_state != null ? ld.mains_state : null,
+        mains_control: ld.mains_control != null ? ld.mains_control : null,
+        geyser_state: ld.geyser_state != null ? ld.geyser_state : null,
+        geyser_control: ld.geyser_control != null ? ld.geyser_control : null,
+        readings_24h: readings,
+        voltage_stddev: parseFloat(pw.voltageStdDev) || 0,
+        day_energy_kwh: parseFloat(en.dayEnergy) || 0,
+        remaining_units: parseFloat(en.remainingUnits) || 0,
+        last_seen: ls.last_seen || null,
+        message_count: ls.message_count || 0,
+        issues,
+        created_at: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error('[Health] Error computing health for', drn, err.message);
+    res.status(500).json({ error: 'Failed to compute health report' });
+  }
+});
+
+// Health history (from computed snapshots or existing records)
+router.get('/mqtt/meter-health/:drn/history', authenticateToken, async (req, res) => {
+  const drn = req.params.drn;
+  const limit = parseInt(req.query.limit) || 72;
+  try {
+    const history = await queryAll(
+      'SELECT * FROM MeterHealthReport WHERE DRN = ? ORDER BY created_at DESC LIMIT ?', [drn, limit]
+    );
+    res.json({ success: true, data: history });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== Relay Events (from MQTT relay_log data) =====
+router.get('/mqtt/relay-events/:drn', authenticateToken, async (req, res) => {
+  const drn = req.params.drn;
+  const limit = parseInt(req.query.limit) || 100;
+  const offset = parseInt(req.query.offset) || 0;
+  const relay = req.query.relay;
+  const type = req.query.type;
+
+  try {
+    let where = 'DRN = ?';
+    const params = [drn];
+    if (relay !== undefined && relay !== '') { where += ' AND relay_index = ?'; params.push(parseInt(relay)); }
+    if (type !== undefined && type !== '') { where += ' AND entry_type = ?'; params.push(parseInt(type)); }
+
+    const [events, countResult] = await Promise.all([
+      queryAll(`SELECT * FROM MeterRelayEvents WHERE ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, limit, offset]),
+      queryAll(`SELECT COUNT(*) as total FROM MeterRelayEvents WHERE ${where}`, params),
+    ]);
+
+    res.json({ success: true, data: events, total: countResult[0]?.total || 0, limit, offset });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/mqtt/relay-events/:drn/summary', authenticateToken, async (req, res) => {
+  const drn = req.params.drn;
+  const hours = parseInt(req.query.hours) || 168;
+  try {
+    const [summary, byRelay] = await Promise.all([
+      queryAll(
+        `SELECT
+           reason_text, COUNT(*) as count
+         FROM MeterRelayEvents
+         WHERE DRN = ? AND created_at >= NOW() - INTERVAL ? HOUR
+         GROUP BY reason_text ORDER BY count DESC`, [drn, hours]
+      ),
+      queryAll(
+        `SELECT
+           relay_index, entry_type, COUNT(*) as count
+         FROM MeterRelayEvents
+         WHERE DRN = ? AND created_at >= NOW() - INTERVAL ? HOUR
+         GROUP BY relay_index, entry_type`, [drn, hours]
+      ),
+    ]);
+    res.json({ success: true, reasons: summary, breakdown: byRelay });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== All Meters Health Summary (for scatter chart) =====
+router.get('/mqtt/meters-health-summary', authenticateToken, async (req, res) => {
+  try {
+    const meters = await queryAll(
+      `SELECT
+         m.DRN,
+         m.meter_name,
+         m.suburb,
+         m.street_name,
+         ls.last_seen,
+         ls.message_count,
+         ROUND(AVG(CAST(p.voltage AS DECIMAL(10,2))), 2) as avgVoltage,
+         ROUND(AVG(CAST(p.active_power AS DECIMAL(10,2))), 2) as avgPower,
+         ROUND(AVG(CAST(p.power_factor AS DECIMAL(10,3))), 3) as avgPF,
+         ROUND(AVG(CAST(p.temperature AS DECIMAL(10,1))), 1) as avgTemp,
+         ROUND(STDDEV(CAST(p.voltage AS DECIMAL(10,2))), 2) as voltageStdDev,
+         ROUND(STDDEV(CAST(p.active_power AS DECIMAL(10,2))), 2) as powerStdDev,
+         COUNT(p.id) as readings24h,
+         ROUND(COALESCE(e.remaining_units, 0), 2) as remainingUnits
+       FROM MeterProfileReal m
+       LEFT JOIN MeterLastSeen ls ON m.DRN = ls.DRN
+       LEFT JOIN MeteringPower p ON m.DRN = p.DRN AND p.date_time >= NOW() - INTERVAL 24 HOUR
+       LEFT JOIN (
+         SELECT e1.DRN, e1.units as remaining_units
+         FROM MeterCumulativeEnergyUsage e1
+         INNER JOIN (SELECT DRN, MAX(id) as maxId FROM MeterCumulativeEnergyUsage GROUP BY DRN) e2
+           ON e1.DRN = e2.DRN AND e1.id = e2.maxId
+       ) e ON m.DRN = e.DRN
+       GROUP BY m.DRN`, []
+    );
+
+    // Compute health score for each meter
+    const result = meters.map(m => {
+      let score = 100;
+      let status = 'healthy';
+      const flags = [];
+
+      const v = parseFloat(m.avgVoltage) || 0;
+      if (v > 0 && (v < 200 || v > 260)) { score -= 15; flags.push('voltage_out_of_range'); }
+      else if (v > 0 && (v < 210 || v > 250)) { score -= 5; }
+
+      const pf = parseFloat(m.avgPF) || 0;
+      if (pf > 0 && pf < 0.7) { score -= 10; flags.push('low_power_factor'); }
+
+      const temp = parseFloat(m.avgTemp) || 0;
+      if (temp > 60) { score -= 20; flags.push('overheating'); }
+      else if (temp > 45) { score -= 5; flags.push('elevated_temp'); }
+
+      const vStd = parseFloat(m.voltageStdDev) || 0;
+      if (vStd > 15) { score -= 10; flags.push('voltage_unstable'); }
+
+      const pStd = parseFloat(m.powerStdDev) || 0;
+      if (pStd > 500) { score -= 5; flags.push('power_fluctuation'); }
+
+      if (m.last_seen) {
+        const mins = (Date.now() - new Date(m.last_seen).getTime()) / 60000;
+        if (mins > 60) { score -= 20; flags.push('offline'); }
+        else if (mins > 10) { score -= 5; flags.push('intermittent'); }
+      } else {
+        score -= 30; flags.push('no_communication');
+      }
+
+      const readings = parseInt(m.readings24h) || 0;
+      if (readings < 5) { score -= 10; flags.push('low_data'); }
+
+      score = Math.max(0, Math.min(100, score));
+      if (score < 50) status = 'suspicious';
+      else if (score < 75) status = 'warning';
+
+      return {
+        drn: m.DRN,
+        name: m.meter_name || m.DRN,
+        suburb: m.suburb || '',
+        healthScore: score,
+        status,
+        flags,
+        avgVoltage: v,
+        avgPower: parseFloat(m.avgPower) || 0,
+        avgPF: pf,
+        temperature: temp,
+        voltageStdDev: vStd,
+        powerStdDev: pStd,
+        readings24h: readings,
+        remainingUnits: parseFloat(m.remainingUnits) || 0,
+        lastSeen: m.last_seen,
+        messageCount: parseInt(m.message_count) || 0,
+      };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('[HealthSummary] Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

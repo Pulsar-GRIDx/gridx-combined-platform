@@ -5,7 +5,8 @@ import { tokens } from "../theme";
 import Header from "../components/Header";
 import DataBadge from "../components/DataBadge";
 import StatBox from "../components/StatBox";
-import { meterAPI, tokenAPI, financeAPI, energyAPI, mqttAPI } from "../services/api";
+import { meterAPI, tokenAPI, financeAPI, energyAPI, mqttAPI, meterHealthAPI } from "../services/api";
+import ReactECharts from "echarts-for-react";
 import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
 // Mock data removed — dashboard uses only real MQTT data
 import ElectricBoltOutlinedIcon from "@mui/icons-material/ElectricBoltOutlined";
@@ -105,6 +106,9 @@ export default function Dashboard() {
   const [hourlyTotals, setHourlyTotals] = useState({ averagePower: 0, peakPower: 0 });
   const [suburbEnergy, setSuburbEnergy] = useState({});
   const [hourlyTokenCounts, setHourlyTokenCounts] = useState([]);
+  const [hourlyEnergyData, setHourlyEnergyData] = useState([]);
+  const [totalRemainingUnits, setTotalRemainingUnits] = useState(0);
+  const [meterHealthData, setMeterHealthData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
   const refreshRef = useRef(null);
@@ -184,6 +188,20 @@ export default function Dashboard() {
         if (hTokens.length > 0) setHourlyTokenCounts(hTokens);
       }
 
+      // Remaining units
+      if (stats.credits) {
+        setTotalRemainingUnits(stats.credits.totalRemainingUnits || 0);
+      }
+
+      // Hourly energy consumption (kWh per hour)
+      if (Array.isArray(stats.hourlyEnergy)) {
+        const eData = stats.hourlyEnergy.map((val, i) => ({
+          hour: `${i < 10 ? "0" + i : i}:00`,
+          kWh: Number(val) || 0,
+        }));
+        setHourlyEnergyData(eData);
+      }
+
       setLastUpdate(new Date());
     } catch (e) {
       console.error("MQTT dashboard fetch:", e);
@@ -229,6 +247,11 @@ export default function Dashboard() {
         ALL_SUBURBS.forEach((s) => { fullData[s] = Number(sData[s]) || 0; });
         setSuburbEnergy(fullData);
       }
+    }).catch(() => {});
+
+    // Meter health summary for scatter chart
+    withTimeout(meterHealthAPI.getAllSummary(), 12000).then((val) => {
+      if (val?.data && Array.isArray(val.data)) setMeterHealthData(val.data);
     }).catch(() => {});
   }, []);
 
@@ -348,90 +371,7 @@ export default function Dashboard() {
           />
         </Box>
 
-        {/* ROW 1b: 4 Revenue/Energy Boxes */}
-        <Box
-          gridColumn="span 3"
-          backgroundColor={colors.primary[400]}
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
-        >
-          <StatBox
-            title={`${fmt(kpis.todayRevenue)} kWh`}
-            subtitle="Today's Token kWh"
-            progress={kpis.todayRevenue > 0 ? String(Math.min(1, kpis.todayRevenue / 5000)) : "0"}
-            increase={kpis.todayTokens ? `${fmt(kpis.todayTokens)} tokens` : ""}
-            link="/"
-            icon={
-              <AccountBalanceWalletOutlinedIcon
-                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
-              />
-            }
-          />
-        </Box>
-
-        <Box
-          gridColumn="span 3"
-          backgroundColor={colors.primary[400]}
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
-        >
-          <StatBox
-            title={fmt(kpis.todayTokens)}
-            subtitle="Tokens Today"
-            progress="0.5"
-            increase="from MQTT"
-            link="/"
-            icon={
-              <ShoppingCartIcon
-                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
-              />
-            }
-          />
-        </Box>
-
-        <Box
-          gridColumn="span 3"
-          backgroundColor={colors.primary[400]}
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
-        >
-          <StatBox
-            title={`${Number(kpis.avgConsumption || 0).toFixed(1)} kWh`}
-            subtitle="Today's Consumption"
-            progress="0.45"
-            increase="total energy"
-            link="/"
-            icon={
-              <FlashOnIcon
-                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
-              />
-            }
-          />
-        </Box>
-
-        <Box
-          gridColumn="span 3"
-          backgroundColor={colors.primary[400]}
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
-        >
-          <StatBox
-            title={kpis.avgVoltage ? `${kpis.avgVoltage.toFixed(1)} V` : "—"}
-            subtitle="Avg Voltage"
-            progress={kpis.avgVoltage ? String(Math.min(1, kpis.avgVoltage / 250)) : "0"}
-            increase={lastUpdate ? `Updated ${lastUpdate.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}
-            link="/"
-            icon={
-              <PowerOutlinedIcon
-                sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
-              />
-            }
-          />
-        </Box>
+        {/* ROW 1b removed — only 4 main cards above */}
 
         {/* ROW 2: Regional Consumption Chart (Suburban Energy Analytics) */}
         {(() => {
@@ -694,34 +634,24 @@ export default function Dashboard() {
           </Typography>
           <Box height="calc(100% - 40px)">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
+              <BarChart
                 data={salesTrend}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
-                <defs>
-                  <linearGradient id="gradRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={colors.greenAccent[500]} stopOpacity={0.4} />
-                    <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradKwh" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={colors.blueAccent[400]} stopOpacity={0.4} />
-                    <stop offset="95%" stopColor={colors.blueAccent[400]} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
                 <XAxis dataKey="day" stroke={colors.grey[300]} tick={{ fontSize: 12 }} />
                 <YAxis
                   yAxisId="left"
                   stroke={colors.grey[300]}
                   tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `N$${(v / 1000).toFixed(0)}k`}
+                  tickFormatter={(v) => `${v}`}
                 />
                 <YAxis
                   yAxisId="right"
                   orientation="right"
                   stroke={colors.grey[300]}
                   tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                  tickFormatter={(v) => `${v}`}
                 />
                 <Tooltip
                   contentStyle={{
@@ -731,25 +661,21 @@ export default function Dashboard() {
                     color: colors.grey[100],
                   }}
                 />
-                <Area
+                <Bar
                   yAxisId="left"
-                  type="monotone"
-                  dataKey="revenue"
-                  stroke={colors.greenAccent[500]}
-                  strokeWidth={2}
-                  fill="url(#gradRevenue)"
-                  name="Revenue (N$)"
+                  dataKey="tokens"
+                  fill={colors.greenAccent[500]}
+                  name="Tokens"
+                  radius={[4, 4, 0, 0]}
                 />
-                <Area
+                <Bar
                   yAxisId="right"
-                  type="monotone"
                   dataKey="kWh"
-                  stroke={colors.blueAccent[400]}
-                  strokeWidth={2}
-                  fill="url(#gradKwh)"
+                  fill={colors.blueAccent[400]}
                   name="Energy (kWh)"
+                  radius={[4, 4, 0, 0]}
                 />
-              </AreaChart>
+              </BarChart>
             </ResponsiveContainer>
           </Box>
         </Box>
@@ -803,62 +729,43 @@ export default function Dashboard() {
           ))}
         </Box>
 
-        {/* ROW 3: Token Transactions Chart (span 9) + Timeline (span 3) */}
+        {/* ROW 3: Power Used & Remaining Units Chart (span 9) + Timeline (span 3) */}
         <Box
           gridColumn="span 9"
           gridRow="span 5"
           backgroundColor={colors.primary[400]}
           p="15px"
         >
-          <Typography
-            variant="h5"
-            fontWeight="600"
-            color={colors.grey[100]}
-            mb="10px"
-          >
-            Token Transaction Revenue (Today — Cumulative)
-          </Typography>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb="10px">
+            <Typography
+              variant="h5"
+              fontWeight="600"
+              color={colors.grey[100]}
+            >
+              Power Used Today & Remaining Units
+            </Typography>
+            <Typography variant="body2" color={colors.greenAccent[400]} fontWeight="600">
+              Total Remaining: {fmt(totalRemainingUnits)} kWh
+            </Typography>
+          </Box>
           <Box height="calc(100% - 40px)">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={(() => {
-                  const src = hourlyTokenCounts.length > 0 ? hourlyTokenCounts : salesTrend;
-                  // Build cumulative totals
-                  let cumTokens = 0, cumKwh = 0;
-                  return src.map((item) => {
-                    cumTokens += (item.tokens || 0);
-                    cumKwh += (item.amount || item.kWh || 0);
-                    return { ...item, label: item.label || item.day || "", cumTokens, cumKwh };
-                  });
-                })()}
+                data={hourlyEnergyData.length > 0 ? hourlyEnergyData : hourlyData}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
                 <defs>
-                  <linearGradient id="gradTokens" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={colors.greenAccent[500]} stopOpacity={0.35} />
-                    <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradAmount" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={colors.blueAccent[500]} stopOpacity={0.25} />
-                    <stop offset="95%" stopColor={colors.blueAccent[500]} stopOpacity={0} />
+                  <linearGradient id="gradPowerUsed" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f2b705" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#f2b705" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
-                <XAxis dataKey="label" stroke={colors.grey[300]} tick={{ fontSize: 11 }} interval={2} />
+                <XAxis dataKey="hour" stroke={colors.grey[300]} tick={{ fontSize: 11 }} interval={2} />
                 <YAxis
-                  yAxisId="left"
                   stroke={colors.grey[300]}
                   tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${v}`}
-                  label={{ value: "Tokens", angle: -90, position: "insideLeft", style: { fill: colors.grey[300], fontSize: 11 } }}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  stroke={colors.grey[300]}
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${v}`}
-                  label={{ value: "kWh", angle: 90, position: "insideRight", style: { fill: colors.grey[300], fontSize: 11 } }}
+                  tickFormatter={(v) => `${v} kWh`}
                 />
                 <Tooltip
                   contentStyle={{
@@ -867,25 +774,22 @@ export default function Dashboard() {
                     borderRadius: 4,
                     color: colors.grey[100],
                   }}
-                  formatter={(value, name) => [Number(value).toLocaleString(), name]}
+                  formatter={(value) => [`${Number(value).toFixed(3)} kWh`, "Power Used"]}
                 />
-                <Area
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="cumTokens"
+                <ReferenceLine
+                  y={totalRemainingUnits > 0 ? totalRemainingUnits : undefined}
                   stroke={colors.greenAccent[500]}
+                  strokeDasharray="5 5"
                   strokeWidth={2}
-                  fill="url(#gradTokens)"
-                  name="Cumulative Tokens"
+                  label={{ value: `Remaining: ${fmt(totalRemainingUnits)} kWh`, fill: colors.greenAccent[400], fontSize: 11, position: "right" }}
                 />
                 <Area
-                  yAxisId="right"
                   type="monotone"
-                  dataKey="cumKwh"
-                  stroke={colors.blueAccent[500]}
+                  dataKey="kWh"
+                  stroke="#f2b705"
                   strokeWidth={2}
-                  fill="url(#gradAmount)"
-                  name="Cumulative kWh"
+                  fill="url(#gradPowerUsed)"
+                  name="Power Used (kWh)"
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -907,7 +811,7 @@ export default function Dashboard() {
           >
             Token Timeline
           </Typography>
-          {recentTxns.slice(0, 10).map((txn, i) => (
+          {recentTxns.filter((t) => t.status === "Accepted").slice(0, 10).map((txn, i) => (
             <Box
               key={txn.id}
               display="flex"
@@ -1053,7 +957,7 @@ export default function Dashboard() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {recentTxns.map((txn) => (
+                {recentTxns.filter((txn) => txn.status === "Accepted").map((txn) => (
                   <TableRow
                     key={txn.id}
                     sx={{
@@ -1111,6 +1015,133 @@ export default function Dashboard() {
             </Table>
           </TableContainer>
         </Box>
+
+        {/* ROW 6: Meter Status Scatter (ECharts) */}
+        {meterHealthData.length > 0 && (
+          <Box
+            gridColumn="span 12"
+            gridRow="span 5"
+            backgroundColor={colors.primary[400]}
+            p="15px"
+          >
+            <Typography
+              variant="h5"
+              fontWeight="600"
+              color={colors.grey[100]}
+              mb="10px"
+            >
+              Meter Status Overview
+            </Typography>
+            <Box height="calc(100% - 40px)">
+              <ReactECharts
+                option={{
+                  backgroundColor: "transparent",
+                  tooltip: {
+                    trigger: "item",
+                    formatter: (p) => {
+                      const d = p.data;
+                      return `<strong>${d[4] || d[3]}</strong><br/>` +
+                        `Health: <strong>${d[1]}</strong>/100<br/>` +
+                        `Power: ${d[0].toFixed(1)} W<br/>` +
+                        `Voltage: ${(d[5] || 0).toFixed(1)} V<br/>` +
+                        `Temp: ${(d[6] || 0).toFixed(1)} °C<br/>` +
+                        `Status: <strong>${d[7] || "unknown"}</strong><br/>` +
+                        `Readings (24h): ${d[8] || 0}` +
+                        (d[9] && d[9].length ? `<br/>Flags: ${d[9].join(", ")}` : "");
+                    },
+                  },
+                  legend: {
+                    data: ["Healthy", "Warning", "Suspicious"],
+                    textStyle: { color: colors.grey[300] },
+                    top: 0,
+                    right: 0,
+                  },
+                  grid: { left: "8%", right: "5%", top: "12%", bottom: "12%" },
+                  xAxis: {
+                    name: "Avg Power (W)",
+                    nameTextStyle: { color: colors.grey[300], fontSize: 11 },
+                    axisLabel: { color: colors.grey[300], fontSize: 10 },
+                    axisLine: { lineStyle: { color: colors.grey[700] } },
+                    splitLine: { lineStyle: { color: colors.grey[700], type: "dashed" } },
+                  },
+                  yAxis: {
+                    name: "Health Score",
+                    nameTextStyle: { color: colors.grey[300], fontSize: 11 },
+                    axisLabel: { color: colors.grey[300], fontSize: 10 },
+                    axisLine: { lineStyle: { color: colors.grey[700] } },
+                    splitLine: { lineStyle: { color: colors.grey[700], type: "dashed" } },
+                    min: 0,
+                    max: 100,
+                  },
+                  visualMap: {
+                    show: false,
+                    dimension: 1,
+                    min: 0,
+                    max: 100,
+                    inRange: {
+                      color: ["#db4f4a", "#f2b705", "#4cceac"],
+                    },
+                  },
+                  series: [
+                    {
+                      name: "Healthy",
+                      type: "scatter",
+                      symbolSize: (d) => Math.max(10, Math.min(30, d[2] / 2)),
+                      data: meterHealthData
+                        .filter((m) => m.status === "healthy")
+                        .map((m) => [
+                          m.avgPower, m.healthScore, m.readings24h, m.drn,
+                          m.name, m.avgVoltage, m.temperature, m.status, m.readings24h, m.flags,
+                        ]),
+                      itemStyle: { color: "#4cceac", shadowBlur: 8, shadowColor: "rgba(76,206,172,0.4)" },
+                    },
+                    {
+                      name: "Warning",
+                      type: "scatter",
+                      symbolSize: (d) => Math.max(12, Math.min(30, d[2] / 2)),
+                      data: meterHealthData
+                        .filter((m) => m.status === "warning")
+                        .map((m) => [
+                          m.avgPower, m.healthScore, m.readings24h, m.drn,
+                          m.name, m.avgVoltage, m.temperature, m.status, m.readings24h, m.flags,
+                        ]),
+                      itemStyle: { color: "#f2b705", shadowBlur: 10, shadowColor: "rgba(242,183,5,0.5)" },
+                    },
+                    {
+                      name: "Suspicious",
+                      type: "scatter",
+                      symbol: "diamond",
+                      symbolSize: (d) => Math.max(14, Math.min(35, d[2] / 2)),
+                      data: meterHealthData
+                        .filter((m) => m.status === "suspicious")
+                        .map((m) => [
+                          m.avgPower, m.healthScore, m.readings24h, m.drn,
+                          m.name, m.avgVoltage, m.temperature, m.status, m.readings24h, m.flags,
+                        ]),
+                      itemStyle: { color: "#db4f4a", shadowBlur: 12, shadowColor: "rgba(219,79,74,0.6)" },
+                    },
+                    {
+                      name: "Threshold",
+                      type: "line",
+                      markLine: {
+                        silent: true,
+                        lineStyle: { color: "#f2b705", type: "dashed", width: 1 },
+                        data: [{ yAxis: 75, label: { formatter: "Warning", color: "#f2b705", fontSize: 10 } },
+                               { yAxis: 50, label: { formatter: "Suspicious", color: "#db4f4a", fontSize: 10 } }],
+                      },
+                      data: [],
+                    },
+                  ],
+                  animation: true,
+                  animationDuration: 1500,
+                  animationEasing: "elasticOut",
+                }}
+                style={{ height: "100%", width: "100%" }}
+                notMerge
+              />
+            </Box>
+          </Box>
+        )}
       </Box>
     </Box>
   );
