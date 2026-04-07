@@ -453,7 +453,7 @@ export default function MeterProfile() {
 
   /* ---------- Fetch hourly energy data when Energy Charts tab is selected ---------- */
   useEffect(() => {
-    if (tab !== 5) return;
+    if (tab !== 4) return;
     const fetchHourly = async () => {
       try {
         const res = await energyAPI.getHourlyByDrn(drn);

@@ -193,6 +193,41 @@ export default function Dashboard() {
         setTotalRemainingUnits(stats.credits.totalRemainingUnits || 0);
       }
 
+      // Build notifications from live data
+      const newNotifs = [];
+      let nid = 0;
+      // Offline meters
+      if (stats.kpis.offlineMeters > 0) {
+        newNotifs.push({ id: ++nid, type: "warning", title: `${stats.kpis.offlineMeters} Meter${stats.kpis.offlineMeters > 1 ? "s" : ""} Offline`, message: `${stats.kpis.offlineMeters} meter${stats.kpis.offlineMeters > 1 ? "s have" : " has"} not reported data in over 5 minutes`, timestamp: new Date().toISOString() });
+      }
+      // Tamper detection from health data
+      if (meterHealthData.length > 0) {
+        const suspicious = meterHealthData.filter(m => m.status === "suspicious");
+        const warning = meterHealthData.filter(m => m.status === "warning");
+        suspicious.forEach(m => {
+          newNotifs.push({ id: ++nid, type: "error", title: `Tamper Alert: ${m.name || m.drn}`, message: `Health score ${m.healthScore}/100. Flags: ${m.flags.join(", ")}`, timestamp: m.lastSeen || new Date().toISOString() });
+        });
+        warning.forEach(m => {
+          newNotifs.push({ id: ++nid, type: "warning", title: `Warning: ${m.name || m.drn}`, message: `Health score ${m.healthScore}/100. ${m.flags.join(", ")}`, timestamp: m.lastSeen || new Date().toISOString() });
+        });
+      }
+      // Low voltage alerts
+      if (stats.power.avgVoltage > 0 && stats.power.avgVoltage < 210) {
+        newNotifs.push({ id: ++nid, type: "warning", title: "Low System Voltage", message: `Average voltage ${stats.power.avgVoltage.toFixed(1)}V is below normal range (220-240V)`, timestamp: new Date().toISOString() });
+      }
+      // High power alert
+      if (stats.power.peakPower > 4000) {
+        newNotifs.push({ id: ++nid, type: "info", title: "High Peak Power", message: `Peak power reached ${stats.power.peakPower.toFixed(0)}W across meters`, timestamp: new Date().toISOString() });
+      }
+      // Success notifications
+      if (stats.kpis.liveMeters > 0) {
+        newNotifs.push({ id: ++nid, type: "success", title: `${stats.kpis.liveMeters} Meter${stats.kpis.liveMeters > 1 ? "s" : ""} Online`, message: "Active MQTT connections reporting real-time data", timestamp: new Date().toISOString() });
+      }
+      if (stats.tokens.todayCount > 0) {
+        newNotifs.push({ id: ++nid, type: "success", title: `${stats.tokens.todayCount} Tokens Today`, message: `${stats.tokens.todayRevenue.toFixed(1)} kWh purchased across all meters`, timestamp: new Date().toISOString() });
+      }
+      if (newNotifs.length > 0) setNotifs(newNotifs);
+
       // Hourly energy consumption (kWh per hour)
       if (Array.isArray(stats.hourlyEnergy)) {
         const eData = stats.hourlyEnergy.map((val, i) => ({
@@ -617,63 +652,68 @@ export default function Dashboard() {
           );
         })()}
 
-        {/* ROW 3: Revenue & Energy Chart (span 9) + Notifications (span 3) */}
+        {/* ROW 3: Energy Trend Chart (span 9) + Notifications (span 3) */}
         <Box
           gridColumn="span 9"
           gridRow="span 3"
           backgroundColor={colors.primary[400]}
           p="15px"
         >
-          <Typography
-            variant="h5"
-            fontWeight="600"
-            color={colors.grey[100]}
-            mb="10px"
-          >
-            Revenue & Energy Trend
-          </Typography>
-          <Box height="calc(100% - 40px)">
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb="10px">
+            <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+              Weekly Energy Trend
+            </Typography>
+            <Box display="flex" gap="16px" alignItems="center">
+              <Box display="flex" alignItems="center" gap="6px" sx={{ bgcolor: "rgba(76,206,172,0.1)", px: 1.5, py: 0.5, borderRadius: "8px" }}>
+                <FlashOnIcon sx={{ color: colors.greenAccent[500], fontSize: 16 }} />
+                <Typography variant="body2" color={colors.greenAccent[400]} fontWeight="600">
+                  {salesTrend.reduce((s, d) => s + (d.kWh || 0), 0).toFixed(1)} kWh this week
+                </Typography>
+              </Box>
+              <Box display="flex" alignItems="center" gap="6px" sx={{ bgcolor: "rgba(111,66,193,0.1)", px: 1.5, py: 0.5, borderRadius: "8px" }}>
+                <ShoppingCartIcon sx={{ color: "#8b5cf6", fontSize: 16 }} />
+                <Typography variant="body2" color="#a78bfa" fontWeight="600">
+                  {salesTrend.reduce((s, d) => s + (d.tokens || 0), 0)} tokens processed
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+          <Box height="calc(100% - 45px)">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={salesTrend}
-                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                margin={{ top: 5, right: 20, left: 0, bottom: 0 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
-                <XAxis dataKey="day" stroke={colors.grey[300]} tick={{ fontSize: 12 }} />
+                <defs>
+                  <linearGradient id="gradEnergyBar" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={colors.greenAccent[500]} stopOpacity={0.9} />
+                    <stop offset="100%" stopColor={colors.greenAccent[500]} stopOpacity={0.4} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.5} />
+                <XAxis dataKey="day" stroke={colors.grey[300]} tick={{ fontSize: 12, fontWeight: 600 }} />
                 <YAxis
-                  yAxisId="left"
                   stroke={colors.grey[300]}
                   tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${v}`}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  stroke={colors.grey[300]}
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${v}`}
+                  tickFormatter={(v) => `${v} kWh`}
                 />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: colors.primary[400],
-                    border: `1px solid ${colors.grey[700]}`,
-                    borderRadius: 4,
+                    border: `1px solid ${colors.greenAccent[500]}40`,
+                    borderRadius: 8,
                     color: colors.grey[100],
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                   }}
+                  formatter={(value) => [`${Number(value).toFixed(1)} kWh`, "Energy"]}
+                  cursor={{ fill: "rgba(76,206,172,0.08)" }}
                 />
                 <Bar
-                  yAxisId="left"
-                  dataKey="tokens"
-                  fill={colors.greenAccent[500]}
-                  name="Tokens"
-                  radius={[4, 4, 0, 0]}
-                />
-                <Bar
-                  yAxisId="right"
                   dataKey="kWh"
-                  fill={colors.blueAccent[400]}
+                  fill="url(#gradEnergyBar)"
                   name="Energy (kWh)"
-                  radius={[4, 4, 0, 0]}
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={50}
                 />
               </BarChart>
             </ResponsiveContainer>
@@ -686,50 +726,68 @@ export default function Dashboard() {
           backgroundColor={colors.primary[400]}
           p="15px"
           overflow="auto"
+          sx={{ "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: colors.grey[700], borderRadius: 2 } }}
         >
-          <Box display="flex" alignItems="center" gap="8px" mb="15px">
-            <NotificationsOutlinedIcon sx={{ color: colors.greenAccent[500] }} />
-            <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
-              Notifications
-            </Typography>
-          </Box>
-          {notifs.slice(0, 8).map((notif, i) => (
-            <Box
-              key={notif.id}
-              display="flex"
-              gap="10px"
-              py="10px"
-              borderBottom={
-                i < 7 ? `1px solid ${colors.grey[700]}` : "none"
-              }
-            >
-              <Box mt="3px">{notifIcon(notif.type)}</Box>
-              <Box flex={1}>
-                <Typography
-                  variant="h6"
-                  fontWeight="600"
-                  color={colors.grey[100]}
-                >
-                  {notif.title}
-                </Typography>
-                <Typography variant="body2" color={colors.grey[300]} sx={{ fontSize: "11px" }}>
-                  {notif.message && notif.message.length > 80
-                    ? notif.message.substring(0, 80) + "..."
-                    : notif.message || ""}
-                </Typography>
-                <Typography
-                  variant="caption"
-                  color={colors.greenAccent[400]}
-                  sx={{ fontSize: "10px" }}
-                >
-                  {formatTime(notif.timestamp)}
+          <Box display="flex" alignItems="center" justifyContent="space-between" mb="12px">
+            <Box display="flex" alignItems="center" gap="8px">
+              <NotificationsOutlinedIcon sx={{ color: colors.greenAccent[500] }} />
+              <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+                Alerts & Status
+              </Typography>
+            </Box>
+            {notifs.filter(n => n.type === "error").length > 0 && (
+              <Box sx={{ bgcolor: "rgba(219,79,74,0.15)", px: 1, py: 0.3, borderRadius: "10px", display: "flex", alignItems: "center", gap: "4px" }}>
+                <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: "#db4f4a", animation: "pulse 2s infinite" }} />
+                <Typography variant="caption" color="#db4f4a" fontWeight="600">
+                  {notifs.filter(n => n.type === "error").length} Alert{notifs.filter(n => n.type === "error").length > 1 ? "s" : ""}
                 </Typography>
               </Box>
+            )}
+          </Box>
+          {notifs.length === 0 && (
+            <Box textAlign="center" py="30px">
+              <CheckCircleOutlineIcon sx={{ color: colors.greenAccent[500], fontSize: 36, mb: 1 }} />
+              <Typography variant="body2" color={colors.grey[300]}>All systems nominal</Typography>
             </Box>
-          ))}
+          )}
+          {notifs.slice(0, 10).map((notif, i) => {
+            const borderColor = notif.type === "error" ? "#db4f4a" : notif.type === "warning" ? "#f2b705" : notif.type === "success" ? colors.greenAccent[500] : colors.blueAccent[400];
+            return (
+              <Box
+                key={notif.id}
+                display="flex"
+                gap="10px"
+                py="8px"
+                px="8px"
+                mb="6px"
+                sx={{
+                  borderLeft: `3px solid ${borderColor}`,
+                  borderRadius: "0 6px 6px 0",
+                  bgcolor: `${borderColor}08`,
+                  transition: "all 0.2s",
+                  "&:hover": { bgcolor: `${borderColor}15`, transform: "translateX(2px)" },
+                }}
+              >
+                <Box mt="2px" sx={{ minWidth: 20 }}>
+                  {notif.type === "error" ? <ErrorOutlineIcon sx={{ color: "#db4f4a", fontSize: 18 }} /> :
+                   notif.type === "warning" ? <WarningAmberIcon sx={{ color: "#f2b705", fontSize: 18 }} /> :
+                   notif.type === "success" ? <CheckCircleOutlineIcon sx={{ color: colors.greenAccent[500], fontSize: 18 }} /> :
+                   <InfoOutlinedIcon sx={{ color: colors.blueAccent[400], fontSize: 18 }} />}
+                </Box>
+                <Box flex={1}>
+                  <Typography variant="body2" fontWeight="700" color={colors.grey[100]} sx={{ fontSize: "12px", lineHeight: 1.3 }}>
+                    {notif.title}
+                  </Typography>
+                  <Typography variant="caption" color={colors.grey[300]} sx={{ fontSize: "10px", lineHeight: 1.4, display: "block", mt: "2px" }}>
+                    {notif.message && notif.message.length > 90 ? notif.message.substring(0, 90) + "..." : notif.message || ""}
+                  </Typography>
+                </Box>
+              </Box>
+            );
+          })}
         </Box>
 
-        {/* ROW 3: Power Used & Remaining Units Chart (span 9) + Timeline (span 3) */}
+        {/* ROW 3: Energy Consumed vs Remaining Units Chart (span 9) + Timeline (span 3) */}
         <Box
           gridColumn="span 9"
           gridRow="span 5"
@@ -737,59 +795,97 @@ export default function Dashboard() {
           p="15px"
         >
           <Box display="flex" justifyContent="space-between" alignItems="center" mb="10px">
-            <Typography
-              variant="h5"
-              fontWeight="600"
-              color={colors.grey[100]}
-            >
-              Power Used Today & Remaining Units
+            <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+              Energy Consumed vs Remaining Units
             </Typography>
-            <Typography variant="body2" color={colors.greenAccent[400]} fontWeight="600">
-              Total Remaining: {fmt(totalRemainingUnits)} kWh
-            </Typography>
+            <Box display="flex" gap="16px" alignItems="center">
+              <Box display="flex" alignItems="center" gap="4px">
+                <Box sx={{ width: 12, height: 3, bgcolor: "#f2b705", borderRadius: 1 }} />
+                <Typography variant="caption" color={colors.grey[300]}>Consumed</Typography>
+              </Box>
+              <Box display="flex" alignItems="center" gap="4px">
+                <Box sx={{ width: 12, height: 3, bgcolor: colors.greenAccent[500], borderRadius: 1 }} />
+                <Typography variant="caption" color={colors.grey[300]}>Remaining Units</Typography>
+              </Box>
+              <Typography variant="body2" color={colors.greenAccent[400]} fontWeight="600">
+                {fmt(totalRemainingUnits)} kWh total
+              </Typography>
+            </Box>
           </Box>
-          <Box height="calc(100% - 40px)">
+          <Box height="calc(100% - 45px)">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={hourlyEnergyData.length > 0 ? hourlyEnergyData : hourlyData}
+                data={(() => {
+                  const src = hourlyEnergyData.length > 0 ? hourlyEnergyData : hourlyData;
+                  // Build cumulative energy consumed and declining remaining units
+                  let cumConsumed = 0;
+                  return src.map((item) => {
+                    cumConsumed += (item.kWh || 0);
+                    return {
+                      ...item,
+                      consumed: parseFloat(cumConsumed.toFixed(3)),
+                      remaining: parseFloat(Math.max(0, totalRemainingUnits - cumConsumed).toFixed(2)),
+                    };
+                  });
+                })()}
                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
               >
                 <defs>
-                  <linearGradient id="gradPowerUsed" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f2b705" stopOpacity={0.4} />
+                  <linearGradient id="gradConsumed" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f2b705" stopOpacity={0.35} />
                     <stop offset="95%" stopColor="#f2b705" stopOpacity={0} />
                   </linearGradient>
+                  <linearGradient id="gradRemaining" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={colors.greenAccent[500]} stopOpacity={0.25} />
+                    <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
+                  </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.5} />
                 <XAxis dataKey="hour" stroke={colors.grey[300]} tick={{ fontSize: 11 }} interval={2} />
                 <YAxis
+                  yAxisId="left"
                   stroke={colors.grey[300]}
                   tick={{ fontSize: 11 }}
                   tickFormatter={(v) => `${v} kWh`}
+                  label={{ value: "Consumed", angle: -90, position: "insideLeft", style: { fill: "#f2b705", fontSize: 10 } }}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  stroke={colors.grey[300]}
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => `${v}`}
+                  label={{ value: "Remaining", angle: 90, position: "insideRight", style: { fill: colors.greenAccent[400], fontSize: 10 } }}
                 />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: colors.primary[400],
                     border: `1px solid ${colors.grey[700]}`,
-                    borderRadius: 4,
+                    borderRadius: 8,
                     color: colors.grey[100],
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                   }}
-                  formatter={(value) => [`${Number(value).toFixed(3)} kWh`, "Power Used"]}
-                />
-                <ReferenceLine
-                  y={totalRemainingUnits > 0 ? totalRemainingUnits : undefined}
-                  stroke={colors.greenAccent[500]}
-                  strokeDasharray="5 5"
-                  strokeWidth={2}
-                  label={{ value: `Remaining: ${fmt(totalRemainingUnits)} kWh`, fill: colors.greenAccent[400], fontSize: 11, position: "right" }}
+                  formatter={(value, name) => [`${Number(value).toFixed(2)} kWh`, name]}
                 />
                 <Area
+                  yAxisId="left"
                   type="monotone"
-                  dataKey="kWh"
+                  dataKey="consumed"
                   stroke="#f2b705"
                   strokeWidth={2}
-                  fill="url(#gradPowerUsed)"
-                  name="Power Used (kWh)"
+                  fill="url(#gradConsumed)"
+                  name="Energy Consumed"
+                  dot={{ r: 2, fill: "#f2b705" }}
+                />
+                <Area
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="remaining"
+                  stroke={colors.greenAccent[500]}
+                  strokeWidth={2}
+                  fill="url(#gradRemaining)"
+                  name="Remaining Units"
+                  dot={{ r: 2, fill: colors.greenAccent[500] }}
                 />
               </AreaChart>
             </ResponsiveContainer>
