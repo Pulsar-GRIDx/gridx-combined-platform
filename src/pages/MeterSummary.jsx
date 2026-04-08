@@ -145,7 +145,7 @@ export default function MeterSummary() {
       field: "voltage",
       headerName: "Voltage",
       width: 90,
-      valueGetter: (value, row) => row.power?.voltage,
+      valueGetter: (params) => params.row?.power?.voltage ?? params.row?.voltage,
       renderCell: (params) => (
         <Typography variant="body2" sx={{ fontSize: "0.78rem", color: colors.grey[100] }}>
           {params.value} <span style={{ color: colors.grey[400], fontSize: "0.68rem" }}>V</span>
@@ -156,7 +156,7 @@ export default function MeterSummary() {
       field: "powerFactor",
       headerName: "PF",
       width: 80,
-      valueGetter: (value, row) => row.power?.powerFactor,
+      valueGetter: (params) => params.row?.power?.powerFactor ?? params.row?.powerFactor,
       renderCell: (params) => (
         <Typography variant="body2" sx={{ fontSize: "0.78rem", color: colors.greenAccent[500] }}>
           {params.value}

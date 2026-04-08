@@ -6,9 +6,8 @@ import Header from "../components/Header";
 import DataBadge from "../components/DataBadge";
 import StatBox from "../components/StatBox";
 import { meterAPI, tokenAPI, financeAPI, energyAPI, mqttAPI, meterHealthAPI } from "../services/api";
-import ReactECharts from "echarts-for-react";
+import { Link } from "react-router-dom";
 import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
-// Mock data removed — dashboard uses only real MQTT data
 import ElectricBoltOutlinedIcon from "@mui/icons-material/ElectricBoltOutlined";
 import BatteryChargingFullIcon from "@mui/icons-material/BatteryChargingFull";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
@@ -24,10 +23,20 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import BarChartIcon from "@mui/icons-material/BarChart";
+import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
+import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import SettingsInputCompositeIcon from "@mui/icons-material/SettingsInputComposite";
 import ElectricalServicesIcon from "@mui/icons-material/ElectricalServices";
 import FlashOnIcon from "@mui/icons-material/FlashOn";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import Timeline from "@mui/lab/Timeline";
+import TimelineDot from "@mui/lab/TimelineDot";
+import TimelineContent from "@mui/lab/TimelineContent";
+import TimelineSeparator from "@mui/lab/TimelineSeparator";
+import TimelineConnector from "@mui/lab/TimelineConnector";
+import TimelineItem, { timelineItemClasses } from "@mui/lab/TimelineItem";
+import Divider from "@mui/material/Divider";
+import { format } from "date-fns";
 import {
   AreaChart,
   Area,
@@ -41,6 +50,9 @@ import {
   Legend,
   Cell,
   ReferenceLine,
+  ScatterChart,
+  Scatter,
+  ZAxis,
 } from "recharts";
 
 // All suburbs list for regional chart (ensures all regions shown even with 0 consumption)
@@ -110,6 +122,7 @@ export default function Dashboard() {
   const [hourlyTokenCounts, setHourlyTokenCounts] = useState([]);
   const [hourlyEnergyData, setHourlyEnergyData] = useState([]);
   const [totalRemainingUnits, setTotalRemainingUnits] = useState(0);
+  const [hourlyRevenue, setHourlyRevenue] = useState([]);
   const [meterHealthData, setMeterHealthData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
@@ -297,6 +310,13 @@ export default function Dashboard() {
         const fullData = {};
         ALL_SUBURBS.forEach((s) => { fullData[s] = Number(sData[s]) || 0; });
         setSuburbEnergy(fullData);
+      }
+    }).catch(() => {});
+
+    // Hourly revenue for bar chart
+    withTimeout(financeAPI.getHourlyRevenue()).then((val) => {
+      if (val?.revenues && Array.isArray(val.revenues)) {
+        setHourlyRevenue(val.revenues.map(v => Number(v) || 0));
       }
     }).catch(() => {});
 
@@ -849,107 +869,70 @@ export default function Dashboard() {
           })}
         </Box>
 
-        {/* ROW 3: Energy Consumed vs Remaining Units Chart (span 9) + Timeline (span 3) */}
+        {/* ROW 3: Hourly Revenue Analytics (span 9) + Token Transaction Timeline (span 3) */}
         <Box
           gridColumn="span 9"
           gridRow="span 5"
           backgroundColor={colors.primary[400]}
           p="15px"
         >
-          <Box display="flex" justifyContent="space-between" alignItems="center" mb="10px">
-            <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
-              Energy Consumed vs Remaining Units
-            </Typography>
-            <Box display="flex" gap="16px" alignItems="center">
-              <Box display="flex" alignItems="center" gap="4px">
-                <Box sx={{ width: 12, height: 3, bgcolor: "#f2b705", borderRadius: 1 }} />
-                <Typography variant="caption" color={colors.grey[300]}>Consumed</Typography>
-              </Box>
-              <Box display="flex" alignItems="center" gap="4px">
-                <Box sx={{ width: 12, height: 3, bgcolor: colors.greenAccent[500], borderRadius: 1 }} />
-                <Typography variant="caption" color={colors.grey[300]}>Remaining Units</Typography>
-              </Box>
-              <Typography variant="body2" color={colors.greenAccent[400]} fontWeight="600">
-                {fmt(totalRemainingUnits)} kWh total
+          <Typography variant="h5" fontWeight="600" color={colors.grey[100]} mb="10px">
+            Hourly Revenue Analytics
+          </Typography>
+          {/* Stat boxes row */}
+          <Box sx={{ display: "flex", justifyContent: "space-around", bgcolor: colors.primary[500], borderRadius: "8px", p: 1.5, mb: 1.5 }}>
+            <Box sx={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <AttachMoneyIcon sx={{ color: colors.greenAccent[500], fontSize: "1.8rem", mb: 0.5 }} />
+              <Typography variant="h5" fontWeight="bold" color={colors.greenAccent[500]}>
+                N${(hourlyRevenue.reduce((s, v) => s + v, 0)).toFixed(2)}
               </Typography>
+              <Typography variant="caption" color={colors.grey[300]}>Total Revenue</Typography>
+            </Box>
+            <Box sx={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <TrendingUpIcon sx={{ color: colors.greenAccent[500], fontSize: "1.8rem", mb: 0.5 }} />
+              <Typography variant="h5" fontWeight="bold" color={colors.greenAccent[500]}>
+                N${(hourlyRevenue.length > 0 ? Math.max(...hourlyRevenue) : 0).toFixed(2)}
+              </Typography>
+              <Typography variant="caption" color={colors.grey[300]}>Peak Hour Revenue</Typography>
+            </Box>
+            <Box sx={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <BarChartIcon sx={{ color: colors.greenAccent[500], fontSize: "1.8rem", mb: 0.5 }} />
+              <Typography variant="h5" fontWeight="bold" color={colors.greenAccent[500]}>
+                N${(hourlyRevenue.length > 0 ? hourlyRevenue.reduce((s, v) => s + v, 0) / 24 : 0).toFixed(2)}
+              </Typography>
+              <Typography variant="caption" color={colors.grey[300]}>Average/Hour</Typography>
             </Box>
           </Box>
-          <Box height="calc(100% - 45px)">
+          {/* Bar chart */}
+          <Box height="calc(100% - 120px)">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={(() => {
-                  const src = hourlyEnergyData.length > 0 ? hourlyEnergyData : hourlyData;
-                  // Build cumulative energy consumed and declining remaining units
-                  let cumConsumed = 0;
-                  return src.map((item) => {
-                    cumConsumed += (item.kWh || 0);
-                    return {
-                      ...item,
-                      consumed: parseFloat(cumConsumed.toFixed(3)),
-                      remaining: parseFloat(Math.max(0, totalRemainingUnits - cumConsumed).toFixed(2)),
-                    };
-                  });
-                })()}
-                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+              <BarChart
+                data={Array.from({ length: 24 }, (_, i) => ({
+                  hour: `${i < 10 ? "0" + i : i}:00`,
+                  revenue: hourlyRevenue[i] || 0,
+                }))}
+                margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
               >
                 <defs>
-                  <linearGradient id="gradConsumed" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f2b705" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#f2b705" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradRemaining" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={colors.greenAccent[500]} stopOpacity={0.25} />
-                    <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
+                  <linearGradient id="gradRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={colors.greenAccent[500]} stopOpacity={0.85} />
+                    <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0.55} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.5} />
-                <XAxis dataKey="hour" stroke={colors.grey[300]} tick={{ fontSize: 11 }} interval={2} />
-                <YAxis
-                  yAxisId="left"
-                  stroke={colors.grey[300]}
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${v} kWh`}
-                  label={{ value: "Consumed", angle: -90, position: "insideLeft", style: { fill: "#f2b705", fontSize: 10 } }}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  stroke={colors.grey[300]}
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${v}`}
-                  label={{ value: "Remaining", angle: 90, position: "insideRight", style: { fill: colors.greenAccent[400], fontSize: 10 } }}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.4} vertical={false} />
+                <XAxis dataKey="hour" stroke={colors.grey[300]} tick={{ fontSize: 10 }} interval={2} />
+                <YAxis stroke={colors.grey[300]} tick={{ fontSize: 10 }} tickFormatter={(v) => `N$${v}`} />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: colors.primary[400],
                     border: `1px solid ${colors.grey[700]}`,
                     borderRadius: 8,
                     color: colors.grey[100],
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                   }}
-                  formatter={(value, name) => [`${Number(value).toFixed(2)} kWh`, name]}
+                  formatter={(value) => [`N$${Number(value).toFixed(2)}`, "Revenue"]}
                 />
-                <Area
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="consumed"
-                  stroke="#f2b705"
-                  strokeWidth={2}
-                  fill="url(#gradConsumed)"
-                  name="Energy Consumed"
-                  dot={{ r: 2, fill: "#f2b705" }}
-                />
-                <Area
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="remaining"
-                  stroke={colors.greenAccent[500]}
-                  strokeWidth={2}
-                  fill="url(#gradRemaining)"
-                  name="Remaining Units"
-                  dot={{ r: 2, fill: colors.greenAccent[500] }}
-                />
-              </AreaChart>
+                <Bar dataKey="revenue" fill="url(#gradRevenue)" radius={[4, 4, 0, 0]} maxBarSize={30} />
+              </BarChart>
             </ResponsiveContainer>
           </Box>
         </Box>
@@ -958,58 +941,55 @@ export default function Dashboard() {
           gridColumn="span 3"
           gridRow="span 5"
           backgroundColor={colors.primary[400]}
-          p="15px"
-          overflow="auto"
+          display="flex"
+          flexDirection="column"
+          overflow="hidden"
         >
-          <Typography
-            variant="h5"
-            fontWeight="600"
-            color={colors.grey[100]}
-            mb="15px"
-          >
-            Token Timeline
+          <Typography variant="h5" fontWeight="600" color={colors.grey[100]} p="15px" pb="5px">
+            Token Transaction Timeline
           </Typography>
-          {recentTxns.filter((t) => t.status === "Accepted").slice(0, 10).map((txn, i) => (
-            <Box
-              key={txn.id}
-              display="flex"
-              justifyContent="space-between"
-              alignItems="center"
-              py="10px"
-              borderBottom={
-                i < 9 ? `1px solid ${colors.grey[700]}` : "none"
-              }
-              sx={{ cursor: "pointer", "&:hover": { bgcolor: "rgba(0,180,216,0.05)" } }}
-              onClick={() => navigate(`/meter/${txn.meterNo}`)}
-            >
-              <Box>
-                <Typography
-                  variant="h6"
-                  fontWeight="600"
-                  color={colors.greenAccent[400]}
-                  sx={{ "&:hover": { textDecoration: "underline" } }}
-                >
-                  {txn.customer}
-                </Typography>
-                <Typography variant="caption" color={colors.greenAccent[400]}>
-                  {formatTime(txn.time)} — {txn.meterNo}
-                </Typography>
-              </Box>
-              <Typography
-                variant="h6"
-                fontWeight="bold"
-                color={
-                  txn.status === "Accepted"
-                    ? colors.greenAccent[500]
-                    : txn.status === "Rejected"
-                    ? colors.redAccent?.[500] || "#db4f4a"
-                    : colors.yellowAccent?.[500] || colors.grey[100]
-                }
-              >
-                {txn.amount > 0 ? `${fmt(txn.amount)} kWh` : "0 kWh"}
-              </Typography>
-            </Box>
-          ))}
+          <Divider sx={{ borderColor: colors.grey[700] }} />
+          <Box sx={{ overflowY: "auto", flex: 1, px: "5px" }}>
+            <Timeline sx={{ m: 0, pl: 3, [`& .${timelineItemClasses.root}:before`]: { flex: 0, padding: 0 } }}>
+              {recentTxns.length > 0 ? recentTxns.slice(0, 15).map((txn, idx) => {
+                const isAccepted = txn.status === "Accepted";
+                const isRejected = txn.status === "Rejected";
+                const dotColor = isAccepted ? "success" : isRejected ? "error" : "info";
+                return (
+                  <TimelineItem key={txn.id}>
+                    <TimelineSeparator>
+                      <TimelineDot color={dotColor} />
+                      {idx < Math.min(recentTxns.length, 15) - 1 && <TimelineConnector />}
+                    </TimelineSeparator>
+                    <TimelineContent>
+                      <Typography variant="subtitle2" color={colors.greenAccent[500]}>
+                        N${Number(txn.amount || 0).toFixed(2)}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: colors.greenAccent[400] }}>
+                        DRN:{" "}
+                        <Link to={`/meter/${txn.meterNo}`} style={{ textDecoration: "none", color: colors.greenAccent[400] }}>
+                          {txn.meterNo}
+                        </Link>
+                      </Typography>
+                      <Typography variant="caption" display="block" color={colors.grey[400]} sx={{ fontSize: "10px" }}>
+                        {txn.token}
+                      </Typography>
+                      <Typography variant="caption" display="block" color={colors.grey[300]} sx={{ fontSize: "10px" }}>
+                        {txn.time ? format(new Date(txn.time), "dd MMM yyyy p") : ""}
+                      </Typography>
+                    </TimelineContent>
+                  </TimelineItem>
+                );
+              }) : (
+                <TimelineItem>
+                  <TimelineSeparator><TimelineDot color="info" /></TimelineSeparator>
+                  <TimelineContent>
+                    <Typography variant="subtitle2" color={colors.grey[300]}>No token transactions yet</Typography>
+                  </TimelineContent>
+                </TimelineItem>
+              )}
+            </Timeline>
+          </Box>
         </Box>
 
         {/* ROW 4: Energy Overview Stat Boxes */}
@@ -1174,7 +1154,7 @@ export default function Dashboard() {
           </TableContainer>
         </Box>
 
-        {/* ROW 6: Meter Status Scatter (ECharts) */}
+        {/* ROW 6: Meter Status Scatter (Recharts) — click navigates to meter profile */}
         {meterHealthData.length > 0 && (
           <Box
             gridColumn="span 12"
@@ -1182,121 +1162,84 @@ export default function Dashboard() {
             backgroundColor={colors.primary[400]}
             p="15px"
           >
-            <Typography
-              variant="h5"
-              fontWeight="600"
-              color={colors.grey[100]}
-              mb="10px"
-            >
-              Meter Status Overview
-            </Typography>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb="10px">
+              <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+                Meter Status Overview
+              </Typography>
+              <Box display="flex" gap={2}>
+                {[
+                  { label: "Healthy", color: "#4cceac" },
+                  { label: "Warning", color: "#f2b705" },
+                  { label: "Suspicious", color: "#db4f4a" },
+                ].map((l) => (
+                  <Box key={l.label} display="flex" alignItems="center" gap="4px">
+                    <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: l.color }} />
+                    <Typography variant="caption" color={colors.grey[300]}>{l.label}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
             <Box height="calc(100% - 40px)">
-              <ReactECharts
-                option={{
-                  backgroundColor: "transparent",
-                  tooltip: {
-                    trigger: "item",
-                    formatter: (p) => {
-                      const d = p.data;
-                      return `<strong>${d[4] || d[3]}</strong><br/>` +
-                        `Health: <strong>${d[1]}</strong>/100<br/>` +
-                        `Power: ${d[0].toFixed(1)} W<br/>` +
-                        `Voltage: ${(d[5] || 0).toFixed(1)} V<br/>` +
-                        `Temp: ${(d[6] || 0).toFixed(1)} °C<br/>` +
-                        `Status: <strong>${d[7] || "unknown"}</strong><br/>` +
-                        `Readings (24h): ${d[8] || 0}` +
-                        (d[9] && d[9].length ? `<br/>Flags: ${d[9].join(", ")}` : "");
-                    },
-                  },
-                  legend: {
-                    data: ["Healthy", "Warning", "Suspicious"],
-                    textStyle: { color: colors.grey[300] },
-                    top: 0,
-                    right: 0,
-                  },
-                  grid: { left: "8%", right: "5%", top: "12%", bottom: "12%" },
-                  xAxis: {
-                    name: "Avg Power (W)",
-                    nameTextStyle: { color: colors.grey[300], fontSize: 11 },
-                    axisLabel: { color: colors.grey[300], fontSize: 10 },
-                    axisLine: { lineStyle: { color: colors.grey[700] } },
-                    splitLine: { lineStyle: { color: colors.grey[700], type: "dashed" } },
-                  },
-                  yAxis: {
-                    name: "Health Score",
-                    nameTextStyle: { color: colors.grey[300], fontSize: 11 },
-                    axisLabel: { color: colors.grey[300], fontSize: 10 },
-                    axisLine: { lineStyle: { color: colors.grey[700] } },
-                    splitLine: { lineStyle: { color: colors.grey[700], type: "dashed" } },
-                    min: 0,
-                    max: 100,
-                  },
-                  visualMap: {
-                    show: false,
-                    dimension: 1,
-                    min: 0,
-                    max: 100,
-                    inRange: {
-                      color: ["#db4f4a", "#f2b705", "#4cceac"],
-                    },
-                  },
-                  series: [
-                    {
-                      name: "Healthy",
-                      type: "scatter",
-                      symbolSize: (d) => Math.max(10, Math.min(30, d[2] / 2)),
-                      data: meterHealthData
-                        .filter((m) => m.status === "healthy")
-                        .map((m) => [
-                          m.avgPower, m.healthScore, m.readings24h, m.drn,
-                          m.name, m.avgVoltage, m.temperature, m.status, m.readings24h, m.flags,
-                        ]),
-                      itemStyle: { color: "#4cceac", shadowBlur: 8, shadowColor: "rgba(76,206,172,0.4)" },
-                    },
-                    {
-                      name: "Warning",
-                      type: "scatter",
-                      symbolSize: (d) => Math.max(12, Math.min(30, d[2] / 2)),
-                      data: meterHealthData
-                        .filter((m) => m.status === "warning")
-                        .map((m) => [
-                          m.avgPower, m.healthScore, m.readings24h, m.drn,
-                          m.name, m.avgVoltage, m.temperature, m.status, m.readings24h, m.flags,
-                        ]),
-                      itemStyle: { color: "#f2b705", shadowBlur: 10, shadowColor: "rgba(242,183,5,0.5)" },
-                    },
-                    {
-                      name: "Suspicious",
-                      type: "scatter",
-                      symbol: "diamond",
-                      symbolSize: (d) => Math.max(14, Math.min(35, d[2] / 2)),
-                      data: meterHealthData
-                        .filter((m) => m.status === "suspicious")
-                        .map((m) => [
-                          m.avgPower, m.healthScore, m.readings24h, m.drn,
-                          m.name, m.avgVoltage, m.temperature, m.status, m.readings24h, m.flags,
-                        ]),
-                      itemStyle: { color: "#db4f4a", shadowBlur: 12, shadowColor: "rgba(219,79,74,0.6)" },
-                    },
-                    {
-                      name: "Threshold",
-                      type: "line",
-                      markLine: {
-                        silent: true,
-                        lineStyle: { color: "#f2b705", type: "dashed", width: 1 },
-                        data: [{ yAxis: 75, label: { formatter: "Warning", color: "#f2b705", fontSize: 10 } },
-                               { yAxis: 50, label: { formatter: "Suspicious", color: "#db4f4a", fontSize: 10 } }],
-                      },
-                      data: [],
-                    },
-                  ],
-                  animation: true,
-                  animationDuration: 1500,
-                  animationEasing: "elasticOut",
-                }}
-                style={{ height: "100%", width: "100%" }}
-                notMerge
-              />
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.4} />
+                  <XAxis type="number" dataKey="avgPower" name="Avg Power (W)" stroke={colors.grey[300]} tick={{ fontSize: 10 }}
+                    label={{ value: "Avg Power (W)", position: "insideBottom", offset: -10, style: { fill: colors.grey[300], fontSize: 11 } }} />
+                  <YAxis type="number" dataKey="healthScore" name="Health Score" domain={[0, 100]} stroke={colors.grey[300]} tick={{ fontSize: 10 }}
+                    label={{ value: "Health Score", angle: -90, position: "insideLeft", style: { fill: colors.grey[300], fontSize: 11 } }} />
+                  <ZAxis type="number" dataKey="readings24h" range={[40, 400]} />
+                  <Tooltip
+                    cursor={{ strokeDasharray: "3 3" }}
+                    contentStyle={{
+                      backgroundColor: colors.primary[400],
+                      border: `1px solid ${colors.grey[700]}`,
+                      borderRadius: 8,
+                      color: colors.grey[100],
+                    }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0].payload;
+                      return (
+                        <Box sx={{ bgcolor: colors.primary[400], border: `1px solid ${colors.grey[700]}`, borderRadius: 2, p: 1.5, minWidth: 180 }}>
+                          <Typography variant="subtitle2" fontWeight="bold" color={colors.grey[100]}>{d.name || d.drn}</Typography>
+                          <Typography variant="caption" display="block" color={colors.grey[300]}>Health: {d.healthScore}/100</Typography>
+                          <Typography variant="caption" display="block" color={colors.grey[300]}>Power: {d.avgPower?.toFixed(1)} W</Typography>
+                          <Typography variant="caption" display="block" color={colors.grey[300]}>Voltage: {(d.avgVoltage || 0).toFixed(1)} V</Typography>
+                          <Typography variant="caption" display="block" color={colors.grey[300]}>Temp: {(d.temperature || 0).toFixed(1)} °C</Typography>
+                          <Typography variant="caption" display="block" color={colors.grey[300]}>Readings (24h): {d.readings24h || 0}</Typography>
+                          {d.flags?.length > 0 && <Typography variant="caption" display="block" color="#f2b705">Flags: {d.flags.join(", ")}</Typography>}
+                          <Typography variant="caption" display="block" color={colors.greenAccent[400]} sx={{ mt: 0.5 }}>Click to view meter profile</Typography>
+                        </Box>
+                      );
+                    }}
+                  />
+                  <ReferenceLine y={75} stroke="#f2b705" strokeDasharray="5 5" label={{ value: "Warning", fill: "#f2b705", fontSize: 10, position: "right" }} />
+                  <ReferenceLine y={50} stroke="#db4f4a" strokeDasharray="5 5" label={{ value: "Suspicious", fill: "#db4f4a", fontSize: 10, position: "right" }} />
+                  <Scatter
+                    name="Healthy"
+                    data={meterHealthData.filter((m) => m.status === "healthy")}
+                    fill="#4cceac"
+                    onClick={(data) => data?.drn && navigate(`/meter/${data.drn}`)}
+                    cursor="pointer"
+                  />
+                  <Scatter
+                    name="Warning"
+                    data={meterHealthData.filter((m) => m.status === "warning")}
+                    fill="#f2b705"
+                    shape="triangle"
+                    onClick={(data) => data?.drn && navigate(`/meter/${data.drn}`)}
+                    cursor="pointer"
+                  />
+                  <Scatter
+                    name="Suspicious"
+                    data={meterHealthData.filter((m) => m.status === "suspicious")}
+                    fill="#db4f4a"
+                    shape="diamond"
+                    onClick={(data) => data?.drn && navigate(`/meter/${data.drn}`)}
+                    cursor="pointer"
+                  />
+                </ScatterChart>
+              </ResponsiveContainer>
             </Box>
           </Box>
         )}

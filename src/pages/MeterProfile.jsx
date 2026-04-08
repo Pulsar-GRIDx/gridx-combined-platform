@@ -2836,43 +2836,64 @@ export default function MeterProfile() {
         <Box display="flex" justifyContent="flex-end" mb={0.5}>
           <DataBadge />
         </Box>
-        <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="5px">
-          <Box gridColumn="span 12" gridRow="span 4" backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" overflow="auto">
-            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={2}>Token Purchase History</Typography>
+        <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gap="5px">
+          <Box gridColumn="span 12" backgroundColor={colors.primary[400]} borderRadius="4px" overflow="hidden" sx={{ display: "flex", flexDirection: "column", maxHeight: "600px" }}>
+            <Box sx={{ px: 2.5, pt: 2, pb: 1 }}>
+              <Typography variant="h6" color={colors.grey[100]} fontWeight="bold">Processed Tokens</Typography>
+            </Box>
+            <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
             {tokenHistory.length > 0 ? (
-              <TableContainer><Table size="small">
-                <TableHead><TableRow>
-                  {["#", "Token ID", "Date/Time", "Amount (kWh)", "Channel", "Status", "Result"].map((col) => (
-                    <TableCell key={col} sx={{ color: colors.greenAccent[500], fontWeight: 600, fontSize: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.1)", whiteSpace: "nowrap" }}>{col}</TableCell>
-                  ))}
-                </TableRow></TableHead>
-                <TableBody>
+              <>
+                <Box sx={{ flex: 1, overflowY: "auto", px: 0.5 }}>
                   {tokenHistory.map((t, idx) => {
-                    const channels = ["Console", "Touch Screen", "SMS", "BLE", "Server"];
-                    const channel = channels[parseInt(t.submission_Method)] || t.submission_Method || "-";
-                    const msg = (t.display_msg || "").toLowerCase();
-                    const isAccepted = msg.includes("accept");
-                    const isRejected = msg.includes("reject") || msg.includes("not authentic") || msg.includes("error") || msg.includes("used") || msg.includes("invalid");
-                    const statusLabel = isAccepted ? "Accepted" : isRejected ? "Rejected" : (t.display_msg || "Unknown");
-                    const sc = isAccepted ? { bg: "rgba(76,206,172,0.15)", text: colors.greenAccent[500] } : isRejected ? { bg: "rgba(219,79,74,0.15)", text: "#db4f4a" } : { bg: "rgba(242,183,5,0.15)", text: "#f2b705" };
-                    const authResult = parseInt(t.display_auth_result);
-                    const resultLabel = authResult === 1 ? "Valid" : authResult === 0 ? "Not Authentic" : (t.display_msg || "-");
+                    const amt = parseFloat(t.token_amount || 0);
+                    const kwh = parseFloat(t.kwk || t.token_amount || 0);
+                    const avatarColor = amt >= 150 ? colors.greenAccent[600] : amt >= 50 ? colors.blueAccent?.[500] || "#6870fa" : colors.redAccent?.[400] || "#db4f4a";
                     return (
-                      <TableRow key={t.id || idx} sx={{ "&:hover": { bgcolor: "rgba(0,180,216,0.05)" } }}>
-                        <TableCell sx={{ color: colors.grey[400], fontSize: "0.72rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{idx + 1}</TableCell>
-                        <TableCell sx={{ color: colors.grey[100], fontFamily: "monospace", fontSize: "0.72rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{t.token_id}</TableCell>
-                        <TableCell sx={{ color: colors.grey[100], fontSize: "0.78rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{t.date_time ? new Date(t.date_time).toLocaleString() : "-"}</TableCell>
-                        <TableCell sx={{ color: colors.greenAccent[500], fontSize: "0.78rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{parseFloat(t.token_amount || 0).toFixed(1)}</TableCell>
-                        <TableCell sx={{ color: colors.grey[100], fontSize: "0.78rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{channel}</TableCell>
-                        <TableCell sx={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                          <Chip label={statusLabel} size="small" sx={{ bgcolor: sc.bg, color: sc.text, fontWeight: 600, fontSize: "0.68rem", height: 22 }} />
-                        </TableCell>
-                        <TableCell sx={{ color: colors.grey[100], fontSize: "0.78rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{resultLabel}</TableCell>
-                      </TableRow>
+                      <Box
+                        key={t.id || idx}
+                        sx={{
+                          display: "flex", alignItems: "center", py: 1.5, px: 2,
+                          borderBottom: idx < tokenHistory.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                          "&:hover": { bgcolor: "rgba(0,180,216,0.05)" },
+                        }}
+                      >
+                        <Box sx={{
+                          width: 40, height: 40, borderRadius: "50%", bgcolor: colors.grey[800],
+                          display: "flex", alignItems: "center", justifyContent: "center", mr: 2, flexShrink: 0,
+                        }}>
+                          <ConfirmationNumberOutlined sx={{ color: avatarColor, fontSize: 20 }} />
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography variant="subtitle2" color={colors.grey[100]} noWrap>
+                            Token: {t.token_id}
+                          </Typography>
+                          <Typography variant="caption" color={colors.grey[400]}>
+                            {t.date_time ? new Date(t.date_time).toLocaleString("en-ZA", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-"}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ textAlign: "right", flexShrink: 0, ml: 1 }}>
+                          <Typography variant="subtitle2" color={colors.grey[100]} noWrap>
+                            {kwh.toFixed(1)} kWh
+                          </Typography>
+                          <Typography variant="body2" color={colors.greenAccent[500]} fontWeight="bold">
+                            N$ {amt.toFixed(2)}
+                          </Typography>
+                        </Box>
+                      </Box>
                     );
                   })}
-                </TableBody>
-              </Table></TableContainer>
+                </Box>
+                <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
+                <Box sx={{ display: "flex", justifyContent: "space-between", px: 2.5, py: 1.5 }}>
+                  <Typography variant="subtitle2" color={colors.grey[100]}>
+                    Total Amount: N$ {tokenHistory.reduce((s, t) => s + parseFloat(t.token_amount || 0), 0).toFixed(2)}
+                  </Typography>
+                  <Typography variant="subtitle2" color={colors.grey[100]}>
+                    Total Power: {tokenHistory.reduce((s, t) => s + parseFloat(t.kwk || t.token_amount || 0), 0).toFixed(1)} kWh
+                  </Typography>
+                </Box>
+              </>
             ) : (
               <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 4 }}>No token history found for this meter.</Typography>
             )}
@@ -4515,15 +4536,12 @@ export default function MeterProfile() {
         const REASON_LABELS = ["Unknown","Manual Control","Credit Expired","Power Limit","Scheduled","Remote Command","System Startup","Tamper Detected","Overcurrent"];
         const fmtTime = (ts) => ts ? new Date(ts).toLocaleString("en-ZA", { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "-";
 
-        // Pie chart data from summary (supports both old and new API formats)
+        // Pie chart data from summary (supports multiple API response formats)
         const pieData = relaySummary?.byReason ? relaySummary.byReason :
-          relaySummary?.summary ? Object.entries(
-            relaySummary.summary.reduce((acc, s) => {
-              const label = s.reason_name || REASON_LABELS[s.reason_code] || "Unknown";
-              acc[label] = (acc[label] || 0) + (s.event_count || s.count || 0);
-              return acc;
-            }, {})
-          ).map(([name, value]) => ({ name, value })) : [];
+          (relaySummary?.reasons || relaySummary?.summary) ? (relaySummary.reasons || relaySummary.summary).map(s => ({
+            name: s.reason_text || s.reason_name || REASON_LABELS[s.reason_code] || "Unknown",
+            value: s.count || s.event_count || 0,
+          })) : [];
 
         return (
           <Box>
@@ -4572,10 +4590,13 @@ export default function MeterProfile() {
                   <Box sx={{ backgroundColor: colors.primary[500], borderRadius: 2, p: 2, border: `1px solid ${colors.primary[600]}` }}>
                     <Typography variant="subtitle2" color={colors.grey[300]} mb={1}>Event Breakdown</Typography>
                     <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={relaySummary?.byRelay ? relaySummary.byRelay.map(r => ({ name: r.name, count: (r.state || 0) + (r.control || 0) })) : [
-                        { name: "Mains", count: relaySummary?.summary?.filter(s => s.relay_index === 0).reduce((sum, s) => sum + (s.event_count || s.count || 0), 0) || 0 },
-                        { name: "Geyser", count: relaySummary?.summary?.filter(s => s.relay_index === 1).reduce((sum, s) => sum + (s.event_count || s.count || 0), 0) || 0 },
-                      ]}>
+                      <BarChart data={relaySummary?.byRelay ? relaySummary.byRelay.map(r => ({ name: r.name, count: (r.state || 0) + (r.control || 0) })) : (() => {
+                        const bd = relaySummary?.breakdown || relaySummary?.summary || [];
+                        return [
+                          { name: "Mains", count: bd.filter(s => s.relay_index === 0).reduce((sum, s) => sum + (s.count || s.event_count || 0), 0) },
+                          { name: "Geyser", count: bd.filter(s => s.relay_index === 1).reduce((sum, s) => sum + (s.count || s.event_count || 0), 0) },
+                        ];
+                      })()}>
                         <CartesianGrid strokeDasharray="3 3" stroke={colors.primary[600]} />
                         <XAxis dataKey="name" tick={{ fill: colors.grey[400] }} />
                         <YAxis tick={{ fill: colors.grey[400] }} />
