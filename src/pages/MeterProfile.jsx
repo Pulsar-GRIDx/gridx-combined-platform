@@ -106,7 +106,7 @@ import Header from "../components/Header";
 import DataBadge from "../components/DataBadge";
 import { tokens } from "../theme";
 import { useAuth } from "../context/AuthContext";
-import { meterAPI, loadControlAPI, commissionReportAPI, homeClassificationAPI, meterHealthAPI, relayEventsAPI, energyAPI, meterConfigAPI } from "../services/api";
+import { meterAPI, loadControlAPI, commissionReportAPI, homeClassificationAPI, meterHealthAPI, relayEventsAPI, energyAPI, meterConfigAPI, mqttActivityAPI } from "../services/api";
 import {
   meters as mockMeters,
   transactions,
@@ -331,6 +331,7 @@ export default function MeterProfile() {
   const [relayFilter, setRelayFilter] = useState("");
   const [relayTypeFilter, setRelayTypeFilter] = useState("");
   const [tokenHistory, setTokenHistory] = useState([]);
+  const [mqttLog, setMqttLog] = useState({ power: [], energy: [], relays: [] });
 
   /* ---------- Load Control UI state ---------- */
   const [mainsReason, setMainsReason] = useState("Irregular performance");
@@ -412,6 +413,14 @@ export default function MeterProfile() {
     fetchData();
   }, [drn]);
 
+  /* ---------- Fetch MQTT activity log for Overview tab ---------- */
+  useEffect(() => {
+    if (!drn) return;
+    mqttActivityAPI.getLog(drn, 15).then(res => {
+      if (res?.success) setMqttLog({ power: res.power || [], energy: res.energy || [], relays: res.relays || [] });
+    }).catch(() => {});
+  }, [drn]);
+
   /* ---------- Fetch health data when Health tab is selected ---------- */
   useEffect(() => {
     if (tab !== 8) return;
@@ -442,9 +451,9 @@ export default function MeterProfile() {
         ]);
         if (eventsRes.status === "fulfilled") {
           setRelayEvents(eventsRes.value?.data || []);
-          setRelayTotal(eventsRes.value?.pagination?.total || 0);
+          setRelayTotal(eventsRes.value?.total || eventsRes.value?.pagination?.total || 0);
         }
-        if (summaryRes.status === "fulfilled") setRelaySummary(summaryRes.value?.data || null);
+        if (summaryRes.status === "fulfilled") setRelaySummary(summaryRes.value || summaryRes.value?.data || null);
       } catch (e) { /* ignore */ }
       setRelayLoading(false);
     };
@@ -453,7 +462,7 @@ export default function MeterProfile() {
 
   /* ---------- Fetch hourly energy data when Energy Charts tab is selected ---------- */
   useEffect(() => {
-    if (tab !== 5) return;
+    if (tab !== 4) return;
     const fetchHourly = async () => {
       try {
         const res = await energyAPI.getHourlyByDrn(drn);
@@ -1330,6 +1339,57 @@ export default function MeterProfile() {
               <InfoRow label="Street" value={profile?.StreetName || "-"} />
               <InfoRow label="DRN" value={drn} mono />
             </Box>
+          </Box>
+
+          {/* ---- MQTT Activity Log ---- */}
+          <Box mt="5px" backgroundColor={colors.primary[400]} p="15px" borderRadius="4px">
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1.5}>
+              MQTT Activity Log
+            </Typography>
+            {(mqttLog.power.length === 0 && mqttLog.energy.length === 0 && mqttLog.relays.length === 0) ? (
+              <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 3 }}>
+                No MQTT data received for this meter yet.
+              </Typography>
+            ) : (
+              <Box sx={{ maxHeight: 280, overflow: "auto", "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: colors.grey[700], borderRadius: 2 } }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      {["Time", "Type", "Details"].map(h => (
+                        <TableCell key={h} sx={{ color: colors.greenAccent[500], fontWeight: 600, fontSize: "0.72rem", borderBottom: `1px solid ${colors.grey[700]}`, whiteSpace: "nowrap" }}>{h}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {[
+                      ...mqttLog.power.map(p => ({ time: p.date_time, type: "Power", detail: `${parseFloat(p.voltage || 0).toFixed(1)}V / ${parseFloat(p.current || 0).toFixed(2)}A / ${parseFloat(p.active_power || 0).toFixed(0)}W / PF ${parseFloat(p.power_factor || 0).toFixed(2)}`, sort: new Date(p.date_time).getTime() })),
+                      ...mqttLog.energy.map(e => ({ time: e.date_time, type: "Energy", detail: `Active: ${(parseFloat(e.active_energy || 0) / 1000).toFixed(2)} kWh / Remaining: ${parseFloat(e.units || 0).toFixed(1)} kWh${parseInt(e.tamper_state) ? " / TAMPER" : ""}`, sort: new Date(e.date_time).getTime() })),
+                      ...mqttLog.relays.map(r => ({ time: r.created_at, type: "Relay", detail: `${r.relay_index === 0 ? "Mains" : "Geyser"} → ${parseInt(r.state) ? "ON" : "OFF"} (${r.reason_text || "unknown"})`, sort: new Date(r.created_at).getTime() })),
+                    ]
+                      .sort((a, b) => b.sort - a.sort)
+                      .slice(0, 20)
+                      .map((row, i) => {
+                        const typeColor = row.type === "Power" ? "#4cceac" : row.type === "Energy" ? "#00b4d8" : "#f2b705";
+                        return (
+                          <TableRow key={i} sx={{ "&:hover": { bgcolor: "rgba(0,180,216,0.05)" } }}>
+                            <TableCell sx={{ color: colors.grey[300], fontSize: "0.72rem", borderBottom: `1px solid ${colors.grey[800]}`, whiteSpace: "nowrap" }}>
+                              {row.time ? new Date(row.time).toLocaleString() : "-"}
+                            </TableCell>
+                            <TableCell sx={{ borderBottom: `1px solid ${colors.grey[800]}` }}>
+                              <Box sx={{ bgcolor: `${typeColor}20`, color: typeColor, px: 1, py: 0.2, borderRadius: "4px", display: "inline-block", fontSize: "0.68rem", fontWeight: 700 }}>
+                                {row.type}
+                              </Box>
+                            </TableCell>
+                            <TableCell sx={{ color: colors.grey[100], fontSize: "0.72rem", borderBottom: `1px solid ${colors.grey[800]}` }}>
+                              {row.detail}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
           </Box>
         </Box>
       )}

@@ -227,12 +227,17 @@ exports.getYearlyRevenueBySuburb = function(suburbs, callback) {
 //Past week tokens
 exports.getPastWeekTokens = function(callback) {
   const query = `
-    SELECT *
+    SELECT
+      DATE(date_time) as date,
+      COUNT(*) as token_count,
+      ROUND(COALESCE(SUM(token_amount), 0), 2) as total_amount,
+      ROUND(COALESCE(SUM(CASE WHEN display_msg = 'Accept' THEN token_amount ELSE 0 END), 0), 2) as accepted_amount,
+      SUM(CASE WHEN display_msg = 'Accept' THEN 1 ELSE 0 END) as accepted_count
     FROM STSTokesInfo
     WHERE date_time >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
       AND date_time <= NOW()
-      AND display_msg = 'Accept'
-    ORDER BY date_time DESC
+    GROUP BY DATE(date_time)
+    ORDER BY date ASC
   `;
 
   db.query(query, (err, results) => {
@@ -241,7 +246,23 @@ exports.getPastWeekTokens = function(callback) {
       return callback({ error: 'Database query failed', details: err });
     }
 
-    callback(null, results);
+    // Fill all 7 days (including days with no data)
+    const resultMap = {};
+    results.forEach(r => { resultMap[r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10)] = r; });
+
+    const fullWeek = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      if (resultMap[key]) {
+        fullWeek.push(resultMap[key]);
+      } else {
+        fullWeek.push({ date: key, token_count: 0, total_amount: 0, accepted_amount: 0, accepted_count: 0 });
+      }
+    }
+
+    callback(null, fullWeek);
   });
 }
 

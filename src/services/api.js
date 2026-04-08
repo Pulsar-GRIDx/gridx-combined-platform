@@ -290,21 +290,27 @@ export const homeClassificationAPI = {
   getById: (id) => get(`/settings/homeClassification/${id}`),
 };
 
-// ===== METER HEALTH (STS Backend) =====
+// ===== METER HEALTH (computed from MQTT power/energy data) =====
 export const meterHealthAPI = {
-  getLatest: (drn) => request(`/api/v1/meter-health/${drn}`),
-  getHistory: (drn, limit = 72) => request(`/api/v1/meter-health/${drn}/history?limit=${limit}`),
+  getLatest: (drn) => get(`/mqtt/meter-health/${drn}`),
+  getHistory: (drn, limit = 72) => get(`/mqtt/meter-health/${drn}/history?limit=${limit}`),
+  getAllSummary: () => get('/mqtt/meters-health-summary'),
 };
 
-// ===== RELAY EVENTS (STS Backend) =====
+// ===== RELAY EVENTS (from MQTT relay_log) =====
 export const relayEventsAPI = {
   getEvents: (drn, { limit = 100, offset = 0, relay, type } = {}) => {
-    let url = `/api/v1/relay-events/${drn}?limit=${limit}&offset=${offset}`;
+    let url = `/mqtt/relay-events/${drn}?limit=${limit}&offset=${offset}`;
     if (relay !== undefined && relay !== '') url += `&relay=${relay}`;
     if (type !== undefined && type !== '') url += `&type=${type}`;
-    return request(url);
+    return get(url);
   },
-  getSummary: (drn, hours = 168) => request(`/api/v1/relay-events/${drn}/summary?hours=${hours}`),
+  getSummary: (drn, hours = 168) => get(`/mqtt/relay-events/${drn}/summary?hours=${hours}`),
+};
+
+// ===== MQTT ACTIVITY LOG =====
+export const mqttActivityAPI = {
+  getLog: (drn, limit = 20) => get(`/mqtt/activity-log/${drn}?limit=${limit}`),
 };
 
 // ===== METER REGISTRATION =====
