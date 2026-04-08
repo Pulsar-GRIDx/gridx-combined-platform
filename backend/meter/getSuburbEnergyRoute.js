@@ -312,7 +312,7 @@ router.get('/getHourlyDataByDrn', authenticateToken, async (req, res) => {
         hour: row.hour,
         initial_power: row.initial_power,
         final_power: row.final_power,
-        power_consumption: parseFloat(row.power_consumption.toFixed(2))
+        power_consumption: parseFloat(Number(row.power_consumption || 0).toFixed(2))
       });
       return acc;
     }, {});
@@ -357,9 +357,9 @@ router.get('/getHourlyDataByDrn/:drn', authenticateToken, async (req, res) => {
       const row = result.find(r => r.hour === h);
       hourlyData.push({
         hour: `${String(h).padStart(2, '0')}:00`,
-        kWh: row ? parseFloat((row.avg_power / 1000).toFixed(2)) : 0,
-        avgPower: row ? parseFloat(row.avg_power.toFixed(1)) : 0,
-        maxPower: row ? parseFloat(row.max_power.toFixed(1)) : 0,
+        kWh: row ? parseFloat((Number(row.avg_power || 0) / 1000).toFixed(2)) : 0,
+        avgPower: row ? parseFloat(Number(row.avg_power || 0).toFixed(1)) : 0,
+        maxPower: row ? parseFloat(Number(row.max_power || 0).toFixed(1)) : 0,
       });
     }
 
