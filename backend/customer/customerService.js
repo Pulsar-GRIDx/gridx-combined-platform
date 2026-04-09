@@ -114,15 +114,15 @@ exports.signup = async function(Email, Password, FirstName, LastName, DRN, Phone
     throw dupErr;
   }
 
-  // Check if DRN already registered
-  var drnExists = await new Promise(function(resolve, reject) {
-    connection.query('SELECT UserID FROM SystemUsers WHERE DRN = ?', [DRN], function(err, results) {
+  // Check if DRN has reached max users (5 per meter)
+  var drnUserCount = await new Promise(function(resolve, reject) {
+    connection.query('SELECT COUNT(*) as cnt FROM SystemUsers WHERE DRN = ?', [DRN], function(err, results) {
       if (err) return reject(err);
-      resolve(results && results.length > 0);
+      resolve(results[0].cnt);
     });
   });
-  if (drnExists) {
-    var drnErr = new Error('This meter number is already registered to another account.');
+  if (drnUserCount >= 5) {
+    var drnErr = new Error('This meter has reached the maximum of 5 registered users. Please contact your administrator.');
     drnErr.status = 409;
     throw drnErr;
   }
