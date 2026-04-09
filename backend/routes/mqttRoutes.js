@@ -238,7 +238,7 @@ router.get('/mqtt/relay-logs/:drn', authenticateToken, async (req, res) => {
   try {
     const drn = req.params.drn;
     const rows = await queryAll(
-      'SELECT * FROM MeterRelayEvents WHERE DRN = ? ORDER BY created_at DESC LIMIT 50',
+      'SELECT * FROM meter_relay_events WHERE drn = ? ORDER BY created_at DESC LIMIT 50',
       [drn]
     );
     res.json({ success: true, drn, events: rows });
@@ -271,20 +271,20 @@ router.post('/mqtt/relay-logs/:drn/test', authenticateToken, async (req, res) =>
     const drn = req.params.drn;
     const now = Math.floor(Date.now() / 1000);
     const testEvent = {
-      DRN: drn,
-      event_timestamp: now,
+      drn: drn,
       relay_index: req.body.relay_index != null ? req.body.relay_index : 1,
       entry_type: req.body.entry_type != null ? req.body.entry_type : 0,
       state: req.body.state != null ? req.body.state : 0,
       control: 1,
-      reason: req.body.reason != null ? req.body.reason : 5,
+      reason_code: req.body.reason != null ? req.body.reason : 5,
       reason_text: req.body.reason_text || 'Test event from dashboard',
-      trigger_val: 1,
+      trigger_type: 1,
+      meter_timestamp: new Date(now * 1000),
     };
 
     // Direct DB insert
     await new Promise((resolve, reject) => {
-      db.query('INSERT INTO MeterRelayEvents SET ?', testEvent, (err, result) => {
+      db.query('INSERT INTO meter_relay_events SET ?', testEvent, (err, result) => {
         if (err) reject(err); else resolve(result);
       });
     });
@@ -901,14 +901,14 @@ router.get('/mqtt/relay-events/:drn', authenticateToken, async (req, res) => {
   const type = req.query.type;
 
   try {
-    let where = 'DRN = ?';
+    let where = 'drn = ?';
     const params = [drn];
     if (relay !== undefined && relay !== '') { where += ' AND relay_index = ?'; params.push(parseInt(relay)); }
     if (type !== undefined && type !== '') { where += ' AND entry_type = ?'; params.push(parseInt(type)); }
 
     const [events, countResult] = await Promise.all([
-      queryAll(`SELECT * FROM MeterRelayEvents WHERE ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, limit, offset]),
-      queryAll(`SELECT COUNT(*) as total FROM MeterRelayEvents WHERE ${where}`, params),
+      queryAll(`SELECT * FROM meter_relay_events WHERE ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, limit, offset]),
+      queryAll(`SELECT COUNT(*) as total FROM meter_relay_events WHERE ${where}`, params),
     ]);
 
     res.json({ success: true, data: events, total: countResult[0]?.total || 0, limit, offset });
@@ -925,15 +925,15 @@ router.get('/mqtt/relay-events/:drn/summary', authenticateToken, async (req, res
       queryAll(
         `SELECT
            reason_text, COUNT(*) as count
-         FROM MeterRelayEvents
-         WHERE DRN = ? AND created_at >= NOW() - INTERVAL ? HOUR
+         FROM meter_relay_events
+         WHERE drn = ? AND created_at >= NOW() - INTERVAL ? HOUR
          GROUP BY reason_text ORDER BY count DESC`, [drn, hours]
       ),
       queryAll(
         `SELECT
            relay_index, entry_type, COUNT(*) as count
-         FROM MeterRelayEvents
-         WHERE DRN = ? AND created_at >= NOW() - INTERVAL ? HOUR
+         FROM meter_relay_events
+         WHERE drn = ? AND created_at >= NOW() - INTERVAL ? HOUR
          GROUP BY relay_index, entry_type`, [drn, hours]
       ),
     ]);
@@ -959,7 +959,7 @@ router.get('/mqtt/activity-log/:drn', authenticateToken, async (req, res) => {
       ),
       queryAll(
         `SELECT id, relay_index, entry_type, state, reason_text, created_at
-         FROM MeterRelayEvents WHERE DRN = ? ORDER BY id DESC LIMIT ?`, [drn, limit]
+         FROM meter_relay_events WHERE drn = ? ORDER BY id DESC LIMIT ?`, [drn, limit]
       ),
     ]);
     res.json({
