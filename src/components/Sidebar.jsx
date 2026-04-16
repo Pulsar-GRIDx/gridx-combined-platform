@@ -28,6 +28,7 @@ import SecurityIcon from "@mui/icons-material/Security";
 import GppBadIcon from "@mui/icons-material/GppBad";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import PhoneAndroidIcon from "@mui/icons-material/PhoneAndroid";
+import SystemUpdateAltIcon from "@mui/icons-material/SystemUpdateAlt";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
@@ -385,6 +386,13 @@ const Sidebar = () => {
           icon={<TuneIcon />}
           isCollapsed={isCollapsed}
           accentColor="#f2b705"
+        />
+        <NavItem
+          title="Firmware OTA"
+          to="/firmware-ota"
+          icon={<SystemUpdateAltIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#00bcd4"
         />
 
         {/* Vending */}

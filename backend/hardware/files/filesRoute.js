@@ -1,7 +1,27 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const router = express.Router();
 const { startMqttOta, getFirmwareInfo } = require('../../services/mqttHandler');
+const { hydroHashHex } = require('../../services/hydroHash');
+
+// Firmware data directory
+const DATA_DIR = path.join(__dirname, 'Data');
+
+// Multer config for firmware upload
+const fwStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, DATA_DIR),
+  filename: (req, file, cb) => cb(null, 'firmware.bin'),
+});
+const fwUpload = multer({
+  storage: fwStorage,
+  limits: { fileSize: 4 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.originalname.endsWith('.bin')) cb(null, true);
+    else cb(new Error('Only .bin firmware files are accepted'));
+  },
+});
 
 // Serve the firmware metadata JSON file
 
@@ -47,6 +67,70 @@ router.post('/ota/start', (req, res) => {
   try {
     const cmd = startMqttOta(drn, hash);
     res.json({ success: true, message: `MQTT OTA started for ${drn}`, command: cmd });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /files/ota/upload ─────────────────────────────────
+// Upload firmware .bin, auto-compute libhydrogen hash, generate fw_latest.json
+router.post('/ota/upload', fwUpload.single('firmware'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No firmware file provided' });
+  }
+
+  const { version } = req.body;
+  if (!version) {
+    return res.status(400).json({ error: 'Missing version parameter' });
+  }
+
+  try {
+    // Read the uploaded firmware binary
+    const fwPath = path.join(DATA_DIR, 'firmware.bin');
+    const fwData = fs.readFileSync(fwPath);
+    const fwSize = fwData.length;
+
+    // Compute libhydrogen hash (Gimli-based, context "metering")
+    const hash = hydroHashHex(fwData, 'metering');
+
+    // Build firmware URL
+    const baseUrl = process.env.FIRMWARE_BASE_URL || `https://${req.headers.host}`;
+    const fwUrl = `${baseUrl}/files/firmware.bin`;
+
+    // Generate fw_latest.json
+    const info = { version, url: fwUrl, size: fwSize, hash };
+    fs.writeFileSync(path.join(DATA_DIR, 'fw_latest.json'), JSON.stringify(info, null, 2));
+
+    // Also save a versioned backup
+    const backupName = `firmware_${version.replace(/\./g, '_')}.bin`;
+    fs.copyFileSync(fwPath, path.join(DATA_DIR, backupName));
+
+    console.log(`OTA Upload: v${version} (${fwSize} bytes) hash=${hash}`);
+
+    res.json({
+      success: true,
+      message: `Firmware v${version} uploaded successfully`,
+      firmware: info,
+    });
+  } catch (err) {
+    console.error('OTA upload error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /files/ota/versions ────────────────────────────────
+// List all firmware versions on disk
+router.get('/ota/versions', (req, res) => {
+  try {
+    const files = fs.readdirSync(DATA_DIR)
+      .filter(f => f.startsWith('firmware_') && f.endsWith('.bin'))
+      .map(f => {
+        const stat = fs.statSync(path.join(DATA_DIR, f));
+        const ver = f.replace('firmware_', '').replace('.bin', '').replace(/_/g, '.');
+        return { filename: f, version: ver, size: stat.size, date: stat.mtime };
+      })
+      .sort((a, b) => b.date - a.date);
+    res.json({ versions: files });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
