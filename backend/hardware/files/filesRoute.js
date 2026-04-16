@@ -93,8 +93,10 @@ router.post('/ota/upload', fwUpload.single('firmware'), (req, res) => {
     // Compute libhydrogen hash (Gimli-based, context "metering")
     const hash = hydroHashHex(fwData, 'metering');
 
-    // Build firmware URL
-    const baseUrl = process.env.FIRMWARE_BASE_URL || `https://${req.headers.host}`;
+    // Build firmware URL - prefer env var, then X-Forwarded-Host (behind nginx), then host header
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const proto = req.headers['x-forwarded-proto'] || 'https';
+    const baseUrl = process.env.FIRMWARE_BASE_URL || `${proto}://${host}`;
     const fwUrl = `${baseUrl}/files/firmware.bin`;
 
     // Generate fw_latest.json
