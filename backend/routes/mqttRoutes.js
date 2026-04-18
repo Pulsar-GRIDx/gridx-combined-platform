@@ -363,8 +363,8 @@ router.post('/mqtt/credit-transfer/:drn', authenticateToken, (req, res) => {
       return res.status(400).json({ error: 'target_meter is required (min 4 digits)' });
     }
 
-    if (!watt_hours || watt_hours <= 0 || watt_hours > 50000) {
-      return res.status(400).json({ error: 'watt_hours must be between 1 and 50000' });
+    if (!watt_hours || watt_hours <= 0 || watt_hours > 15000) {
+      return res.status(400).json({ error: 'watt_hours must be between 1 and 15000 (max 15 kWh)' });
     }
 
     if (drn === target_meter) {

@@ -676,7 +676,7 @@ export default function Transactions() {
                     <Box minWidth={90} textAlign="right">
                       <Typography variant="caption" color={colors.grey[500]}>Amount</Typography>
                       <Typography variant="body1" color={colors.greenAccent[500]} fontWeight="bold">
-                        {Number(t.watt_hours).toLocaleString()} Wh
+                        {(Number(t.watt_hours) / 1000).toFixed(1)} kWh
                       </Typography>
                     </Box>
 
