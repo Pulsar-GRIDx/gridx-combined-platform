@@ -1384,11 +1384,11 @@ export default function MeterProfile() {
           {/* ---- MQTT Activity Log ---- */}
           <Box mt="5px" backgroundColor={colors.primary[400]} p="15px" borderRadius="4px">
             <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1.5}>
-              MQTT Activity Log
+              Activity Log
             </Typography>
             {(mqttLog.power.length === 0 && mqttLog.energy.length === 0 && mqttLog.relays.length === 0) ? (
               <Typography color={colors.grey[500]} sx={{ textAlign: "center", py: 3 }}>
-                No MQTT data received for this meter yet.
+                No data received for this meter yet.
               </Typography>
             ) : (
               <Box sx={{ maxHeight: 280, overflow: "auto", "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: colors.grey[700], borderRadius: 2 } }}>
@@ -3326,7 +3326,7 @@ export default function MeterProfile() {
                           { label: "Measurement Test", passed: report.measurement_test_passed, icon: <BoltOutlined sx={{ fontSize: 22 }} />, color: tk.blue },
                           { label: "Load Test", passed: report.load_test_passed, icon: <PowerOutlined sx={{ fontSize: 22 }} />, color: tk.amber },
                           { label: "Energy Test", passed: report.energy_test_passed, icon: <BoltOutlined sx={{ fontSize: 22 }} />, color: tk.blue },
-                          { label: "MQTT API Test", passed: report.api_test_passed, icon: <TuneOutlined sx={{ fontSize: 22 }} />, color: tk.purple },
+                          { label: "API Connectivity Test", passed: report.api_test_passed, icon: <TuneOutlined sx={{ fontSize: 22 }} />, color: tk.purple },
                         ].map((t) => {
                           const pending = t.passed == null;
                           const bg = pending

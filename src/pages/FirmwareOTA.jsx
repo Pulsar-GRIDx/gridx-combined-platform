@@ -337,7 +337,7 @@ const FirmwareOTA = () => {
           Push OTA to Device
         </Typography>
         <Typography variant="body2" color={colors.grey[400]} mb={2}>
-          Send the current firmware to a specific meter via MQTT OTA.
+          Send the current firmware to a specific meter via OTA update.
         </Typography>
 
         <Box display="flex" gap={2} alignItems="flex-end">
@@ -370,7 +370,7 @@ const FirmwareOTA = () => {
               "&:disabled": { bgcolor: colors.grey[700] },
             }}
           >
-            {pushing ? "Sending..." : "Start MQTT OTA"}
+            {pushing ? "Sending..." : "Start OTA Update"}
           </Button>
         </Box>
 

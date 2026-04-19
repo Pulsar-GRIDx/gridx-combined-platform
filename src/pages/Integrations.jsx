@@ -433,7 +433,7 @@ export default function Integrations() {
         <Box display="flex" gap="12px" justifyContent="center" flexWrap="wrap">
           {[
             { label: "MySQL Database\n(Transactions, Line Items, Audit)", color: "#f2b705" },
-            { label: "Smart Meter MQTT\n(Telemetry & Remote)", color: "#4cceac" },
+            { label: "Smart Meter Link\n(Telemetry & Remote)", color: "#4cceac" },
             { label: "Financial Reports\n(Daily/Monthly)", color: "#6870fa" },
             { label: "Batch & Banking\n(Reconciliation)", color: "#868dfb" },
           ].map(function(sys) {

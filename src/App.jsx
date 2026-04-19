@@ -44,7 +44,7 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Layout />}>
-              <Route index element={<Dashboard />} />
+              <Route index element={<Map />} />
               <Route path="vending" element={<Vending />} />
               <Route path="customers" element={<Customers />} />
               <Route path="transactions" element={<Transactions />} />
@@ -54,6 +54,7 @@ function App() {
               <Route path="tariffs" element={<Tariffs />} />
               <Route path="reports" element={<Reports />} />
               <Route path="admin" element={<Admin />} />
+              <Route path="dashboard" element={<Dashboard />} />
               <Route path="map" element={<Map />} />
               <Route path="meter/:drn" element={<MeterProfile />} />
               <Route path="meter-profiles" element={<MeterProfiles />} />

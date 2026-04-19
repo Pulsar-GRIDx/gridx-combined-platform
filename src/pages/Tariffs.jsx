@@ -203,7 +203,7 @@ export default function Tariffs() {
                   Prepaid Tariff Rate Table
                 </Typography>
                 <Typography variant="caption" color={colors.grey[400]}>
-                  10-slot rate table sent to meters via MQTT ({`{trt: [...]}`})
+                  10-slot rate table applied to all prepaid meters
                   {prepaidUpdatedAt && ` | Last updated: ${new Date(prepaidUpdatedAt).toLocaleDateString("en-ZA")}`}
                 </Typography>
               </Box>

@@ -851,7 +851,7 @@ export default function Transactions() {
                         {[
                           { time: t.created_at, label: "Transfer initiated", desc: `Command sent to source meter ${t.source_drn}`, done: true },
                           { time: t.source_ack_at, label: "Source meter confirmed", desc: t.token ? `Token generated: ${t.token.substring(0, 16)}...` : "Waiting for source meter response...", done: !!t.source_ack_at },
-                          { time: t.source_ack_at, label: "Token forwarded to target", desc: `Forwarded to meter ${t.target_drn} via MQTT`, done: stepIndex >= 2 },
+                          { time: t.source_ack_at, label: "Token forwarded to target", desc: `Forwarded to meter ${t.target_drn}`, done: stepIndex >= 2 },
                           { time: t.target_ack_at, label: "Target meter confirmed", desc: "Credit accepted and applied", done: t.status === "completed" },
                         ].map((event, i) => (
                           <Box key={i} display="flex" gap="12px" mb={1}>

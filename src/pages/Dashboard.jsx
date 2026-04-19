@@ -316,7 +316,7 @@ export default function Dashboard() {
       }
       // Success notifications
       if (stats.kpis.liveMeters > 0) {
-        newNotifs.push({ id: ++nid, type: "success", title: `${stats.kpis.liveMeters} Meter${stats.kpis.liveMeters > 1 ? "s" : ""} Online`, message: "Active MQTT connections reporting real-time data", timestamp: ts });
+        newNotifs.push({ id: ++nid, type: "success", title: `${stats.kpis.liveMeters} Meter${stats.kpis.liveMeters > 1 ? "s" : ""} Online`, message: "Active connections reporting real-time data", timestamp: ts });
       }
       if (stats.tokens.todayCount > 0) {
         newNotifs.push({ id: ++nid, type: "success", title: `${stats.tokens.todayCount} Tokens Today`, message: `${stats.tokens.todayRevenue.toFixed(1)} kWh purchased across all meters`, timestamp: ts });
@@ -439,7 +439,7 @@ export default function Dashboard() {
   return (
     <Box m="20px">
       <Box display="flex" justifyContent="space-between" alignItems="center">
-        <Header title="DASHBOARD" subtitle="Meters Network Summary — MQTT Real-Time" />
+        <Header title="DASHBOARD" subtitle="Meters Network Summary — Live Data" />
         <Box display="flex" gap={0.5} alignItems="center">
           <DataBadge live />
           {lastUpdate && (
@@ -490,7 +490,7 @@ export default function Dashboard() {
             title={fmt(kpis.liveMeters || kpis.activeMeters)}
             subtitle="Live Meters"
             progress={kpis.totalMeters > 0 ? String((kpis.liveMeters || kpis.activeMeters) / kpis.totalMeters) : "0"}
-            increase="via MQTT"
+            increase="live"
             link="/meters"
             icon={
               <ElectricBoltOutlinedIcon
