@@ -1110,78 +1110,132 @@ export default function Dashboard() {
           />
         </Box>
 
-        {/* ROW 5: Recent Token Entries — MeterProfile Token History style */}
+        {/* ROW 5: Recent Token Entries — Professional Table */}
         <Box
           gridColumn="span 12"
           gridRow="span 4"
           backgroundColor={colors.primary[400]}
           overflow="hidden"
+          borderRadius="8px"
           sx={{ display: "flex", flexDirection: "column" }}
         >
-          <Box sx={{ px: 2.5, pt: 2, pb: 1 }}>
-            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold">
-              Recent Token Entries
-            </Typography>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", px: 3, pt: 2.5, pb: 1.5 }}>
+            <Box>
+              <Typography variant="h6" color={colors.grey[100]} fontWeight="bold">
+                Recent Token Entries
+              </Typography>
+              <Typography variant="caption" color={colors.grey[400]}>
+                {recentTxns.filter(t => t.status === "Accepted").length} transactions
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: colors.greenAccent[500] }} />
+                <Typography variant="caption" color={colors.grey[400]} sx={{ fontSize: "10px" }}>Accepted</Typography>
+              </Box>
+              <Typography variant="subtitle2" color={colors.greenAccent[500]} fontWeight="bold">
+                N$ {recentTxns.filter(t => t.status === "Accepted").reduce((s, t) => s + parseFloat(t.amount || 0), 0).toFixed(2)}
+              </Typography>
+            </Box>
           </Box>
-          <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
-          <Box sx={{ flex: 1, overflowY: "auto", px: 0.5, "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: colors.grey[700], borderRadius: 2 } }}>
+
+          {/* Table Header */}
+          <Box sx={{
+            display: "grid",
+            gridTemplateColumns: "2fr 2.5fr 1fr 1.2fr 1fr",
+            px: 3, py: 1.2,
+            bgcolor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)",
+            borderTop: `1px solid ${theme.palette.mode === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)"}`,
+            borderBottom: `1px solid ${theme.palette.mode === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)"}`,
+          }}>
+            {["METER / DRN", "TOKEN", "kWh", "AMOUNT (N$)", "CHANNEL"].map((h) => (
+              <Typography key={h} variant="caption" color={colors.grey[400]} sx={{ fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                {h}
+              </Typography>
+            ))}
+          </Box>
+
+          {/* Table Body */}
+          <Box sx={{ flex: 1, overflowY: "auto", "&::-webkit-scrollbar": { width: 4 }, "&::-webkit-scrollbar-thumb": { bgcolor: colors.grey[700], borderRadius: 2 } }}>
             {recentTxns.filter((txn) => txn.status === "Accepted").length > 0 ? (
               recentTxns.filter((txn) => txn.status === "Accepted").map((txn, idx, arr) => {
                 const amt = parseFloat(txn.amount || 0);
-                const avatarColor = amt >= 150 ? colors.greenAccent[600] : amt >= 50 ? (colors.blueAccent?.[500] || "#6870fa") : (colors.redAccent?.[400] || "#db4f4a");
                 return (
                   <Box
                     key={txn.id}
                     component={Link}
                     to={`/meter/${txn.meterNo}`}
                     sx={{
-                      display: "flex", alignItems: "center", py: 1.5, px: 2, textDecoration: "none",
-                      borderBottom: idx < arr.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
-                      "&:hover": { bgcolor: "rgba(0,180,216,0.05)" },
+                      display: "grid",
+                      gridTemplateColumns: "2fr 2.5fr 1fr 1.2fr 1fr",
+                      alignItems: "center",
+                      px: 3, py: 1.4,
+                      textDecoration: "none",
+                      borderBottom: idx < arr.length - 1 ? `1px solid ${theme.palette.mode === "dark" ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.05)"}` : "none",
+                      transition: "background 0.15s",
+                      "&:hover": { bgcolor: theme.palette.mode === "dark" ? "rgba(98,179,224,0.06)" : "rgba(42,142,196,0.06)" },
                     }}
                   >
+                    {/* Meter */}
+                    <Box>
+                      <Typography variant="body2" color={colors.grey[100]} fontWeight={600} sx={{ fontSize: "0.82rem" }} noWrap>
+                        {txn.meterNo}
+                      </Typography>
+                      <Typography variant="caption" color={colors.grey[400]} sx={{ fontSize: "10px" }}>
+                        {txn.time ? format(new Date(txn.time), "dd MMM yyyy, HH:mm") : "-"}
+                      </Typography>
+                    </Box>
+
+                    {/* Token */}
+                    <Typography variant="caption" color={colors.grey[300]} sx={{ fontFamily: "monospace", fontSize: "11px", letterSpacing: "0.02em" }} noWrap>
+                      {txn.token}
+                    </Typography>
+
+                    {/* kWh */}
+                    <Typography variant="body2" color={colors.grey[100]} fontWeight={600} sx={{ fontFamily: "monospace", fontSize: "0.82rem" }}>
+                      {amt > 0 ? amt.toFixed(1) : "-"}
+                    </Typography>
+
+                    {/* Amount */}
+                    <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={700} sx={{ fontFamily: "monospace", fontSize: "0.85rem" }}>
+                      {amt.toFixed(2)}
+                    </Typography>
+
+                    {/* Channel */}
                     <Box sx={{
-                      width: 40, height: 40, borderRadius: "50%", bgcolor: colors.grey[800],
-                      display: "flex", alignItems: "center", justifyContent: "center", mr: 2, flexShrink: 0,
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      bgcolor: theme.palette.mode === "dark" ? "rgba(98,179,224,0.1)" : "rgba(42,142,196,0.1)",
+                      borderRadius: "4px", px: 1, py: 0.3, width: "fit-content",
                     }}>
-                      <ConfirmationNumberOutlinedIcon sx={{ color: avatarColor, fontSize: 20 }} />
-                    </Box>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="subtitle2" color={colors.grey[100]} noWrap>
-                        DRN: {txn.meterNo}
+                      <Typography variant="caption" color={colors.grey[300]} sx={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        {txn.channel || "API"}
                       </Typography>
-                      <Typography variant="caption" color={colors.grey[400]}>
-                        {txn.time ? format(new Date(txn.time), "dd MMM yyyy p") : "-"}
-                      </Typography>
-                      <Typography variant="caption" display="block" color={colors.grey[500]} sx={{ fontSize: "10px", fontFamily: "monospace" }} noWrap>
-                        {txn.token}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ textAlign: "right", flexShrink: 0, ml: 1 }}>
-                      <Typography variant="subtitle2" color={colors.grey[100]} noWrap>
-                        {amt > 0 ? `${amt.toFixed(1)} kWh` : "-"}
-                      </Typography>
-                      <Typography variant="body2" color={colors.greenAccent[500]} fontWeight="bold">
-                        N$ {amt.toFixed(2)}
-                      </Typography>
-                      <Typography variant="caption" color={colors.grey[400]}>{txn.channel}</Typography>
                     </Box>
                   </Box>
                 );
               })
             ) : (
-              <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 4 }}>
-                No recent token entries.
-              </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", py: 6 }}>
+                <ConfirmationNumberOutlinedIcon sx={{ color: colors.grey[600], fontSize: 40, mb: 1 }} />
+                <Typography color={colors.grey[500]} sx={{ fontSize: "0.85rem" }}>
+                  No recent token entries
+                </Typography>
+              </Box>
             )}
           </Box>
-          <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
-          <Box sx={{ display: "flex", justifyContent: "space-between", px: 2.5, py: 1.5 }}>
-            <Typography variant="subtitle2" color={colors.grey[100]}>
-              Total: N$ {recentTxns.filter(t => t.status === "Accepted").reduce((s, t) => s + parseFloat(t.amount || 0), 0).toFixed(2)}
+
+          {/* Table Footer */}
+          <Box sx={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            px: 3, py: 1.5,
+            borderTop: `1px solid ${theme.palette.mode === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)"}`,
+            bgcolor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+          }}>
+            <Typography variant="caption" color={colors.grey[400]} fontWeight={600}>
+              {recentTxns.filter(t => t.status === "Accepted").length} tokens vended
             </Typography>
-            <Typography variant="subtitle2" color={colors.grey[100]}>
-              {recentTxns.filter(t => t.status === "Accepted").length} tokens
+            <Typography variant="subtitle2" color={colors.grey[100]} fontWeight={700}>
+              Total: N$ {recentTxns.filter(t => t.status === "Accepted").reduce((s, t) => s + parseFloat(t.amount || 0), 0).toFixed(2)}
             </Typography>
           </Box>
         </Box>
