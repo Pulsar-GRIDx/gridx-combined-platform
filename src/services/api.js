@@ -259,6 +259,22 @@ export const billingAPI = {
   setTier: (data) => post('/meter-billing/config/tier', data),
 };
 
+// ===== POSTPAID BILLING =====
+export const postpaidAPI = {
+  getSummary: () => get('/postpaid/summary'),
+  getPrepaidMeters: () => get('/postpaid/prepaid-meters'),
+  getPostpaidMeters: () => get('/postpaid/postpaid-meters'),
+  getPostpaidBills: (params) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return get(`/postpaid/postpaid-bills${q ? '?' + q : ''}`);
+  },
+  generateBill: (data) => post('/postpaid/generate-bill', data),
+  recordPayment: (data) => post('/postpaid/record-payment', data),
+  switchMode: (data) => post('/postpaid/switch-mode', data),
+  getModeHistory: (drn) => get(`/postpaid/mode-history/${drn}`),
+  getAllMeters: () => get('/postpaid/all-meters'),
+};
+
 // ===== METER PROFILE =====
 export const meterProfileAPI = {
   get: () => get('/settings/meterProfile'),
@@ -476,6 +492,7 @@ export default {
   token: tokenAPI,
   notification: notificationAPI,
   billing: billingAPI,
+  postpaid: postpaidAPI,
   settings: settingsAPI,
   meterProfile: meterProfileAPI,
   meterRegistration: meterRegistrationAPI,
