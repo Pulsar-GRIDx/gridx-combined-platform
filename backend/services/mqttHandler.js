@@ -36,12 +36,14 @@ const TOPICS = [
   'gx/+/energy_usage',
   'gx/+/emergency',
   'gx/+/ota/req',
+  'gx/+/nextion/req',
 ];
 
 // ==================== MQTT OTA State ====================
 
 const FIRMWARE_DIR = path.join(__dirname, '..', 'hardware', 'files', 'Data');
 let firmwareCache = null;  // { path, data, size, mtime }
+let nextionCache = null;   // { path, data, size, mtime }
 
 function loadFirmware(firmwarePath) {
   try {
@@ -67,6 +69,86 @@ function getFirmwareInfo() {
   } catch (err) {
     console.error(`[OTA] Failed to read fw_latest.json: ${err.message}`);
     return null;
+  }
+}
+
+function loadNextionTft(tftPath) {
+  try {
+    const stat = fs.statSync(tftPath);
+    if (nextionCache && nextionCache.path === tftPath && nextionCache.mtime === stat.mtimeMs) {
+      return nextionCache;
+    }
+    const data = fs.readFileSync(tftPath);
+    nextionCache = { path: tftPath, data, size: data.length, mtime: stat.mtimeMs };
+    console.log(`[Nextion] TFT loaded: ${tftPath} (${data.length} bytes)`);
+    return nextionCache;
+  } catch (err) {
+    console.error(`[Nextion] Failed to load TFT: ${err.message}`);
+    return null;
+  }
+}
+
+function getNextionInfo() {
+  const infoPath = path.join(FIRMWARE_DIR, 'nextion_latest.json');
+  try {
+    return JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+  } catch (err) {
+    return null;
+  }
+}
+
+function handleNextionRequest(drn, buf) {
+  let msg;
+  try {
+    msg = JSON.parse(buf.toString());
+  } catch (e) {
+    console.error(`[Nextion] Invalid JSON from ${drn}:`, buf.toString());
+    return;
+  }
+
+  const action = msg.action;
+
+  if (action === 'chunk') {
+    const offset = msg.offset || 0;
+    const requestedSize = msg.size || 4096;
+
+    const tftPath = path.join(FIRMWARE_DIR, 'nextion.tft');
+    const tft = loadNextionTft(tftPath);
+    if (!tft) {
+      console.error(`[Nextion] No TFT file for chunk request from ${drn}`);
+      return;
+    }
+
+    const remaining = tft.size - offset;
+    if (remaining <= 0) {
+      console.log(`[Nextion] ${drn}: offset ${offset} beyond TFT size ${tft.size}`);
+      return;
+    }
+    const chunkSize = Math.min(requestedSize, remaining);
+
+    // Binary response: [4B offset BE][4B length BE][data]
+    const header = Buffer.alloc(8);
+    header.writeUInt32BE(offset, 0);
+    header.writeUInt32BE(chunkSize, 4);
+    const chunkData = tft.data.slice(offset, offset + chunkSize);
+    const response = Buffer.concat([header, chunkData]);
+
+    const dataTopic = `gx/${drn}/nextion/data`;
+    mqttClient.publish(dataTopic, response, { qos: 1 }, (err) => {
+      if (err) {
+        console.error(`[Nextion] Publish failed for ${drn} offset ${offset}:`, err.message);
+        return;
+      }
+      const progress = Math.round(((offset + chunkSize) / tft.size) * 100);
+      if (progress % 10 === 0 || offset === 0 || offset + chunkSize >= tft.size) {
+        console.log(`[Nextion] ${drn}: chunk offset=${offset} size=${chunkSize} progress=${progress}%`);
+      }
+    });
+
+  } else if (action === 'complete') {
+    console.log(`[Nextion] ${drn}: TFT update completed successfully!`);
+  } else if (action === 'error') {
+    console.error(`[Nextion] ${drn}: TFT error: ${msg.detail || 'unknown'}`);
   }
 }
 
@@ -435,6 +517,12 @@ function handleMessage(topic, buf) {
   // Handle OTA chunk requests: gx/{drn}/ota/req
   if (type === 'ota' && parts[3] === 'req') {
     handleOtaRequest(drn, buf);
+    return;
+  }
+
+  // Handle Nextion TFT chunk requests: gx/{drn}/nextion/req
+  if (type === 'nextion' && parts[3] === 'req') {
+    handleNextionRequest(drn, buf);
     return;
   }
 
