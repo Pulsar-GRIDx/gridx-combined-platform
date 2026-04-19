@@ -106,7 +106,7 @@ import Header from "../components/Header";
 import DataBadge from "../components/DataBadge";
 import { tokens } from "../theme";
 import { useAuth } from "../context/AuthContext";
-import { meterAPI, loadControlAPI, commissionReportAPI, homeClassificationAPI, meterHealthAPI, relayEventsAPI, energyAPI, meterConfigAPI, mqttActivityAPI } from "../services/api";
+import { meterAPI, loadControlAPI, commissionReportAPI, homeClassificationAPI, meterHealthAPI, relayEventsAPI, energyAPI, meterConfigAPI, mqttActivityAPI, billingAPI, postpaidAPI } from "../services/api";
 import {
   meters as mockMeters,
   transactions,
@@ -370,6 +370,13 @@ export default function MeterProfile() {
     severity: "success",
   });
 
+  /* ---------- Billing config state ---------- */
+  const [billingConfig, setBillingConfig] = useState(null);
+  const [billingSubTab, setBillingSubTab] = useState(0);
+  const [meterTariffRates, setMeterTariffRates] = useState(null);
+  const [modeHistory, setModeHistory] = useState([]);
+  const [postpaidBillsForMeter, setPostpaidBillsForMeter] = useState([]);
+
   /* ---------- Fetch all data on mount ---------- */
   useEffect(() => {
     const fetchData = async () => {
@@ -419,6 +426,20 @@ export default function MeterProfile() {
       try {
         const calRes = await meterConfigAPI.getCalibrationLog(drn);
         if (calRes?.data) setCalibrationLog(calRes.data);
+      } catch (e) { /* ignore */ }
+
+      // Fetch billing configuration
+      try {
+        const [bcRes, trRes, mhRes, pbRes] = await Promise.allSettled([
+          billingAPI.getConfig(drn),
+          meterConfigAPI.getStatus(drn).then(() => fetch(`/cb/api/meter-billing/config/tariff-rates/${drn}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }).then(r => r.json())),
+          postpaidAPI.getModeHistory(drn),
+          postpaidAPI.getPostpaidBills({ DRN: drn }),
+        ]);
+        if (bcRes.status === "fulfilled" && bcRes.value) setBillingConfig(bcRes.value);
+        if (trRes.status === "fulfilled" && trRes.value?.rates) setMeterTariffRates(trRes.value.rates);
+        if (mhRes.status === "fulfilled" && mhRes.value?.history) setModeHistory(mhRes.value.history);
+        if (pbRes.status === "fulfilled" && pbRes.value?.bills) setPostpaidBillsForMeter(pbRes.value.bills);
       } catch (e) { /* ignore */ }
 
       setLoading(false);
@@ -2080,265 +2101,78 @@ export default function MeterProfile() {
         <Box display="flex" justifyContent="flex-end" mb={0.5}>
           <DataBadge />
         </Box>
-        <Box
-          display="grid"
-          gridTemplateColumns="repeat(12, 1fr)"
-          gridAutoRows="140px"
-          gap="5px"
-        >
-          <Box
-            gridColumn="span 6"
-            gridRow="span 2"
-            backgroundColor={colors.primary[400]}
-            p="20px"
-            borderRadius="4px"
-            overflow="auto"
-          >
-            <Typography
-              variant="h6"
-              color={colors.grey[100]}
-              fontWeight="bold"
-              mb={1}
-            >
-              Billing Information
-            </Typography>
-            <InfoRow
-              label="Billing Type"
-              value={mockMeter?.billing?.type || tariffType}
-            />
-            <InfoRow
-              label="Credit Option"
-              value={mockMeter?.billing?.creditOption || "Standard"}
-            />
-            <InfoRow
-              label="Current Balance"
-              value={`${parseFloat(units).toFixed(1)} kWh`}
-              color="#00b4d8"
-            />
-            <InfoRow
-              label="Last Token"
-              value={mockMeter?.billing?.lastToken || "---"}
-              mono
-              color={colors.greenAccent[500]}
-            />
-            <InfoRow
-              label="Tariff Group"
-              value={mockMeter?.billing?.tariffGroup || tariffType}
-            />
+
+        {/* Billing sub-tabs */}
+        <Tabs value={billingSubTab} onChange={(_, v) => setBillingSubTab(v)} sx={{ mb: 2,
+          "& .MuiTab-root": { color: colors.grey[300], fontWeight: 600, textTransform: "none" },
+          "& .Mui-selected": { color: colors.greenAccent[500] },
+          "& .MuiTabs-indicator": { backgroundColor: colors.greenAccent[500] } }}>
+          <Tab label="Billing Overview" />
+          <Tab label="Prepaid" />
+          <Tab label="Postpaid" />
+          <Tab label="Tariff Rates" />
+          <Tab label="Mode History" />
+        </Tabs>
+
+        {/* ---- Sub-tab 0: Billing Overview ---- */}
+        {billingSubTab === 0 && (
+        <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="5px">
+          <Box gridColumn="span 6" gridRow="span 2" backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" overflow="auto">
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>Billing Information</Typography>
+            <InfoRow label="Billing Mode" value={billingConfig?.billing_mode || "Prepaid"} color={billingConfig?.billing_mode === "Postpaid" ? "#00b4d8" : colors.greenAccent[500]} />
+            <InfoRow label="Meter Tier" value={billingConfig?.meter_tier || tariffType} />
+            <InfoRow label="Credit Option" value={billingConfig?.credit_option || "Standard"} />
+            <InfoRow label="Current Balance" value={`${parseFloat(units).toFixed(1)} kWh`} color="#00b4d8" />
+            <InfoRow label="Last Token" value={tokenHistory[0]?.token_id || "---"} mono color={colors.greenAccent[500]} />
             {customer && (
               <>
-                <InfoRow
-                  label="Customer Status"
-                  value={customer.status}
-                  color={
-                    customer.status === "Active"
-                      ? colors.greenAccent[500]
-                      : "#db4f4a"
-                  }
-                />
-                <InfoRow
-                  label="Arrears"
-                  value={fmtCurrency(customer.arrears)}
-                  color={
-                    customer.arrears > 0
-                      ? "#db4f4a"
-                      : colors.greenAccent[500]
-                  }
-                />
+                <InfoRow label="Customer Status" value={customer.status} color={customer.status === "Active" ? colors.greenAccent[500] : "#db4f4a"} />
+                <InfoRow label="Arrears" value={fmtCurrency(customer.arrears)} color={customer.arrears > 0 ? "#db4f4a" : colors.greenAccent[500]} />
               </>
             )}
           </Box>
-
-          <Box
-            gridColumn="span 6"
-            gridRow="span 2"
-            backgroundColor={colors.primary[400]}
-            p="20px"
-            borderRadius="4px"
-            overflow="auto"
-          >
-            <Typography
-              variant="h6"
-              color={colors.grey[100]}
-              fontWeight="bold"
-              mb={1}
-            >
-              Tariff Structure: {tariff?.name || "---"}
-            </Typography>
-            <Typography
-              variant="body2"
-              color="rgba(255,255,255,0.5)"
-              mb={1.5}
-              fontSize="0.78rem"
-            >
-              {tariff?.description || ""}
-            </Typography>
-            {tariff?.blocks && (
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      {["Block", "Range", "Rate (N$/kWh)"].map((col) => (
-                        <TableCell
-                          key={col}
-                          align={col.includes("Rate") ? "right" : "left"}
-                          sx={{
-                            color: colors.greenAccent[500],
-                            fontWeight: 600,
-                            fontSize: "0.75rem",
-                            borderBottom:
-                              "1px solid rgba(255,255,255,0.1)",
-                          }}
-                        >
-                          {col}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {tariff.blocks.map((b) => (
-                      <TableRow key={b.name}>
-                        <TableCell
-                          sx={{
-                            color: colors.grey[100],
-                            fontSize: "0.8rem",
-                            borderBottom:
-                              "1px solid rgba(255,255,255,0.05)",
-                          }}
-                        >
-                          {b.name}
-                        </TableCell>
-                        <TableCell
-                          sx={{
-                            color: colors.grey[100],
-                            fontSize: "0.8rem",
-                            borderBottom:
-                              "1px solid rgba(255,255,255,0.05)",
-                          }}
-                        >
-                          {b.range}
-                        </TableCell>
-                        <TableCell
-                          align="right"
-                          sx={{
-                            color: "#f2b705",
-                            fontWeight: 600,
-                            fontSize: "0.8rem",
-                            borderBottom:
-                              "1px solid rgba(255,255,255,0.05)",
-                          }}
-                        >
-                          {Number(b.rate).toFixed(2)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+          <Box gridColumn="span 6" gridRow="span 2" backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" overflow="auto">
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>Billing Configuration</Typography>
+            {billingConfig?.billing_mode === "Postpaid" ? (
+              <>
+                <InfoRow label="Billing Period" value={billingConfig?.billing_period || "1st of Month"} />
+                <InfoRow label="Credit Days" value={billingConfig?.billing_credit_days || "14 Days"} />
+                <InfoRow label="Turn-off Amount" value={billingConfig?.turn_off_max_amount ? `N$ ${billingConfig.turn_off_max_amount}` : "Not set"} />
+                <InfoRow label="Turn-on Amount" value={billingConfig?.turn_on_max_amount ? `N$ ${billingConfig.turn_on_max_amount}` : "Not set"} />
+                <InfoRow label="Notifications" value={(billingConfig?.notification_types || "SMS,Push").replace(/,/g, ", ")} />
+              </>
+            ) : (
+              <>
+                <InfoRow label="Credit Option" value={billingConfig?.credit_option || "Standard"} />
+                <InfoRow label="Notification Frequency" value={billingConfig?.notification_frequency || "Daily"} />
+                <InfoRow label="Auto Credit Updates" value={billingConfig?.automatic_credit_updates ? "Enabled" : "Disabled"} />
+                <InfoRow label="Notifications" value={(billingConfig?.notification_types || "SMS,Push").replace(/,/g, ", ")} />
+              </>
             )}
           </Box>
-
-          <Box
-            gridColumn="span 12"
-            gridRow="span 1"
-            backgroundColor={colors.primary[400]}
-            p="15px"
-            borderRadius="4px"
-            overflow="auto"
-          >
-            <Typography
-              variant="h6"
-              color={colors.grey[100]}
-              fontWeight="bold"
-              mb={1}
-            >
-              System Charges
-            </Typography>
+          <Box gridColumn="span 12" gridRow="span 1" backgroundColor={colors.primary[400]} p="15px" borderRadius="4px" overflow="auto">
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>System Charges</Typography>
             <Box display="flex" gap={4} flexWrap="wrap">
-              <Box>
-                <Typography
-                  variant="body2"
-                  color={colors.greenAccent[500]}
-                  fontSize="0.72rem"
-                >
-                  VAT Rate
-                </Typography>
-                <Typography
-                  variant="body1"
-                  color={colors.grey[100]}
-                  fontWeight={600}
-                >
-                  {tariffConfig.vatRate}%
-                </Typography>
-              </Box>
-              <Box>
-                <Typography
-                  variant="body2"
-                  color={colors.greenAccent[500]}
-                  fontSize="0.72rem"
-                >
-                  Fixed Charge
-                </Typography>
-                <Typography
-                  variant="body1"
-                  color={colors.grey[100]}
-                  fontWeight={600}
-                >
-                  {fmtCurrency(tariffConfig.fixedCharge)}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography
-                  variant="body2"
-                  color={colors.greenAccent[500]}
-                  fontSize="0.72rem"
-                >
-                  REL Levy
-                </Typography>
-                <Typography
-                  variant="body1"
-                  color={colors.grey[100]}
-                  fontWeight={600}
-                >
-                  {fmtCurrency(tariffConfig.relLevy)}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography
-                  variant="body2"
-                  color={colors.greenAccent[500]}
-                  fontSize="0.72rem"
-                >
-                  Min Purchase
-                </Typography>
-                <Typography
-                  variant="body1"
-                  color={colors.grey[100]}
-                  fontWeight={600}
-                >
-                  {fmtCurrency(tariffConfig.minPurchase)}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography
-                  variant="body2"
-                  color={colors.greenAccent[500]}
-                  fontSize="0.72rem"
-                >
-                  Arrears Deduction
-                </Typography>
-                <Typography
-                  variant="body1"
-                  color={colors.grey[100]}
-                  fontWeight={600}
-                >
-                  {tariffConfig.arrearsPercentage}%
-                </Typography>
-              </Box>
+              {[
+                { label: "VAT Rate", value: `${tariffConfig.vatRate}%` },
+                { label: "Fixed Charge", value: fmtCurrency(tariffConfig.fixedCharge) },
+                { label: "REL Levy", value: fmtCurrency(tariffConfig.relLevy) },
+                { label: "Min Purchase", value: fmtCurrency(tariffConfig.minPurchase) },
+                { label: "Arrears Deduction", value: `${tariffConfig.arrearsPercentage}%` },
+              ].map(item => (
+                <Box key={item.label}>
+                  <Typography variant="body2" color={colors.greenAccent[500]} fontSize="0.72rem">{item.label}</Typography>
+                  <Typography variant="body1" color={colors.grey[100]} fontWeight={600}>{item.value}</Typography>
+                </Box>
+              ))}
             </Box>
           </Box>
+        </Box>
+        )}
 
-          {/* ---- Vend Electricity Token Form ---- */}
+        {/* ---- Sub-tab 1: Prepaid ---- */}
+        {billingSubTab === 1 && (
+        <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="5px">
           <Box gridColumn="span 6" gridRow="span 3" backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" overflow="auto">
             <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={2}>Vend Electricity Token</Typography>
             <Box display="flex" gap={1} flexWrap="wrap" mb={2}>
@@ -2394,8 +2228,6 @@ export default function MeterProfile() {
               </Box>
             )}
           </Box>
-
-          {/* ---- Recent Processed Tokens ---- */}
           <Box gridColumn="span 6" gridRow="span 3" backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" overflow="auto">
             <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={2}>Recent Processed Tokens</Typography>
             {tokenHistory.length > 0 ? (
@@ -2427,6 +2259,171 @@ export default function MeterProfile() {
             )}
           </Box>
         </Box>
+        )}
+
+        {/* ---- Sub-tab 2: Postpaid ---- */}
+        {billingSubTab === 2 && (
+        <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="5px">
+          <Box gridColumn="span 12" gridRow="span 1" backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" overflow="auto">
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+              <Typography variant="h6" color={colors.grey[100]} fontWeight="bold">Postpaid Configuration</Typography>
+              <Chip label={billingConfig?.billing_mode === "Postpaid" ? "Active" : "Inactive"} size="small"
+                sx={{ backgroundColor: billingConfig?.billing_mode === "Postpaid" ? "rgba(76,206,172,0.15)" : "rgba(219,79,74,0.15)",
+                  color: billingConfig?.billing_mode === "Postpaid" ? colors.greenAccent[500] : "#db4f4a", fontWeight: 600 }} />
+            </Box>
+            <Box display="flex" gap={4} flexWrap="wrap">
+              <Box><Typography variant="body2" color={colors.greenAccent[500]} fontSize="0.72rem">Billing Period</Typography>
+                <Typography variant="body1" color={colors.grey[100]} fontWeight={600}>{billingConfig?.billing_period || "1st of Month"}</Typography></Box>
+              <Box><Typography variant="body2" color={colors.greenAccent[500]} fontSize="0.72rem">Credit Days</Typography>
+                <Typography variant="body1" color={colors.grey[100]} fontWeight={600}>{billingConfig?.billing_credit_days || "14 Days"}</Typography></Box>
+              <Box><Typography variant="body2" color={colors.greenAccent[500]} fontSize="0.72rem">Turn-off Threshold</Typography>
+                <Typography variant="body1" color={colors.grey[100]} fontWeight={600}>{billingConfig?.turn_off_max_amount ? `N$ ${billingConfig.turn_off_max_amount}` : "Not set"}</Typography></Box>
+              <Box><Typography variant="body2" color={colors.greenAccent[500]} fontSize="0.72rem">Turn-on Threshold</Typography>
+                <Typography variant="body1" color={colors.grey[100]} fontWeight={600}>{billingConfig?.turn_on_max_amount ? `N$ ${billingConfig.turn_on_max_amount}` : "Not set"}</Typography></Box>
+            </Box>
+          </Box>
+          <Box gridColumn="span 12" gridRow="span 3" backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" overflow="auto">
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>Postpaid Bills</Typography>
+            {postpaidBillsForMeter.length > 0 ? (
+              <TableContainer><Table size="small">
+                <TableHead><TableRow>
+                  {["Period", "kWh", "Energy Charge", "Fixed", "VAT", "Total", "Paid", "Due Date", "Status"].map(col => (
+                    <TableCell key={col} align={["Energy Charge","Fixed","VAT","Total","Paid"].includes(col) ? "right" : "left"}
+                      sx={{ color: colors.greenAccent[500], fontWeight: 600, fontSize: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>{col}</TableCell>
+                  ))}
+                </TableRow></TableHead>
+                <TableBody>
+                  {postpaidBillsForMeter.map((b) => (
+                    <TableRow key={b.id} hover>
+                      <TableCell sx={{ color: colors.grey[100], fontSize: "0.78rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                        {new Date(b.bill_period_start).toLocaleDateString("en-ZA")} - {new Date(b.bill_period_end).toLocaleDateString("en-ZA")}
+                      </TableCell>
+                      <TableCell sx={{ color: colors.grey[100], borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{Number(b.total_kwh).toFixed(1)}</TableCell>
+                      <TableCell align="right" sx={{ color: colors.grey[100], borderBottom: "1px solid rgba(255,255,255,0.05)" }}>N$ {Number(b.energy_charge).toFixed(2)}</TableCell>
+                      <TableCell align="right" sx={{ color: colors.grey[100], borderBottom: "1px solid rgba(255,255,255,0.05)" }}>N$ {Number(b.fixed_charge).toFixed(2)}</TableCell>
+                      <TableCell align="right" sx={{ color: colors.grey[100], borderBottom: "1px solid rgba(255,255,255,0.05)" }}>N$ {Number(b.vat_amount).toFixed(2)}</TableCell>
+                      <TableCell align="right" sx={{ color: colors.grey[100], fontWeight: 700, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>N$ {Number(b.total_amount).toFixed(2)}</TableCell>
+                      <TableCell align="right" sx={{ color: colors.grey[100], borderBottom: "1px solid rgba(255,255,255,0.05)" }}>N$ {Number(b.paid_amount).toFixed(2)}</TableCell>
+                      <TableCell sx={{ color: colors.grey[100], borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                        {new Date(b.due_date).toLocaleDateString("en-ZA", { year: "numeric", month: "short", day: "numeric" })}
+                      </TableCell>
+                      <TableCell sx={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                        <Chip label={b.status} size="small" sx={{
+                          bgcolor: b.status === "Paid" ? "rgba(76,206,172,0.15)" : b.status === "Overdue" ? "rgba(219,79,74,0.15)" : "rgba(0,180,216,0.15)",
+                          color: b.status === "Paid" ? colors.greenAccent[500] : b.status === "Overdue" ? "#db4f4a" : "#00b4d8",
+                          fontWeight: 600, fontSize: "0.68rem", height: 22 }} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table></TableContainer>
+            ) : (
+              <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 4 }}>
+                {billingConfig?.billing_mode === "Postpaid" ? "No postpaid bills generated yet for this meter." : "This meter is in Prepaid mode. Switch to Postpaid to enable billing."}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+        )}
+
+        {/* ---- Sub-tab 3: Tariff Rates ---- */}
+        {billingSubTab === 3 && (
+        <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="5px">
+          <Box gridColumn="span 6" gridRow="span 3" backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" overflow="auto">
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>Meter Tariff Rate Table</Typography>
+            <Typography variant="caption" color={colors.grey[400]} display="block" mb={1}>10-slot tariff rates configured on this meter</Typography>
+            {meterTariffRates ? (
+              <TableContainer><Table size="small">
+                <TableHead><TableRow>
+                  {["Index", "Tier", "Rate (N$/kWh)"].map(col => (
+                    <TableCell key={col} align={col.includes("Rate") ? "right" : "left"}
+                      sx={{ color: colors.greenAccent[500], fontWeight: 600, fontSize: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>{col}</TableCell>
+                  ))}
+                </TableRow></TableHead>
+                <TableBody>
+                  {meterTariffRates.map((r) => (
+                    <TableRow key={r.index} hover>
+                      <TableCell sx={{ color: colors.grey[100], fontSize: "0.8rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{r.index}</TableCell>
+                      <TableCell sx={{ color: colors.grey[100], fontSize: "0.8rem", fontWeight: 600, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{r.label}</TableCell>
+                      <TableCell align="right" sx={{ color: "#f2b705", fontWeight: 600, fontSize: "0.8rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                        N$ {Number(r.rate).toFixed(4)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table></TableContainer>
+            ) : (
+              <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 4 }}>Using default tariff rates</Typography>
+            )}
+          </Box>
+          <Box gridColumn="span 6" gridRow="span 3" backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" overflow="auto">
+            <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>Tariff Structure</Typography>
+            <Typography variant="body2" color="rgba(255,255,255,0.5)" mb={1.5} fontSize="0.78rem">{tariff?.description || ""}</Typography>
+            {tariff?.blocks && (
+              <TableContainer><Table size="small">
+                <TableHead><TableRow>
+                  {["Block", "Range", "Rate (N$/kWh)"].map((col) => (
+                    <TableCell key={col} align={col.includes("Rate") ? "right" : "left"}
+                      sx={{ color: colors.greenAccent[500], fontWeight: 600, fontSize: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>{col}</TableCell>
+                  ))}
+                </TableRow></TableHead>
+                <TableBody>
+                  {tariff.blocks.map((b) => (
+                    <TableRow key={b.name}>
+                      <TableCell sx={{ color: colors.grey[100], fontSize: "0.8rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{b.name}</TableCell>
+                      <TableCell sx={{ color: colors.grey[100], fontSize: "0.8rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{b.range}</TableCell>
+                      <TableCell align="right" sx={{ color: "#f2b705", fontWeight: 600, fontSize: "0.8rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{Number(b.rate).toFixed(2)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table></TableContainer>
+            )}
+          </Box>
+        </Box>
+        )}
+
+        {/* ---- Sub-tab 4: Mode History ---- */}
+        {billingSubTab === 4 && (
+        <Box backgroundColor={colors.primary[400]} borderRadius="4px" p="20px" overflow="auto">
+          <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>Billing Mode Switch History</Typography>
+          {modeHistory.length > 0 ? (
+            <TableContainer><Table size="small">
+              <TableHead><TableRow>
+                {["Date", "From", "To", "Remaining Credit", "Reason", "Switched By"].map(col => (
+                  <TableCell key={col} sx={{ color: colors.greenAccent[500], fontWeight: 600, fontSize: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>{col}</TableCell>
+                ))}
+              </TableRow></TableHead>
+              <TableBody>
+                {modeHistory.map((h) => (
+                  <TableRow key={h.id} hover>
+                    <TableCell sx={{ color: colors.grey[100], fontSize: "0.78rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      {new Date(h.created_at).toLocaleString("en-ZA")}
+                    </TableCell>
+                    <TableCell sx={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      <Chip label={h.from_mode} size="small" sx={{
+                        bgcolor: h.from_mode === "Prepaid" ? "rgba(76,206,172,0.15)" : "rgba(0,180,216,0.15)",
+                        color: h.from_mode === "Prepaid" ? colors.greenAccent[500] : "#00b4d8", fontWeight: 600, fontSize: "0.68rem", height: 22 }} />
+                    </TableCell>
+                    <TableCell sx={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      <Chip label={h.to_mode} size="small" sx={{
+                        bgcolor: h.to_mode === "Prepaid" ? "rgba(76,206,172,0.15)" : "rgba(0,180,216,0.15)",
+                        color: h.to_mode === "Prepaid" ? colors.greenAccent[500] : "#00b4d8", fontWeight: 600, fontSize: "0.68rem", height: 22 }} />
+                    </TableCell>
+                    <TableCell sx={{ color: colors.grey[100], borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      {Number(h.remaining_credit_kwh).toFixed(1)} kWh
+                    </TableCell>
+                    <TableCell sx={{ color: colors.grey[300], borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{h.reason || "-"}</TableCell>
+                    <TableCell sx={{ color: colors.grey[300], borderBottom: "1px solid rgba(255,255,255,0.05)" }}>{h.switched_by || "-"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table></TableContainer>
+          ) : (
+            <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 4 }}>No mode switches recorded for this meter.</Typography>
+          )}
+        </Box>
+        )}
+
         </Box>
       )}
 

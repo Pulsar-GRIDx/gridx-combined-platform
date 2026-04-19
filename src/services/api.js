@@ -273,6 +273,12 @@ export const postpaidAPI = {
   switchMode: (data) => post('/postpaid/switch-mode', data),
   getModeHistory: (drn) => get(`/postpaid/mode-history/${drn}`),
   getAllMeters: () => get('/postpaid/all-meters'),
+  // Tariff management
+  getPrepaidTariffRates: () => get('/postpaid/prepaid-tariff-rates'),
+  applyPrepaidTariff: (data) => post('/postpaid/apply-prepaid-tariff', data),
+  getPostpaidTariffs: () => get('/postpaid/postpaid-tariffs'),
+  savePostpaidTariff: (data) => post('/postpaid/postpaid-tariffs', data),
+  deletePostpaidTariff: (id) => del(`/postpaid/postpaid-tariffs/${id}`),
 };
 
 // ===== METER PROFILE =====

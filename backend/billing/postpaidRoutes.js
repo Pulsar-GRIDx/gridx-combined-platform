@@ -135,6 +135,30 @@ router.get('/summary', authenticateToken, async (req, res) => {
       ORDER BY day
     `).catch(() => []);
 
+    // Cumulative prepaid tokens purchased (all time)
+    const [prepaidCumulative] = await query(`
+      SELECT COALESCE(SUM(amount), 0) as total, COALESCE(SUM(kwhAmount), 0) as totalKwh,
+             COUNT(*) as tokenCount
+      FROM VendingTransactions
+      WHERE status = 'Completed'
+    `).catch(() => [{ total: 0, totalKwh: 0, tokenCount: 0 }]);
+
+    // Cumulative postpaid consumption this month (from MeterCumulativeEnergyUsage)
+    const [postpaidConsumption] = await query(`
+      SELECT COALESCE(SUM(e.total_kwh), 0) as totalKwh
+      FROM MeterCumulativeEnergyUsage e
+      INNER JOIN MeterBillingConfiguration bc ON e.DRN = bc.DRN
+      WHERE bc.billing_mode = 'Postpaid'
+    `).catch(() => [{ totalKwh: 0 }]);
+
+    // Postpaid total billed this month
+    const [postpaidBilled] = await query(`
+      SELECT COALESCE(SUM(total_amount), 0) as totalBilled
+      FROM PostpaidBills
+      WHERE MONTH(bill_period_end) = MONTH(CURDATE())
+        AND YEAR(bill_period_end) = YEAR(CURDATE())
+    `).catch(() => [{ totalBilled: 0 }]);
+
     res.json({
       totalRevenue: Number(prepaidRev.total) + Number(postpaidRev.total),
       prepaidRevenue: Number(prepaidRev.total),
@@ -142,6 +166,11 @@ router.get('/summary', authenticateToken, async (req, res) => {
       outstanding: Number(outstanding.total),
       prepaidMeterCount: prepaidCount,
       postpaidMeterCount: postpaidCount,
+      prepaidCumulativeRevenue: Number(prepaidCumulative.total),
+      prepaidCumulativeKwh: Number(prepaidCumulative.totalKwh),
+      prepaidTokenCount: Number(prepaidCumulative.tokenCount),
+      postpaidConsumptionKwh: Number(postpaidConsumption.totalKwh),
+      postpaidBilledAmount: Number(postpaidBilled.totalBilled),
       prepaidDaily,
       postpaidDaily,
     });
@@ -524,6 +553,166 @@ router.get('/all-meters', authenticateToken, async (req, res) => {
     res.json({ meters });
   } catch (err) {
     logger.error('All meters error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Postpaid Tariff Configuration ───
+
+// Ensure PostpaidTariffConfig table
+async function ensurePostpaidTariffTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS PostpaidTariffConfig (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      tariff_name VARCHAR(100) NOT NULL,
+      tariff_type ENUM('Flat','Tiered','Time-of-Use') DEFAULT 'Flat',
+      rate_per_kwh DECIMAL(8,4) NOT NULL DEFAULT 2.80,
+      tier_rates JSON DEFAULT NULL,
+      fixed_charge DECIMAL(8,2) NOT NULL DEFAULT 8.50,
+      vat_rate DECIMAL(5,2) NOT NULL DEFAULT 15.00,
+      is_default TINYINT(1) DEFAULT 0,
+      description VARCHAR(255) DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_default (is_default)
+    )
+  `);
+}
+ensurePostpaidTariffTable().catch(err => logger.error('PostpaidTariffConfig table error:', err));
+
+// GET /postpaid-tariffs — List all postpaid tariff configurations
+router.get('/postpaid-tariffs', authenticateToken, async (req, res) => {
+  try {
+    const tariffs = await query('SELECT * FROM PostpaidTariffConfig ORDER BY is_default DESC, tariff_name');
+    res.json({ tariffs });
+  } catch (err) {
+    if (err.code === 'ER_NO_SUCH_TABLE') return res.json({ tariffs: [] });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /postpaid-tariffs — Create or update a postpaid tariff
+router.post('/postpaid-tariffs', authenticateToken, async (req, res) => {
+  try {
+    const { id, tariff_name, tariff_type, rate_per_kwh, tier_rates, fixed_charge, vat_rate, is_default, description } = req.body;
+
+    if (!tariff_name) return res.status(400).json({ error: 'tariff_name is required' });
+
+    // If setting as default, clear other defaults
+    if (is_default) {
+      await query('UPDATE PostpaidTariffConfig SET is_default = 0');
+    }
+
+    if (id) {
+      await query(`
+        UPDATE PostpaidTariffConfig SET
+          tariff_name = ?, tariff_type = ?, rate_per_kwh = ?,
+          tier_rates = ?, fixed_charge = ?, vat_rate = ?,
+          is_default = ?, description = ?
+        WHERE id = ?
+      `, [tariff_name, tariff_type || 'Flat', rate_per_kwh || 2.80,
+          tier_rates ? JSON.stringify(tier_rates) : null,
+          fixed_charge || 8.50, vat_rate || 15.00,
+          is_default ? 1 : 0, description || null, id]);
+      res.json({ success: true, message: 'Postpaid tariff updated' });
+    } else {
+      const result = await query(`
+        INSERT INTO PostpaidTariffConfig
+        (tariff_name, tariff_type, rate_per_kwh, tier_rates, fixed_charge, vat_rate, is_default, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [tariff_name, tariff_type || 'Flat', rate_per_kwh || 2.80,
+          tier_rates ? JSON.stringify(tier_rates) : null,
+          fixed_charge || 8.50, vat_rate || 15.00,
+          is_default ? 1 : 0, description || null]);
+      res.json({ success: true, message: 'Postpaid tariff created', id: result.insertId });
+    }
+  } catch (err) {
+    logger.error('Save postpaid tariff error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /postpaid-tariffs/:id — Delete a postpaid tariff
+router.delete('/postpaid-tariffs/:id', authenticateToken, async (req, res) => {
+  try {
+    await query('DELETE FROM PostpaidTariffConfig WHERE id = ?', [req.params.id]);
+    res.json({ success: true, message: 'Postpaid tariff deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /apply-prepaid-tariff — Apply tariff rate table to all prepaid meters via MQTT
+router.post('/apply-prepaid-tariff', authenticateToken, async (req, res) => {
+  try {
+    const { rates } = req.body;
+    if (!rates || !Array.isArray(rates) || rates.length !== 10) {
+      return res.status(400).json({ error: 'rates must be an array of 10 values' });
+    }
+
+    // Get all prepaid meters (or all meters if no billing config)
+    const meters = await query(`
+      SELECT mp.DRN FROM MeterProfileReal mp
+      LEFT JOIN MeterBillingConfiguration bc ON mp.DRN = bc.DRN
+      WHERE COALESCE(bc.billing_mode, 'Prepaid') = 'Prepaid'
+    `);
+
+    const mqttHandler = require('../services/mqttHandler');
+    let sentCount = 0;
+
+    for (const meter of meters) {
+      // Update DB
+      const existing = await query('SELECT DRN FROM MeterTariffRates WHERE DRN = ?', [meter.DRN]).catch(() => []);
+      const ratesJson = JSON.stringify(rates);
+      if (existing.length > 0) {
+        await query('UPDATE MeterTariffRates SET tariff_rates = ?, updated_at = NOW() WHERE DRN = ?', [ratesJson, meter.DRN]);
+      } else {
+        await query('INSERT INTO MeterTariffRates (DRN, tariff_rates, updated_at) VALUES (?, ?, NOW())', [ratesJson, meter.DRN]).catch(() => {});
+      }
+      // Send MQTT
+      mqttHandler.publishCommand(meter.DRN, { trt: rates });
+      sentCount++;
+    }
+
+    res.json({ success: true, message: `Tariff rates sent to ${sentCount} prepaid meters`, sentCount });
+  } catch (err) {
+    logger.error('Apply prepaid tariff error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /prepaid-tariff-rates — Get current prepaid tariff rate table (from first meter or defaults)
+router.get('/prepaid-tariff-rates', authenticateToken, async (req, res) => {
+  try {
+    const rateLabels = ['Free/Emergency', 'Lifeline', 'Standard', 'Commercial', 'Industrial',
+                        'Custom 5', 'Custom 6', 'Custom 7', 'Custom 8', 'Custom 9'];
+    const defaultRates = [0.00, 1.50, 2.80, 3.50, 4.50, 2.80, 2.80, 2.80, 2.80, 2.80];
+
+    const result = await query('SELECT tariff_rates, updated_at FROM MeterTariffRates LIMIT 1').catch(() => []);
+    let rates = defaultRates;
+    let updatedAt = null;
+
+    if (result.length > 0 && result[0].tariff_rates) {
+      rates = JSON.parse(result[0].tariff_rates);
+      updatedAt = result[0].updated_at;
+    }
+
+    res.json({
+      rates: rates.map((rate, i) => ({
+        index: i, label: rateLabels[i], rate, display: `N$ ${Number(rate).toFixed(4)}/kWh`
+      })),
+      updated_at: updatedAt
+    });
+  } catch (err) {
+    if (err.code === 'ER_NO_SUCH_TABLE') {
+      const defaultRates = [0.00, 1.50, 2.80, 3.50, 4.50, 2.80, 2.80, 2.80, 2.80, 2.80];
+      const rateLabels = ['Free/Emergency', 'Lifeline', 'Standard', 'Commercial', 'Industrial',
+                          'Custom 5', 'Custom 6', 'Custom 7', 'Custom 8', 'Custom 9'];
+      return res.json({
+        rates: defaultRates.map((rate, i) => ({ index: i, label: rateLabels[i], rate, display: `N$ ${Number(rate).toFixed(4)}/kWh` })),
+        updated_at: null
+      });
+    }
     res.status(500).json({ error: err.message });
   }
 });

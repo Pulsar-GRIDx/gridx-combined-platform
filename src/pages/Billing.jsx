@@ -91,7 +91,7 @@ function ChartTooltip({ active, payload, label, colors }) {
   );
 }
 
-function StatCard({ icon, label, value, color, colors }) {
+function StatCard({ icon, label, value, subLabel, color, colors }) {
   return (
     <Box
       gridColumn="span 3"
@@ -109,6 +109,11 @@ function StatCard({ icon, label, value, color, colors }) {
         <Typography variant="h4" color={color || colors.grey[100]} fontWeight="bold">
           {value}
         </Typography>
+        {subLabel && (
+          <Typography variant="caption" color={colors.grey[400]} display="block" mt="2px">
+            {subLabel}
+          </Typography>
+        )}
       </Box>
     </Box>
   );
@@ -254,12 +259,14 @@ export default function Billing() {
             icon={<ElectricMeterOutlined sx={{ color: colors.blueAccent[500], fontSize: 28, mb: 0.5 }} />}
             label={`Prepaid Revenue (${s.prepaidMeterCount || 0} meters)`}
             value={fmtCurrency(s.prepaidRevenue || 0)}
+            subLabel={`${fmt(s.prepaidTokenCount || 0)} tokens | ${Number(s.prepaidCumulativeKwh || 0).toFixed(1)} kWh total`}
             colors={colors}
           />
           <StatCard
             icon={<PointOfSaleOutlined sx={{ color: colors.yellowAccent[500], fontSize: 28, mb: 0.5 }} />}
             label={`Postpaid Revenue (${s.postpaidMeterCount || 0} meters)`}
             value={fmtCurrency(s.postpaidRevenue || 0)}
+            subLabel={`${Number(s.postpaidConsumptionKwh || 0).toFixed(1)} kWh consumed | N$ ${fmt(s.postpaidBilledAmount || 0)} billed`}
             colors={colors}
           />
           <StatCard
