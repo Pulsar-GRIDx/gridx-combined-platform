@@ -284,7 +284,7 @@ export default function Admin() {
       "& fieldset": { borderColor: "rgba(255,255,255,0.15)" },
       "&:hover fieldset": { borderColor: "rgba(76,206,172,0.4)" },
     },
-    "& .MuiInputLabel-root": { color: "rgba(255,255,255,0.5)" },
+    "& .MuiInputLabel-root": { color: colors.grey[400] },
     "& input, & .MuiSelect-select": { color: "#fff" },
   };
 
@@ -434,7 +434,7 @@ export default function Admin() {
                           {op.twofa ? (
                             <SecurityOutlined sx={{ fontSize: 16, color: "#4cceac" }} />
                           ) : (
-                            <Typography variant="caption" color="rgba(255,255,255,0.3)">Off</Typography>
+                            <Typography variant="caption" color={colors.grey[500]}>Off</Typography>
                           )}
                         </TableCell>
                         <TableCell>
@@ -519,7 +519,7 @@ export default function Admin() {
           {auditLoading ? (
             <Box display="flex" justifyContent="center" py={4}><CircularProgress size={24} sx={{ color: colors.greenAccent[500] }} /></Box>
           ) : auditLog.length === 0 ? (
-            <Typography sx={{ color: "rgba(255,255,255,0.3)", textAlign: "center", py: 4 }}>
+            <Typography sx={{ color: colors.grey[500], textAlign: "center", py: 4 }}>
               No audit entries found
             </Typography>
           ) : (
@@ -559,17 +559,17 @@ export default function Admin() {
                       </Typography>
                     )}
                     <Box display="flex" justifyContent="space-between" alignItems="center">
-                      <Typography variant="caption" color="rgba(255,255,255,0.3)" fontSize="0.68rem">
+                      <Typography variant="caption" color={colors.grey[500]} fontSize="0.68rem">
                         {formatTimestamp(entry.timestamp)}
                       </Typography>
                       <Box display="flex" gap={1}>
                         {entry.ip_address && (
-                          <Typography variant="caption" color="rgba(255,255,255,0.25)" fontSize="0.65rem">
+                          <Typography variant="caption" color={colors.grey[500]} fontSize="0.65rem">
                             {entry.ip_address}
                           </Typography>
                         )}
                         {entry.geo_location && entry.geo_location !== "Unknown" && (
-                          <Typography variant="caption" color="rgba(255,255,255,0.25)" fontSize="0.65rem">
+                          <Typography variant="caption" color={colors.grey[500]} fontSize="0.65rem">
                             {entry.geo_location}
                           </Typography>
                         )}
@@ -671,7 +671,7 @@ export default function Admin() {
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setDialogOpen(false)} sx={{ color: "rgba(255,255,255,0.4)", textTransform: "none" }}>Cancel</Button>
+          <Button onClick={() => setDialogOpen(false)} sx={{ color: colors.grey[400], textTransform: "none" }}>Cancel</Button>
           <Button
             onClick={handleSave}
             disabled={formLoading}
@@ -699,12 +699,12 @@ export default function Admin() {
       >
         <DialogTitle sx={{ color: "#db4f4a", fontWeight: 700 }}>Confirm Deletion</DialogTitle>
         <DialogContent>
-          <Typography sx={{ color: "rgba(255,255,255,0.6)" }}>
+          <Typography sx={{ color: colors.grey[300] }}>
             Are you sure you want to permanently delete this user? This action cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setDeleteConfirm(null)} sx={{ color: "rgba(255,255,255,0.4)", textTransform: "none" }}>Cancel</Button>
+          <Button onClick={() => setDeleteConfirm(null)} sx={{ color: colors.grey[400], textTransform: "none" }}>Cancel</Button>
           <Button
             onClick={() => handleDelete(deleteConfirm)}
             variant="contained"
@@ -737,7 +737,7 @@ export default function Admin() {
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setPwDialog(null)} sx={{ color: "rgba(255,255,255,0.4)", textTransform: "none" }}>Cancel</Button>
+          <Button onClick={() => setPwDialog(null)} sx={{ color: colors.grey[400], textTransform: "none" }}>Cancel</Button>
           <Button
             onClick={handleResetPassword}
             variant="contained"

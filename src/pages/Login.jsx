@@ -92,7 +92,7 @@ const pulseKeyframes = {
   },
 };
 
-function FeatureItem({ icon, title, desc, delay }) {
+function FeatureItem({ icon, title, desc, delay, colors }) {
   return (
     <Box
       sx={{
@@ -131,7 +131,7 @@ function FeatureItem({ icon, title, desc, delay }) {
         </Typography>
         <Typography
           sx={{
-            color: "rgba(255,255,255,0.45)",
+            color: colors.grey[400],
             fontSize: "0.74rem",
             lineHeight: 1.5,
           }}
@@ -144,7 +144,7 @@ function FeatureItem({ icon, title, desc, delay }) {
 }
 
 /* MUI dark input styling shared across fields */
-const darkInputSx = (accent) => ({
+const darkInputSx = (accent, colors) => ({
   "& .MuiOutlinedInput-root": {
     backgroundColor: "rgba(255,255,255,0.03)",
     borderRadius: "10px",
@@ -153,7 +153,7 @@ const darkInputSx = (accent) => ({
     "&.Mui-focused fieldset": { borderColor: accent, borderWidth: 1 },
   },
   "& input": { color: "#fff", fontSize: "0.9rem", py: 1.5 },
-  "& input::placeholder": { color: "rgba(255,255,255,0.2)", opacity: 1 },
+  "& input::placeholder": { color: colors.grey[500], opacity: 1 },
 });
 
 /* ==================================================================== */
@@ -434,7 +434,7 @@ export default function Login() {
 
           <Typography
             sx={{
-              color: "rgba(255,255,255,0.4)",
+              color: colors.grey[400],
               fontSize: "0.85rem",
               lineHeight: 1.6,
               mb: 5,
@@ -447,10 +447,10 @@ export default function Login() {
           </Typography>
 
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2.8 }}>
-            <FeatureItem icon={<SpeedOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="Real-time Monitoring" desc="Live voltage, current, and power readings from every meter" delay={0.4} />
-            <FeatureItem icon={<BoltOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="Smart Load Control" desc="Enable or disable mains and heater relays remotely" delay={0.5} />
-            <FeatureItem icon={<TuneOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="STS Token Vending" desc="Generate and manage prepaid electricity tokens" delay={0.6} />
-            <FeatureItem icon={<InsightsOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="Grid Analytics" desc="Area-level insights, transformer mapping, and consumption trends" delay={0.7} />
+            <FeatureItem icon={<SpeedOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="Real-time Monitoring" desc="Live voltage, current, and power readings from every meter" delay={0.4} colors={colors} />
+            <FeatureItem icon={<BoltOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="Smart Load Control" desc="Enable or disable mains and heater relays remotely" delay={0.5} colors={colors} />
+            <FeatureItem icon={<TuneOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="STS Token Vending" desc="Generate and manage prepaid electricity tokens" delay={0.6} colors={colors} />
+            <FeatureItem icon={<InsightsOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="Grid Analytics" desc="Area-level insights, transformer mapping, and consumption trends" delay={0.7} colors={colors} />
           </Box>
         </Box>
 
@@ -476,7 +476,7 @@ export default function Login() {
               <Typography sx={{ color: ACCENT, fontWeight: 800, fontSize: "1.1rem", fontFamily: "monospace" }}>
                 {stat.val}
               </Typography>
-              <Typography sx={{ color: "rgba(255,255,255,0.3)", fontSize: "0.65rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+              <Typography sx={{ color: colors.grey[500], fontSize: "0.65rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>
                 {stat.label}
               </Typography>
             </Box>
@@ -552,7 +552,7 @@ export default function Login() {
                 <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "1.4rem", mb: 0.5 }}>
                   Two-Factor Authentication
                 </Typography>
-                <Typography sx={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem" }}>
+                <Typography sx={{ color: colors.grey[400], fontSize: "0.85rem" }}>
                   Enter the 6-digit code from your authenticator app
                 </Typography>
               </Box>
@@ -580,7 +580,7 @@ export default function Login() {
                 placeholder="000000"
                 autoFocus
                 inputProps={{ maxLength: 6, style: { textAlign: "center", letterSpacing: "0.5em", fontSize: "1.5rem" } }}
-                sx={{ ...darkInputSx(ACCENT), mb: 3 }}
+                sx={{ ...darkInputSx(ACCENT, colors), mb: 3 }}
                 onKeyDown={(e) => { if (e.key === "Enter") handle2FASubmit(); }}
               />
 
@@ -616,7 +616,7 @@ export default function Login() {
               <Button
                 fullWidth
                 onClick={() => { setShow2FA(false); setTwoFACode(""); setTwoFAError(""); }}
-                sx={{ color: "rgba(255,255,255,0.4)", textTransform: "none" }}
+                sx={{ color: colors.grey[400], textTransform: "none" }}
               >
                 Back to Sign In
               </Button>
@@ -627,7 +627,7 @@ export default function Login() {
               <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "1.6rem", mb: 0.5 }}>
                 Welcome back
               </Typography>
-              <Typography sx={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", mb: 4 }}>
+              <Typography sx={{ color: colors.grey[400], fontSize: "0.85rem", mb: 4 }}>
                 Sign in to access your metering dashboard
               </Typography>
 
@@ -648,7 +648,7 @@ export default function Login() {
               )}
 
               <Box component="form" onSubmit={handleSubmit} noValidate>
-                <Typography sx={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", mb: 0.8 }}>
+                <Typography sx={{ color: colors.grey[400], fontSize: "0.72rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", mb: 0.8 }}>
                   Email Address
                 </Typography>
                 <TextField
@@ -665,14 +665,14 @@ export default function Login() {
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <EmailOutlined sx={{ color: "rgba(255,255,255,0.2)", fontSize: 20 }} />
+                        <EmailOutlined sx={{ color: colors.grey[500], fontSize: 20 }} />
                       </InputAdornment>
                     ),
                   }}
-                  sx={{ ...darkInputSx(ACCENT), mb: 3 }}
+                  sx={{ ...darkInputSx(ACCENT, colors), mb: 3 }}
                 />
 
-                <Typography sx={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", mb: 0.8 }}>
+                <Typography sx={{ color: colors.grey[400], fontSize: "0.72rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", mb: 0.8 }}>
                   Password
                 </Typography>
                 <TextField
@@ -689,7 +689,7 @@ export default function Login() {
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <LockOutlined sx={{ color: "rgba(255,255,255,0.2)", fontSize: 20 }} />
+                        <LockOutlined sx={{ color: colors.grey[500], fontSize: 20 }} />
                       </InputAdornment>
                     ),
                     endAdornment: (
@@ -697,14 +697,14 @@ export default function Login() {
                         <IconButton
                           onClick={() => setShowPassword((s) => !s)}
                           edge="end"
-                          sx={{ color: "rgba(255,255,255,0.25)" }}
+                          sx={{ color: colors.grey[500] }}
                         >
                           {showPassword ? <VisibilityOff sx={{ fontSize: 20 }} /> : <Visibility sx={{ fontSize: 20 }} />}
                         </IconButton>
                       </InputAdornment>
                     ),
                   }}
-                  sx={{ ...darkInputSx(ACCENT), mb: 1.5 }}
+                  sx={{ ...darkInputSx(ACCENT, colors), mb: 1.5 }}
                 />
 
                 <Box display="flex" justifyContent="flex-end" mb={3.5}>
@@ -762,7 +762,7 @@ export default function Login() {
               {/* Divider */}
               <Box sx={{ display: "flex", alignItems: "center", gap: 2, my: 3.5 }}>
                 <Box sx={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
-                <Typography sx={{ color: "rgba(255,255,255,0.2)", fontSize: "0.72rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                <Typography sx={{ color: colors.grey[500], fontSize: "0.72rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>
                   Secured by
                 </Typography>
                 <Box sx={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
@@ -781,7 +781,7 @@ export default function Login() {
                       backgroundColor: "rgba(255,255,255,0.02)",
                     }}
                   >
-                    <Typography sx={{ color: "rgba(255,255,255,0.3)", fontSize: "0.64rem", fontWeight: 600, letterSpacing: "0.05em" }}>
+                    <Typography sx={{ color: colors.grey[500], fontSize: "0.64rem", fontWeight: 600, letterSpacing: "0.05em" }}>
                       {badge}
                     </Typography>
                   </Box>
@@ -797,7 +797,7 @@ export default function Login() {
             position: { md: "absolute" },
             bottom: { md: 30 },
             mt: { xs: 5, md: 0 },
-            color: "rgba(255,255,255,0.18)",
+            color: colors.grey[500],
             fontSize: "0.7rem",
             letterSpacing: "0.06em",
           }}
@@ -839,7 +839,7 @@ export default function Login() {
 
           {forgotStep === 1 && (
             <>
-              <Typography sx={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", mb: 2 }}>
+              <Typography sx={{ color: colors.grey[400], fontSize: "0.85rem", mb: 2 }}>
                 Enter your email address and we will send you a verification PIN.
               </Typography>
               <TextField
@@ -847,14 +847,14 @@ export default function Login() {
                 value={forgotEmail}
                 onChange={(e) => { setForgotEmail(e.target.value); setForgotError(""); }}
                 placeholder="your.email@company.com"
-                sx={darkInputSx(ACCENT)}
+                sx={darkInputSx(ACCENT, colors)}
               />
             </>
           )}
 
           {forgotStep === 2 && (
             <>
-              <Typography sx={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", mb: 2 }}>
+              <Typography sx={{ color: colors.grey[400], fontSize: "0.85rem", mb: 2 }}>
                 A 6-digit PIN was sent to {forgotEmail}. Enter it below.
               </Typography>
               <TextField
@@ -863,14 +863,14 @@ export default function Login() {
                 onChange={(e) => { setForgotPin(e.target.value.replace(/[^0-9]/g, "").slice(0, 6)); setForgotError(""); }}
                 placeholder="000000"
                 inputProps={{ maxLength: 6, style: { textAlign: "center", letterSpacing: "0.3em", fontSize: "1.3rem" } }}
-                sx={darkInputSx(ACCENT)}
+                sx={darkInputSx(ACCENT, colors)}
               />
             </>
           )}
 
           {forgotStep === 3 && (
             <>
-              <Typography sx={{ color: "rgba(255,255,255,0.5)", fontSize: "0.85rem", mb: 2 }}>
+              <Typography sx={{ color: colors.grey[400], fontSize: "0.85rem", mb: 2 }}>
                 Enter your new password (minimum 6 characters).
               </Typography>
               <TextField
@@ -879,13 +879,13 @@ export default function Login() {
                 value={forgotNewPassword}
                 onChange={(e) => { setForgotNewPassword(e.target.value); setForgotError(""); }}
                 placeholder="New password"
-                sx={darkInputSx(ACCENT)}
+                sx={darkInputSx(ACCENT, colors)}
               />
             </>
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={closeForgot} sx={{ color: "rgba(255,255,255,0.4)", textTransform: "none" }}>
+          <Button onClick={closeForgot} sx={{ color: colors.grey[400], textTransform: "none" }}>
             Cancel
           </Button>
           <Button

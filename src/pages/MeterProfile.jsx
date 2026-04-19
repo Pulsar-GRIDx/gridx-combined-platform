@@ -155,6 +155,8 @@ function generateHourlyData() {
 
 /* ---- small components ---- */
 function InfoRow({ label, value, color, mono }) {
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
   return (
     <Box
       sx={{
@@ -166,7 +168,7 @@ function InfoRow({ label, value, color, mono }) {
     >
       <Typography
         variant="body2"
-        sx={{ color: "rgba(255,255,255,0.5)", fontSize: "0.8rem" }}
+        sx={{ color: colors.grey[400], fontSize: "0.8rem" }}
       >
         {label}
       </Typography>
@@ -224,7 +226,7 @@ function ProgressCircle({ units, colors, size = 250 }) {
       >
         <Typography
           variant="caption"
-          sx={{ color: "rgba(255,255,255,0.5)", fontSize: "0.7rem", mb: 0.5 }}
+          sx={{ color: colors.grey[400], fontSize: "0.7rem", mb: 0.5 }}
         >
           Meter Units
         </Typography>
@@ -236,7 +238,7 @@ function ProgressCircle({ units, colors, size = 250 }) {
         </Typography>
         <Typography
           variant="caption"
-          sx={{ color: "rgba(255,255,255,0.4)", fontSize: "0.75rem" }}
+          sx={{ color: colors.grey[400], fontSize: "0.75rem" }}
         >
           kWh
         </Typography>
@@ -247,6 +249,8 @@ function ProgressCircle({ units, colors, size = 250 }) {
 
 /* ---- Metric Box (small stat below circle) ---- */
 function MetricBox({ label, value, unit, color }) {
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
   return (
     <Box sx={{ textAlign: "center", minWidth: 80 }}>
       <Typography
@@ -257,7 +261,7 @@ function MetricBox({ label, value, unit, color }) {
       </Typography>
       <Typography
         variant="caption"
-        sx={{ color: "rgba(255,255,255,0.4)", fontSize: "0.68rem" }}
+        sx={{ color: colors.grey[400], fontSize: "0.68rem" }}
       >
         {unit}
       </Typography>
@@ -265,7 +269,7 @@ function MetricBox({ label, value, unit, color }) {
         variant="caption"
         sx={{
           display: "block",
-          color: "rgba(255,255,255,0.5)",
+          color: colors.grey[400],
           fontSize: "0.65rem",
           mt: 0.2,
         }}
@@ -1296,7 +1300,7 @@ export default function MeterProfile() {
               <Box mt={2}>
                 <Typography
                   variant="body2"
-                  color="rgba(255,255,255,0.4)"
+                  color={colors.grey[400]}
                   fontSize="0.72rem"
                 >
                   Last Update
@@ -1383,7 +1387,7 @@ export default function MeterProfile() {
               MQTT Activity Log
             </Typography>
             {(mqttLog.power.length === 0 && mqttLog.energy.length === 0 && mqttLog.relays.length === 0) ? (
-              <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 3 }}>
+              <Typography color={colors.grey[500]} sx={{ textAlign: "center", py: 3 }}>
                 No MQTT data received for this meter yet.
               </Typography>
             ) : (
@@ -2034,7 +2038,7 @@ export default function MeterProfile() {
             ) : (
               <Typography
                 variant="body2"
-                color="rgba(255,255,255,0.35)"
+                color={colors.grey[500]}
               >
                 No mains state data available
               </Typography>
@@ -2083,7 +2087,7 @@ export default function MeterProfile() {
             ) : (
               <Typography
                 variant="body2"
-                color="rgba(255,255,255,0.35)"
+                color={colors.grey[500]}
               >
                 No heater state data available
               </Typography>
@@ -2255,7 +2259,7 @@ export default function MeterProfile() {
                 </TableBody>
               </Table></TableContainer>
             ) : (
-              <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 4 }}>No tokens processed yet.</Typography>
+              <Typography color={colors.grey[500]} sx={{ textAlign: "center", py: 4 }}>No tokens processed yet.</Typography>
             )}
           </Box>
         </Box>
@@ -2318,7 +2322,7 @@ export default function MeterProfile() {
                 </TableBody>
               </Table></TableContainer>
             ) : (
-              <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 4 }}>
+              <Typography color={colors.grey[500]} sx={{ textAlign: "center", py: 4 }}>
                 {billingConfig?.billing_mode === "Postpaid" ? "No postpaid bills generated yet for this meter." : "This meter is in Prepaid mode. Switch to Postpaid to enable billing."}
               </Typography>
             )}
@@ -2353,12 +2357,12 @@ export default function MeterProfile() {
                 </TableBody>
               </Table></TableContainer>
             ) : (
-              <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 4 }}>Using default tariff rates</Typography>
+              <Typography color={colors.grey[500]} sx={{ textAlign: "center", py: 4 }}>Using default tariff rates</Typography>
             )}
           </Box>
           <Box gridColumn="span 6" gridRow="span 3" backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" overflow="auto">
             <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>Tariff Structure</Typography>
-            <Typography variant="body2" color="rgba(255,255,255,0.5)" mb={1.5} fontSize="0.78rem">{tariff?.description || ""}</Typography>
+            <Typography variant="body2" color={colors.grey[400]} mb={1.5} fontSize="0.78rem">{tariff?.description || ""}</Typography>
             {tariff?.blocks && (
               <TableContainer><Table size="small">
                 <TableHead><TableRow>
@@ -2419,7 +2423,7 @@ export default function MeterProfile() {
               </TableBody>
             </Table></TableContainer>
           ) : (
-            <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 4 }}>No mode switches recorded for this meter.</Typography>
+            <Typography color={colors.grey[500]} sx={{ textAlign: "center", py: 4 }}>No mode switches recorded for this meter.</Typography>
           )}
         </Box>
         )}
@@ -2907,7 +2911,7 @@ export default function MeterProfile() {
                 </Box>
               </>
             ) : (
-              <Typography color="rgba(255,255,255,0.35)" sx={{ textAlign: "center", py: 4 }}>No token history found for this meter.</Typography>
+              <Typography color={colors.grey[500]} sx={{ textAlign: "center", py: 4 }}>No token history found for this meter.</Typography>
             )}
           </Box>
         </Box>
@@ -3082,7 +3086,7 @@ export default function MeterProfile() {
               </TableContainer>
             ) : (
               <Typography
-                color="rgba(255,255,255,0.35)"
+                color={colors.grey[500]}
                 sx={{ textAlign: "center", py: 4 }}
               >
                 No transactions found for this meter.
@@ -4095,12 +4099,12 @@ export default function MeterProfile() {
               border: `1px dashed ${tk.border}`, boxShadow: tk.shadow }}>
               <Box sx={{ width: 64, height: 64, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center",
                 backgroundColor: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", mb: 2 }}>
-                <AssignmentOutlined sx={{ fontSize: 32, color: "rgba(255,255,255,0.18)" }} />
+                <AssignmentOutlined sx={{ fontSize: 32, color: colors.grey[500] }} />
               </Box>
-              <Typography color="rgba(255,255,255,0.45)" fontSize={fs.sub} fontWeight={600} mb={0.5}>
+              <Typography color={colors.grey[400]} fontSize={fs.sub} fontWeight={600} mb={0.5}>
                 No Commission Reports Found
               </Typography>
-              <Typography color="rgba(255,255,255,0.25)" fontSize={fs.md} maxWidth={360} mx="auto">
+              <Typography color={colors.grey[500]} fontSize={fs.md} maxWidth={360} mx="auto">
                 Run a commission test from the GRIDx Maintenance app to generate diagnostic reports for this meter.
               </Typography>
             </Box>
@@ -4311,7 +4315,7 @@ export default function MeterProfile() {
                 })
               ) : (
                 <Typography
-                  color="rgba(255,255,255,0.35)"
+                  color={colors.grey[500]}
                   sx={{ textAlign: "center", py: 4 }}
                 >
                   No home classification records found for this meter. Use the
