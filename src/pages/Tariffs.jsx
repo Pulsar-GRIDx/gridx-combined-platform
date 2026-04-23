@@ -301,6 +301,18 @@ export default function Tariffs() {
               <Chip size="small" label={selectedGroup.type === "Block" ? "Block Tariff" : selectedGroup.type === "Flat" ? "Flat Rate" : "Time-of-Use"}
                 sx={{ backgroundColor: `${selectedGroup.type === "TOU" ? colors.redAccent?.[500] || "#db4f4a" : colors.blueAccent[500]}22`,
                   color: selectedGroup.type === "TOU" ? colors.redAccent?.[500] || "#db4f4a" : colors.blueAccent[500], fontWeight: 600 }} />
+              <Chip size="small" label={selectedGroup.billingType || "prepaid"}
+                sx={{ backgroundColor: selectedGroup.billingType === "postpaid" ? "#f2b70522" : "#4cceac22",
+                  color: selectedGroup.billingType === "postpaid" ? "#f2b705" : "#4cceac", fontWeight: 600 }} />
+              {selectedGroup.capacityCharge > 0 && (
+                <Chip size="small" label={`Capacity: N$${Number(selectedGroup.capacityCharge).toFixed(2)}/Amp`} sx={{ backgroundColor: "#00b4d822", color: "#00b4d8", fontWeight: 600 }} />
+              )}
+              {selectedGroup.demandCharge > 0 && (
+                <Chip size="small" label={`Demand: N$${Number(selectedGroup.demandCharge).toFixed(2)}/kVA`} sx={{ backgroundColor: "#9b59b622", color: "#9b59b6", fontWeight: 600 }} />
+              )}
+              {selectedGroup.networkAccessCharge > 0 && (
+                <Chip size="small" label={`Network: N$${Number(selectedGroup.networkAccessCharge).toFixed(2)}/kVA`} sx={{ backgroundColor: "#e67e2222", color: "#e67e22", fontWeight: 600 }} />
+              )}
               <Typography variant="caption" color={colors.grey[400]}>
                 Effective: {selectedGroup.effectiveDate ? new Date(selectedGroup.effectiveDate).toLocaleDateString("en-ZA", { year: "numeric", month: "long", day: "numeric" }) : "N/A"}
               </Typography>
@@ -531,6 +543,14 @@ export default function Tariffs() {
                   <MenuItem value="TOU">Time-of-Use</MenuItem>
                 </Select>
               </FormControl>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Billing</InputLabel>
+                <Select label="Billing" value={editGroup.billingType || "prepaid"}
+                  onChange={(e) => setEditGroup({ ...editGroup, billingType: e.target.value })}>
+                  <MenuItem value="prepaid">Prepaid</MenuItem>
+                  <MenuItem value="postpaid">Postpaid</MenuItem>
+                </Select>
+              </FormControl>
               {editGroup.type === "Flat" && (
                 <TextField label="Flat Rate (N$/kWh)" type="number" size="small" fullWidth
                   value={editGroup.flatRate || ""} onChange={(e) => setEditGroup({ ...editGroup, flatRate: e.target.value })} />
@@ -538,6 +558,15 @@ export default function Tariffs() {
               <TextField label="Effective Date" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }}
                 value={editGroup.effectiveDate ? editGroup.effectiveDate.substring(0, 10) : ""}
                 onChange={(e) => setEditGroup({ ...editGroup, effectiveDate: e.target.value })} />
+              <Typography variant="subtitle2" color={colors.grey[400]} mt="4px">Capacity & Demand Charges</Typography>
+              <Box display="flex" gap="8px">
+                <TextField label="Capacity (N$/Amp/mo)" type="number" size="small" value={editGroup.capacityCharge ?? ""} inputProps={{ step: 0.1 }}
+                  onChange={(e) => setEditGroup({ ...editGroup, capacityCharge: e.target.value || null })} sx={{ flex: 1 }} />
+                <TextField label="Demand (N$/kVA/mo)" type="number" size="small" value={editGroup.demandCharge ?? ""} inputProps={{ step: 0.1 }}
+                  onChange={(e) => setEditGroup({ ...editGroup, demandCharge: e.target.value || null })} sx={{ flex: 1 }} />
+                <TextField label="Network (N$/kVA/mo)" type="number" size="small" value={editGroup.networkAccessCharge ?? ""} inputProps={{ step: 0.1 }}
+                  onChange={(e) => setEditGroup({ ...editGroup, networkAccessCharge: e.target.value || null })} sx={{ flex: 1 }} />
+              </Box>
 
               <Typography variant="subtitle2" color={colors.greenAccent[500]} mt="8px">
                 Rate {editGroup.type === "TOU" ? "Periods" : "Blocks"}
@@ -638,12 +667,29 @@ export default function Tariffs() {
                 <MenuItem value="TOU">Time-of-Use</MenuItem>
               </Select>
             </FormControl>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Billing</InputLabel>
+              <Select label="Billing" value={newGroup.billingType || "prepaid"}
+                onChange={(e) => setNewGroup({ ...newGroup, billingType: e.target.value })}>
+                <MenuItem value="prepaid">Prepaid</MenuItem>
+                <MenuItem value="postpaid">Postpaid</MenuItem>
+              </Select>
+            </FormControl>
             {newGroup.type === "Flat" && (
               <TextField label="Flat Rate (N$/kWh)" type="number" size="small" fullWidth
                 value={newGroup.flatRate} onChange={(e) => setNewGroup({ ...newGroup, flatRate: e.target.value })} />
             )}
             <TextField label="Effective Date" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }}
               value={newGroup.effectiveDate} onChange={(e) => setNewGroup({ ...newGroup, effectiveDate: e.target.value })} />
+            <Typography variant="subtitle2" color={colors.grey[400]} mt="4px">Capacity & Demand Charges</Typography>
+            <Box display="flex" gap="8px">
+              <TextField label="Capacity (N$/Amp)" type="number" size="small" value={newGroup.capacityCharge ?? ""} inputProps={{ step: 0.1 }}
+                onChange={(e) => setNewGroup({ ...newGroup, capacityCharge: e.target.value || null })} sx={{ flex: 1 }} />
+              <TextField label="Demand (N$/kVA)" type="number" size="small" value={newGroup.demandCharge ?? ""} inputProps={{ step: 0.1 }}
+                onChange={(e) => setNewGroup({ ...newGroup, demandCharge: e.target.value || null })} sx={{ flex: 1 }} />
+              <TextField label="Network (N$/kVA)" type="number" size="small" value={newGroup.networkAccessCharge ?? ""} inputProps={{ step: 0.1 }}
+                onChange={(e) => setNewGroup({ ...newGroup, networkAccessCharge: e.target.value || null })} sx={{ flex: 1 }} />
+            </Box>
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: "16px" }}>

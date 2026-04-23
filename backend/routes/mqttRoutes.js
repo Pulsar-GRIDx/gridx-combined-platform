@@ -1084,4 +1084,56 @@ router.get('/mqtt/meters-health-summary', authenticateToken, async (req, res) =>
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// TOU MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════
+
+router.post('/mqtt/tou-config/:drn', authenticateToken, (req, res) => {
+  try {
+    const drn = req.params.drn;
+    const config = req.body;
+    mqttHandler.publishCommand(drn, { type: 'tou_config', ...config });
+    res.json({ success: true, message: `TOU config sent to ${drn}` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/mqtt/tou-mode/:drn', authenticateToken, (req, res) => {
+  try {
+    const { mode } = req.body;
+    mqttHandler.publishCommand(req.params.drn, { type: 'tou_mode', mode });
+    res.json({ success: true, message: `TOU mode ${mode} sent to ${req.params.drn}` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/mqtt/tou-dsm/:drn', authenticateToken, (req, res) => {
+  try {
+    const { enabled } = req.body;
+    mqttHandler.publishCommand(req.params.drn, { type: 'tou_dsm', enabled });
+    res.json({ success: true, message: `DSM ${enabled ? 'enabled' : 'disabled'} on ${req.params.drn}` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/mqtt/tou-preset/:drn', authenticateToken, (req, res) => {
+  try {
+    const { preset } = req.body;
+    mqttHandler.publishCommand(req.params.drn, { type: 'tou_preset', preset: preset || 'windhoek_2024' });
+    res.json({ success: true, message: `TOU preset applied to ${req.params.drn}` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/mqtt/tou-status/:drn/request', authenticateToken, (req, res) => {
+  try {
+    mqttHandler.publishCommand(req.params.drn, { type: 'tou_status' });
+    res.json({ success: true, message: `TOU status requested from ${req.params.drn}` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/mqtt/tou-config/:drn', authenticateToken, async (req, res) => {
+  try {
+    const row = await queryOne('SELECT * FROM MeterTOUConfig WHERE DRN = ?', [req.params.drn]);
+    if (!row) return res.json({ success: true, data: null });
+    res.json({ success: true, data: row });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

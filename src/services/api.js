@@ -403,6 +403,7 @@ export const vendingAPI = {
   createTariffGroup: (data) => post('/vending/tariffs/groups', data),
   updateTariffGroup: (id, data) => put(`/vending/tariffs/groups/${id}`, data),
   deleteTariffGroup: (id) => del(`/vending/tariffs/groups/${id}`),
+  seedWindhoekTariffs: () => post('/vending/tariffs/seed-windhoek'),
   // TOU Schedules
   getTOUSchedule: (groupId) => get(`/vending/tariffs/groups/${groupId}/tou-schedule`),
   updateTOUSchedule: (groupId, schedule) => put(`/vending/tariffs/groups/${groupId}/tou-schedule`, { schedule }),

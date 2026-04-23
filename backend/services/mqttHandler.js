@@ -26,6 +26,7 @@ const path = require('path');
 const TOPICS = [
   'gx/+/power',
   'gx/+/energy',
+  'gx/+/tou_status',
   'gx/+/cellular',
   'gx/+/load',
   'gx/+/token',
@@ -376,6 +377,19 @@ function ensureTables() {
     INDEX idx_drn (DRN),
     INDEX idx_status (status)
   )`, (err) => { if (err) console.error('[MQTT] MeterCalibrationLog table error:', err.message); });
+
+  db.query(`CREATE TABLE IF NOT EXISTS MeterTOUConfig (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    DRN VARCHAR(50) NOT NULL UNIQUE,
+    mode TINYINT DEFAULT 0,
+    dsm_enabled TINYINT DEFAULT 0,
+    current_period VARCHAR(20),
+    active_tariff_index TINYINT,
+    monthly_consumption_wh INT UNSIGNED DEFAULT 0,
+    config_json JSON,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_drn (DRN)
+  )`, (err) => { if (err) console.error('[MQTT] MeterTOUConfig table error:', err.message); });
 }
 
 // ==================== Init ====================
@@ -440,7 +454,7 @@ function handleMessage(topic, buf) {
 
   // JSON-only topics (ack, health, auth_numbers, energy_usage, emergency)
   // Note: relay_log moved to binary path (0x06)
-  if (['ack', 'health', 'auth_numbers', 'energy_usage', 'emergency'].includes(type)) {
+  if (['ack', 'health', 'auth_numbers', 'energy_usage', 'emergency', 'tou_status'].includes(type)) {
     try {
       const data = JSON.parse(buf.toString());
       switch (type) {
@@ -449,6 +463,7 @@ function handleMessage(topic, buf) {
         case 'auth_numbers': handleAuthNumbersJson(drn, data); break;
         case 'energy_usage': handleEnergyUsageJson(drn, data); break;
         case 'emergency':    handleEmergencyJson(drn, data); break;
+        case 'tou_status':   handleTouStatusJson(drn, data); break;
       }
     } catch (e) {
       console.error(`[MQTT] Invalid JSON on ${topic}:`, e.message);
@@ -979,6 +994,19 @@ function handleEmergencyJson(drn, data) {
       });
     }
   });
+}
+
+function handleTouStatusJson(drn, data) {
+  console.log(`[MQTT] TOU status from ${drn}: mode=${data.mode}, period=${data.current_period}`);
+  db.query(
+    `INSERT INTO MeterTOUConfig (DRN, mode, dsm_enabled, current_period, active_tariff_index, monthly_consumption_wh, config_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE mode = VALUES(mode), dsm_enabled = VALUES(dsm_enabled), current_period = VALUES(current_period),
+     active_tariff_index = VALUES(active_tariff_index), monthly_consumption_wh = VALUES(monthly_consumption_wh), config_json = VALUES(config_json)`,
+    [drn, data.mode || 0, data.dsm ? 1 : 0, data.current_period || 'STANDARD',
+     data.active_tariff_index || 0, data.monthly_consumption_wh || 0, JSON.stringify(data)],
+    (err) => { if (err) console.error('[MQTT] TOU status upsert error:', err.message); }
+  );
 }
 
 // ==================== Legacy JSON Fallback ====================

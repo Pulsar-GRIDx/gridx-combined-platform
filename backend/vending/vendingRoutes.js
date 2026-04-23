@@ -154,11 +154,18 @@ var TABLES = [
   // Tariff groups
   "CREATE TABLE IF NOT EXISTS TariffGroups (" +
   "  id INT AUTO_INCREMENT PRIMARY KEY," +
-  "  name VARCHAR(50) NOT NULL UNIQUE," +
+  "  name VARCHAR(100) NOT NULL UNIQUE," +
   "  sgc VARCHAR(20)," +
   "  description TEXT," +
   "  type ENUM('Block','Flat','TOU') DEFAULT 'Block'," +
+  "  billingType ENUM('prepaid','postpaid') DEFAULT 'prepaid'," +
   "  flatRate DECIMAL(8,4)," +
+  "  peakRate DECIMAL(8,4)," +
+  "  standardRate DECIMAL(8,4)," +
+  "  offPeakRate DECIMAL(8,4)," +
+  "  capacityCharge DECIMAL(8,2)," +
+  "  demandCharge DECIMAL(8,2)," +
+  "  networkAccessCharge DECIMAL(8,2)," +
   "  customerCount INT DEFAULT 0," +
   "  effectiveDate DATE," +
   "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
@@ -290,12 +297,20 @@ function addIdempotencyColumn() {
       });
     }
   });
-  // Add regulatory levy columns to TariffConfig if missing
+  // Add regulatory levy columns and tariff group fields if missing
   var levyCols = [
     ["TariffConfig", "ecbLevy", "DECIMAL(8,4) DEFAULT 0.0212"],
     ["TariffConfig", "nefLevy", "DECIMAL(8,4) DEFAULT 0.0160"],
-    ["TariffConfig", "laSurcharge", "DECIMAL(8,4) DEFAULT 0.1200"]
+    ["TariffConfig", "laSurcharge", "DECIMAL(8,4) DEFAULT 0.1200"],
+    ["TariffGroups", "billingType", "ENUM('prepaid','postpaid') DEFAULT 'prepaid'"],
+    ["TariffGroups", "peakRate", "DECIMAL(8,4)"],
+    ["TariffGroups", "standardRate", "DECIMAL(8,4)"],
+    ["TariffGroups", "offPeakRate", "DECIMAL(8,4)"],
+    ["TariffGroups", "capacityCharge", "DECIMAL(8,2)"],
+    ["TariffGroups", "demandCharge", "DECIMAL(8,2)"],
+    ["TariffGroups", "networkAccessCharge", "DECIMAL(8,2)"],
   ];
+  db.query("ALTER TABLE TariffGroups MODIFY COLUMN name VARCHAR(100) NOT NULL", function() {});
   levyCols.forEach(function(c) {
     db.query("SHOW COLUMNS FROM " + c[0] + " LIKE '" + c[1] + "'", function(err, rows) {
       if (!err && (!rows || rows.length === 0)) {
@@ -336,59 +351,73 @@ function seedDefaults() {
   });
   db.query('SELECT COUNT(*) as c FROM TariffGroups', function(err, rows) {
     if (!err && rows[0].c === 0) {
-      // Windhoek 2024 ECB-approved tariff categories
-      var groups = [
-        ['Prepaid Residential', '49001', 'Standard residential prepaid - inclining block tariff (Windhoek 2024)', 'Block', null, '2024-07-01'],
-        ['Prepaid Commercial', '49002', 'Commercial and small business prepaid flat-rate tariff', 'Flat', 2.45, '2024-07-01'],
-        ['Prepaid Industrial TOU', '49003', 'Industrial prepaid with time-of-use periods', 'TOU', null, '2024-07-01'],
-        ['Conventional Residential', '49010', 'Postpaid conventional residential - inclining block', 'Block', null, '2024-07-01'],
-        ['Conventional Commercial', '49011', 'Postpaid conventional commercial flat-rate', 'Flat', 2.67, '2024-07-01'],
-        ['Bulk Supply', '49020', 'Bulk supply to large power users and redistributors', 'TOU', null, '2024-07-01'],
-        ['Street Lighting', '49030', 'Municipal street and public lighting tariff', 'Flat', 1.95, '2024-07-01'],
-        ['Water Pumping', '49031', 'Water pumping and sewage - off-peak incentive', 'TOU', null, '2024-07-01'],
+      // All 27 official Windhoek 2024 ECB tariff categories
+      // [name, sgc, description, type, billingType, flatRate, peakRate, standardRate, offPeakRate, capacityCharge, demandCharge, networkAccessCharge, effectiveDate]
+      var windhoekTariffs = [
+        ['Business <=75A EL20', 'EL20', 'Business TOU tariff for supply <=75A', 'TOU', 'postpaid', null, 2.67, 2.17, 1.68, null, null, null, '2025-07-01'],
+        ['Departmental', 'DEPT', 'Departmental TOU tariff', 'TOU', 'postpaid', null, 2.17, 1.67, 1.18, 22.90, null, null, '2025-07-01'],
+        ['Departmental Demand TOU', 'DEPT-D', 'Departmental demand TOU with kVA charges', 'TOU', 'postpaid', null, 2.17, 1.67, 1.18, null, 147.00, 77.00, '2025-07-01'],
+        ['Departmental Non-Demand TOU', 'DEPT-ND', 'Departmental non-demand TOU tariff', 'TOU', 'postpaid', null, 2.12, 1.62, 1.13, 22.90, null, null, '2025-07-01'],
+        ['Floodlights', 'FLOOD', 'Floodlights flat-rate tariff', 'Flat', 'postpaid', 2.46, null, null, null, null, null, null, '2025-07-01'],
+        ['General <=75A', 'GEN75', 'General flat-rate tariff for supply <=75A', 'Flat', 'postpaid', 2.15, null, null, null, 17.40, null, null, '2025-07-01'],
+        ['General >75A Flat', 'GEN75F', 'General flat-rate tariff for supply >75A', 'Flat', 'postpaid', 2.15, null, null, null, 26.80, null, null, '2025-07-01'],
+        ['General >75A TOU', 'GEN75T', 'General TOU tariff for supply >75A', 'TOU', 'postpaid', null, 2.67, 2.17, 1.68, 26.80, null, null, '2025-07-01'],
+        ['General Demand TOU KVA', 'GENDK', 'General demand TOU with kVA charges', 'TOU', 'postpaid', null, 2.67, 2.17, 1.68, null, 147.00, 77.00, '2025-07-01'],
+        ['General Prepaid', 'GENPP', 'General prepaid flat-rate tariff', 'Flat', 'prepaid', 3.48, null, null, null, null, null, null, '2025-07-01'],
+        ['Industrial Demand TOU KVA', 'INDDK', 'Industrial demand TOU with kVA charges', 'TOU', 'postpaid', null, 2.42, 1.92, 1.43, null, 147.00, 77.00, '2025-07-01'],
+        ['Industrial Demand TOU KVA MV', 'INDDM', 'Industrial demand TOU MV with kVA charges', 'TOU', 'postpaid', null, 2.42, 1.92, 1.43, null, 136.00, 71.00, '2025-07-01'],
+        ['Industrial Non-Demand TOU', 'INDND', 'Industrial non-demand TOU tariff', 'TOU', 'postpaid', null, 2.35, 1.85, 1.36, 26.80, null, null, '2025-07-01'],
+        ['Net Metering Flat', 'NETF', 'Net metering flat-rate for solar customers', 'Flat', 'postpaid', 1.24, null, null, null, null, null, null, '2025-07-01'],
+        ['Net Metering TOU', 'NETT', 'Net metering TOU for solar customers', 'TOU', 'postpaid', null, 1.77, 1.32, 0.88, null, null, null, '2025-07-01'],
+        ['Old Age Homes Demand', 'OAHD', 'Old age homes demand TOU tariff', 'TOU', 'postpaid', null, 2.04, 1.54, 1.05, null, 93.00, 51.00, '2025-07-01'],
+        ['Old Age Homes Non-Demand', 'OAHND', 'Old age homes non-demand flat tariff', 'Flat', 'postpaid', 1.32, null, null, null, 7.40, null, null, '2025-07-01'],
+        ['Residential Prepaid', 'RESPP', 'Standard residential prepaid flat-rate tariff', 'Flat', 'prepaid', 2.32, null, null, null, null, null, null, '2025-07-01'],
+        ['Residential Up to 20A', 'RES20', 'Residential postpaid up to 20A supply', 'Flat', 'postpaid', 1.57, null, null, null, 10.90, null, null, '2025-07-01'],
+        ['Residential with Business Consent', 'RESBC', 'Residential with business consent tariff', 'Flat', 'postpaid', 1.57, null, null, null, 13.20, null, null, '2025-07-01'],
+        ['Residential Postpaid Over 20A', 'RES20P', 'Residential postpaid over 20A supply', 'Flat', 'postpaid', 1.57, null, null, null, 13.20, null, null, '2025-07-01'],
+        ['Social Prepaid (Pensioner)', 'SOCPP', 'Social/pensioner prepaid with block tariff', 'Block', 'prepaid', null, null, null, null, null, null, null, '2025-07-01'],
+        ['Social Services 3 Phase Flat', 'SOC3F', 'Social services 3-phase flat tariff', 'Flat', 'postpaid', 1.45, null, null, null, 27.20, null, null, '2025-07-01'],
+        ['Social Services 3 Phase TOU', 'SOC3T', 'Social services 3-phase TOU tariff', 'TOU', 'postpaid', null, 2.35, 1.85, 1.36, 27.20, null, null, '2025-07-01'],
+        ['Social Services Demand TOU KVA', 'SOCDK', 'Social services demand TOU with kVA charges', 'TOU', 'postpaid', null, 2.23, 1.73, 1.24, null, 145.00, 68.00, '2025-07-01'],
+        ['Social Services Prepaid', 'SOCSP', 'Social services prepaid flat-rate tariff', 'Flat', 'prepaid', 2.41, null, null, null, null, null, null, '2025-07-01'],
+        ['Reseller Residential', 'RESEL', 'Reseller residential tariff', 'Flat', 'postpaid', 1.63, null, null, null, 13.80, null, null, '2025-07-01'],
       ];
-      groups.forEach(function(g) {
-        db.query('INSERT INTO TariffGroups (name, sgc, description, type, flatRate, effectiveDate) VALUES (?, ?, ?, ?, ?, ?)', g, function(err, result) {
+      var insertSql = 'INSERT INTO TariffGroups (name, sgc, description, type, billingType, flatRate, peakRate, standardRate, offPeakRate, capacityCharge, demandCharge, networkAccessCharge, effectiveDate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+      windhoekTariffs.forEach(function(g) {
+        db.query(insertSql, g, function(err, result) {
           if (!err) {
             var gid = result.insertId;
-            if (g[0] === 'Prepaid Residential' || g[0] === 'Conventional Residential') {
+            var name = g[0];
+            if (g[3] === 'TOU') {
               [
-                ['Block 1 (Lifeline)', '0-50 kWh', 1.12, 0, 50, null, 0],
-                ['Block 2', '51-350 kWh', 1.68, 51, 350, null, 1],
-                ['Block 3', '351-600 kWh', 2.15, 351, 600, null, 2],
-                ['Block 4', '601+ kWh', 2.85, 601, 999999, null, 3],
+                ['Off-Peak', 'All kWh', g[8], 0, 999999, 'off-peak', 0],
+                ['Standard', 'All kWh', g[7], 0, 999999, 'standard', 1],
+                ['Peak', 'All kWh', g[6], 0, 999999, 'peak', 2],
               ].forEach(function(b) { db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid].concat(b)); });
-            } else if (g[0] === 'Prepaid Commercial' || g[0] === 'Conventional Commercial') {
-              db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid, 'All Usage', '0+ kWh', parseFloat(g[4]) || 2.45, 0, 999999, null, 0]);
-            } else if (g[0] === 'Prepaid Industrial TOU' || g[0] === 'Bulk Supply') {
-              [
-                ['Off-Peak', 'All kWh (22:00-06:00)', 1.45, 0, 999999, 'off-peak', 0],
-                ['Standard', 'All kWh (06:00-08:00, 11:00-17:00)', 2.10, 0, 999999, 'standard', 1],
-                ['Peak', 'All kWh (08:00-11:00, 17:00-20:00)', 3.25, 0, 999999, 'peak', 2],
-              ].forEach(function(b) { db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid].concat(b)); });
-              // Seed TOU schedule for weekdays
+              // Seed Windhoek 2024 TOU schedule for TOU categories
               for (var d = 1; d <= 5; d++) {
-                [[0,6,'off-peak'],[6,8,'standard'],[8,11,'peak'],[11,17,'standard'],[17,20,'peak'],[20,22,'standard'],[22,24,'off-peak']].forEach(function(s) {
+                [[0,6,'off-peak'],[6,7,'standard'],[7,10,'peak'],[10,17,'standard'],[17,21,'peak'],[21,22,'standard'],[22,24,'off-peak']].forEach(function(s) {
                   db.query('INSERT INTO TariffTOUSchedule (tariffGroupId, dayOfWeek, startHour, endHour, period) VALUES (?, ?, ?, ?, ?)', [gid, d, s[0], s[1], s[2]]);
                 });
               }
-              // Weekend: all off-peak
-              [0, 6].forEach(function(d) {
-                db.query('INSERT INTO TariffTOUSchedule (tariffGroupId, dayOfWeek, startHour, endHour, period) VALUES (?, ?, ?, ?, ?)', [gid, d, 0, 24, 'off-peak']);
+              // Saturday: standard at 7-12 and 18-20, off-peak rest
+              [[0,7,'off-peak'],[7,12,'standard'],[12,18,'off-peak'],[18,20,'standard'],[20,24,'off-peak']].forEach(function(s) {
+                db.query('INSERT INTO TariffTOUSchedule (tariffGroupId, dayOfWeek, startHour, endHour, period) VALUES (?, ?, ?, ?, ?)', [gid, 6, s[0], s[1], s[2]]);
               });
-            } else if (g[0] === 'Street Lighting') {
-              db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid, 'All Usage', '0+ kWh', 1.95, 0, 999999, null, 0]);
-            } else if (g[0] === 'Water Pumping') {
+              // Sunday: all off-peak
+              db.query('INSERT INTO TariffTOUSchedule (tariffGroupId, dayOfWeek, startHour, endHour, period) VALUES (?, ?, ?, ?, ?)', [gid, 0, 0, 24, 'off-peak']);
+            } else if (name === 'Social Prepaid (Pensioner)') {
               [
-                ['Off-Peak', 'All kWh (22:00-06:00)', 1.20, 0, 999999, 'off-peak', 0],
-                ['Standard', 'All kWh (06:00-17:00, 20:00-22:00)', 1.85, 0, 999999, 'standard', 1],
-                ['Peak', 'All kWh (17:00-20:00)', 2.50, 0, 999999, 'peak', 2],
+                ['Block 1', '0-200 kWh', 1.52, 0, 200, null, 0],
+                ['Block 2', '201+ kWh', 2.32, 201, 999999, null, 1],
               ].forEach(function(b) { db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid].concat(b)); });
+            } else if (g[3] === 'Flat' && g[5]) {
+              db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid, 'All Usage', '0+ kWh', g[5], 0, 999999, null, 0]);
             }
           }
         });
       });
-      console.log('[Vending] Default Windhoek 2024 tariff groups seeded');
+      console.log('[Vending] All 27 Windhoek 2024 tariff categories seeded');
     }
   });
 }
@@ -1704,8 +1733,8 @@ router.post('/tariffs/groups', authenticateToken, function(req, res) {
   var b = req.body;
   if (!b.name) return res.status(400).json({ error: 'name is required' });
   db.query(
-    'INSERT INTO TariffGroups (name, sgc, description, type, flatRate, effectiveDate) VALUES (?, ?, ?, ?, ?, ?)',
-    [b.name, b.sgc, b.description, b.type || 'Block', b.flatRate, b.effectiveDate],
+    'INSERT INTO TariffGroups (name, sgc, description, type, billingType, flatRate, peakRate, standardRate, offPeakRate, capacityCharge, demandCharge, networkAccessCharge, effectiveDate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [b.name, b.sgc, b.description, b.type || 'Block', b.billingType || 'prepaid', b.flatRate, b.peakRate, b.standardRate, b.offPeakRate, b.capacityCharge, b.demandCharge, b.networkAccessCharge, b.effectiveDate],
     function(err, result) {
       if (err) return res.status(500).json({ error: err.message });
       var groupId = result.insertId;
@@ -1723,8 +1752,8 @@ router.post('/tariffs/groups', authenticateToken, function(req, res) {
 router.put('/tariffs/groups/:id', authenticateToken, function(req, res) {
   var b = req.body;
   db.query(
-    'UPDATE TariffGroups SET name = COALESCE(?, name), sgc = COALESCE(?, sgc), description = COALESCE(?, description), type = COALESCE(?, type), flatRate = COALESCE(?, flatRate), effectiveDate = COALESCE(?, effectiveDate) WHERE id = ?',
-    [b.name, b.sgc, b.description, b.type, b.flatRate, b.effectiveDate, req.params.id],
+    'UPDATE TariffGroups SET name = COALESCE(?, name), sgc = COALESCE(?, sgc), description = COALESCE(?, description), type = COALESCE(?, type), billingType = COALESCE(?, billingType), flatRate = COALESCE(?, flatRate), peakRate = COALESCE(?, peakRate), standardRate = COALESCE(?, standardRate), offPeakRate = COALESCE(?, offPeakRate), capacityCharge = COALESCE(?, capacityCharge), demandCharge = COALESCE(?, demandCharge), networkAccessCharge = COALESCE(?, networkAccessCharge), effectiveDate = COALESCE(?, effectiveDate) WHERE id = ?',
+    [b.name, b.sgc, b.description, b.type, b.billingType, b.flatRate, b.peakRate, b.standardRate, b.offPeakRate, b.capacityCharge, b.demandCharge, b.networkAccessCharge, b.effectiveDate, req.params.id],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       if (b.blocks) {
@@ -1758,6 +1787,13 @@ router.delete('/tariffs/groups/:id', authenticateToken, function(req, res) {
   });
 });
 
+
+// Re-seed Windhoek 2024 tariff categories
+router.post('/tariffs/seed-windhoek', authenticateToken, function(req, res) {
+  seedDefaults();
+  logAudit('Windhoek 2024 tariffs re-seeded', 'SYSTEM', '', getOperatorName(req), getOperatorId(req), req.ip);
+  res.json({ success: true, message: 'Windhoek 2024 tariff categories seeded (27 categories). Existing categories not affected.' });
+});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TOU SCHEDULES
