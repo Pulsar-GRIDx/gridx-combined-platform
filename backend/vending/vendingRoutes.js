@@ -179,17 +179,43 @@ var TABLES = [
   "  INDEX idx_tariffGroupId (tariffGroupId)" +
   ")",
 
-  // Tariff config
+  // Tariff config (with itemized regulatory levies)
   "CREATE TABLE IF NOT EXISTS TariffConfig (" +
   "  id INT AUTO_INCREMENT PRIMARY KEY," +
   "  vatRate DECIMAL(5,2) DEFAULT 15.00," +
   "  fixedCharge DECIMAL(8,2) DEFAULT 8.50," +
   "  relLevy DECIMAL(8,2) DEFAULT 2.40," +
+  "  ecbLevy DECIMAL(8,4) DEFAULT 0.0212," +
+  "  nefLevy DECIMAL(8,4) DEFAULT 0.0160," +
+  "  laSurcharge DECIMAL(8,4) DEFAULT 0.1200," +
   "  minPurchase DECIMAL(8,2) DEFAULT 5.00," +
   "  arrearsMode ENUM('auto-deduct','manual','disabled') DEFAULT 'auto-deduct'," +
   "  arrearsThreshold DECIMAL(12,2) DEFAULT 500.00," +
   "  arrearsPercentage DECIMAL(5,2) DEFAULT 25.00," +
   "  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" +
+  ")",
+
+  // TOU schedule: defines time periods per tariff group per day
+  "CREATE TABLE IF NOT EXISTS TariffTOUSchedule (" +
+  "  id INT AUTO_INCREMENT PRIMARY KEY," +
+  "  tariffGroupId INT NOT NULL," +
+  "  dayOfWeek TINYINT NOT NULL," +
+  "  startHour TINYINT NOT NULL," +
+  "  endHour TINYINT NOT NULL," +
+  "  period VARCHAR(20) NOT NULL," +
+  "  INDEX idx_group_day (tariffGroupId, dayOfWeek)" +
+  ")",
+
+  // DSM configuration per meter
+  "CREATE TABLE IF NOT EXISTS MeterDSMConfig (" +
+  "  id INT AUTO_INCREMENT PRIMARY KEY," +
+  "  drn VARCHAR(20) NOT NULL UNIQUE," +
+  "  dsmEnabled TINYINT(1) DEFAULT 0," +
+  "  geyserPeakAction ENUM('off','on','schedule') DEFAULT 'off'," +
+  "  geyserScheduleStart TINYINT DEFAULT 17," +
+  "  geyserScheduleEnd TINYINT DEFAULT 20," +
+  "  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+  "  INDEX idx_drn (drn)" +
   ")",
 
   // Audit log
@@ -264,6 +290,22 @@ function addIdempotencyColumn() {
       });
     }
   });
+  // Add regulatory levy columns to TariffConfig if missing
+  var levyCols = [
+    ["TariffConfig", "ecbLevy", "DECIMAL(8,4) DEFAULT 0.0212"],
+    ["TariffConfig", "nefLevy", "DECIMAL(8,4) DEFAULT 0.0160"],
+    ["TariffConfig", "laSurcharge", "DECIMAL(8,4) DEFAULT 0.1200"]
+  ];
+  levyCols.forEach(function(c) {
+    db.query("SHOW COLUMNS FROM " + c[0] + " LIKE '" + c[1] + "'", function(err, rows) {
+      if (!err && (!rows || rows.length === 0)) {
+        db.query("ALTER TABLE " + c[0] + " ADD COLUMN " + c[1] + " " + c[2], function(alterErr) {
+          if (!alterErr) console.log('[Vending] Added ' + c[0] + '.' + c[1]);
+        });
+      }
+    });
+  });
+
   // Add batch close fields
   var batchCols = [
     ["SalesBatches", "openingFloat", "DECIMAL(14,2) DEFAULT 0"],
@@ -288,41 +330,65 @@ function addIdempotencyColumn() {
 function seedDefaults() {
   db.query('SELECT COUNT(*) as c FROM TariffConfig', function(err, rows) {
     if (!err && rows[0].c === 0) {
-      db.query('INSERT INTO TariffConfig (vatRate, fixedCharge, relLevy, minPurchase, arrearsMode, arrearsThreshold, arrearsPercentage) VALUES (15, 8.50, 2.40, 5.00, "auto-deduct", 500, 25)');
+      db.query('INSERT INTO TariffConfig (vatRate, fixedCharge, relLevy, ecbLevy, nefLevy, laSurcharge, minPurchase, arrearsMode, arrearsThreshold, arrearsPercentage) VALUES (15, 8.50, 2.40, 0.0212, 0.0160, 0.1200, 5.00, "auto-deduct", 500, 25)');
       console.log('[Vending] Default tariff config seeded');
     }
   });
   db.query('SELECT COUNT(*) as c FROM TariffGroups', function(err, rows) {
     if (!err && rows[0].c === 0) {
+      // Windhoek 2024 ECB-approved tariff categories
       var groups = [
-        ['Residential', '48901', 'Standard residential prepaid tariff with inclining block structure', 'Block', null, '2025-07-01'],
-        ['Commercial', '48902', 'Commercial and small business flat-rate prepaid tariff', 'Flat', 2.45, '2025-07-01'],
-        ['Industrial', '48903', 'Industrial time-of-use prepaid tariff', 'TOU', null, '2025-07-01'],
+        ['Prepaid Residential', '49001', 'Standard residential prepaid - inclining block tariff (Windhoek 2024)', 'Block', null, '2024-07-01'],
+        ['Prepaid Commercial', '49002', 'Commercial and small business prepaid flat-rate tariff', 'Flat', 2.45, '2024-07-01'],
+        ['Prepaid Industrial TOU', '49003', 'Industrial prepaid with time-of-use periods', 'TOU', null, '2024-07-01'],
+        ['Conventional Residential', '49010', 'Postpaid conventional residential - inclining block', 'Block', null, '2024-07-01'],
+        ['Conventional Commercial', '49011', 'Postpaid conventional commercial flat-rate', 'Flat', 2.67, '2024-07-01'],
+        ['Bulk Supply', '49020', 'Bulk supply to large power users and redistributors', 'TOU', null, '2024-07-01'],
+        ['Street Lighting', '49030', 'Municipal street and public lighting tariff', 'Flat', 1.95, '2024-07-01'],
+        ['Water Pumping', '49031', 'Water pumping and sewage - off-peak incentive', 'TOU', null, '2024-07-01'],
       ];
       groups.forEach(function(g) {
         db.query('INSERT INTO TariffGroups (name, sgc, description, type, flatRate, effectiveDate) VALUES (?, ?, ?, ?, ?, ?)', g, function(err, result) {
           if (!err) {
             var gid = result.insertId;
-            if (g[0] === 'Residential') {
+            if (g[0] === 'Prepaid Residential' || g[0] === 'Conventional Residential') {
               [
                 ['Block 1 (Lifeline)', '0-50 kWh', 1.12, 0, 50, null, 0],
                 ['Block 2', '51-350 kWh', 1.68, 51, 350, null, 1],
                 ['Block 3', '351-600 kWh', 2.15, 351, 600, null, 2],
                 ['Block 4', '601+ kWh', 2.85, 601, 999999, null, 3],
               ].forEach(function(b) { db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid].concat(b)); });
-            } else if (g[0] === 'Commercial') {
-              db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid, 'All Usage', '0+ kWh', 2.45, 0, 999999, null, 0]);
-            } else if (g[0] === 'Industrial') {
+            } else if (g[0] === 'Prepaid Commercial' || g[0] === 'Conventional Commercial') {
+              db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid, 'All Usage', '0+ kWh', parseFloat(g[4]) || 2.45, 0, 999999, null, 0]);
+            } else if (g[0] === 'Prepaid Industrial TOU' || g[0] === 'Bulk Supply') {
               [
-                ['Off-Peak (22:00-06:00)', 'All kWh', 1.45, 0, 999999, 'off-peak', 0],
-                ['Standard (06:00-08:00, 11:00-18:00)', 'All kWh', 2.10, 0, 999999, 'standard', 1],
-                ['Peak (08:00-11:00, 18:00-22:00)', 'All kWh', 3.25, 0, 999999, 'peak', 2],
+                ['Off-Peak', 'All kWh (22:00-06:00)', 1.45, 0, 999999, 'off-peak', 0],
+                ['Standard', 'All kWh (06:00-08:00, 11:00-17:00)', 2.10, 0, 999999, 'standard', 1],
+                ['Peak', 'All kWh (08:00-11:00, 17:00-20:00)', 3.25, 0, 999999, 'peak', 2],
+              ].forEach(function(b) { db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid].concat(b)); });
+              // Seed TOU schedule for weekdays
+              for (var d = 1; d <= 5; d++) {
+                [[0,6,'off-peak'],[6,8,'standard'],[8,11,'peak'],[11,17,'standard'],[17,20,'peak'],[20,22,'standard'],[22,24,'off-peak']].forEach(function(s) {
+                  db.query('INSERT INTO TariffTOUSchedule (tariffGroupId, dayOfWeek, startHour, endHour, period) VALUES (?, ?, ?, ?, ?)', [gid, d, s[0], s[1], s[2]]);
+                });
+              }
+              // Weekend: all off-peak
+              [0, 6].forEach(function(d) {
+                db.query('INSERT INTO TariffTOUSchedule (tariffGroupId, dayOfWeek, startHour, endHour, period) VALUES (?, ?, ?, ?, ?)', [gid, d, 0, 24, 'off-peak']);
+              });
+            } else if (g[0] === 'Street Lighting') {
+              db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid, 'All Usage', '0+ kWh', 1.95, 0, 999999, null, 0]);
+            } else if (g[0] === 'Water Pumping') {
+              [
+                ['Off-Peak', 'All kWh (22:00-06:00)', 1.20, 0, 999999, 'off-peak', 0],
+                ['Standard', 'All kWh (06:00-17:00, 20:00-22:00)', 1.85, 0, 999999, 'standard', 1],
+                ['Peak', 'All kWh (17:00-20:00)', 2.50, 0, 999999, 'peak', 2],
               ].forEach(function(b) { db.query('INSERT INTO TariffBlocks (tariffGroupId, name, rangeLabel, rate, minKwh, maxKwh, period, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [gid].concat(b)); });
             }
           }
         });
       });
-      console.log('[Vending] Default tariff groups seeded');
+      console.log('[Vending] Default Windhoek 2024 tariff groups seeded');
     }
   });
 }
@@ -741,6 +807,20 @@ router.post('/vend', authenticateToken, function(req, res) {
   }
 });
 
+function getCurrentTOUPeriod(tariffGroupId, callback) {
+  var now = new Date();
+  var dow = now.getDay(); // 0=Sun
+  var hour = now.getHours();
+  db.query(
+    'SELECT period FROM TariffTOUSchedule WHERE tariffGroupId = ? AND dayOfWeek = ? AND startHour <= ? AND endHour > ? LIMIT 1',
+    [tariffGroupId, dow, hour, hour],
+    function(err, rows) {
+      if (err || !rows || rows.length === 0) return callback(null, 'standard');
+      callback(null, rows[0].period);
+    }
+  );
+}
+
 function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
   var operatorName = getOperatorName(req);
   var operatorId = getOperatorId(req);
@@ -748,7 +828,7 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
   // Step 1: Get tariff config
   db.query('SELECT * FROM TariffConfig LIMIT 1', function(err, configRows) {
     if (err) return res.status(500).json({ error: err.message });
-    var config = (configRows && configRows[0]) || { vatRate: 15, fixedCharge: 8.50, relLevy: 2.40, arrearsPercentage: 25, arrearsMode: 'auto-deduct', minPurchase: 5 };
+    var config = (configRows && configRows[0]) || { vatRate: 15, fixedCharge: 8.50, relLevy: 2.40, ecbLevy: 0.0212, nefLevy: 0.0160, laSurcharge: 0.1200, arrearsPercentage: 25, arrearsMode: 'auto-deduct', minPurchase: 5 };
 
     // Minimum purchase check
     if (totalAmount < parseFloat(config.minPurchase || 5)) {
@@ -759,17 +839,36 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
     lookupCustomer(meterNo, function(custErr, customer) {
       if (custErr) return res.status(404).json({ error: custErr.message });
 
-      // Step 3: Get tariff blocks
-      var tariffName = customer.tariffGroup || 'Residential';
+      // Step 3: Get tariff group and blocks
+      var tariffName = customer.tariffGroup || 'Prepaid Residential';
       db.query(
-        'SELECT tb.* FROM TariffBlocks tb JOIN TariffGroups tg ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder',
+        'SELECT tg.id as groupId, tg.type as groupType, tg.flatRate, tb.* FROM TariffBlocks tb JOIN TariffGroups tg ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder',
         [tariffName],
-        function(blkErr, blocks) {
+        function(blkErr, rawBlocks) {
           if (blkErr) return res.status(500).json({ error: blkErr.message });
-          if (!blocks || blocks.length === 0) {
-            blocks = [{ name: 'Default', rate: 1.68, minKwh: 0, maxKwh: 999999 }];
+          if (!rawBlocks || rawBlocks.length === 0) {
+            // Fallback: try partial name match
+            db.query(
+              'SELECT tg.id as groupId, tg.type as groupType, tg.flatRate, tb.* FROM TariffBlocks tb JOIN TariffGroups tg ON tb.tariffGroupId = tg.id WHERE tg.name LIKE ? ORDER BY tb.sortOrder',
+              ['%' + tariffName + '%'],
+              function(blkErr2, rawBlocks2) {
+                if (!rawBlocks2 || rawBlocks2.length === 0) {
+                  rawBlocks2 = [{ groupId: 0, groupType: 'Flat', name: 'Default', rate: 1.68, minKwh: 0, maxKwh: 999999 }];
+                }
+                processVend(rawBlocks2);
+              }
+            );
+            return;
           }
+          processVend(rawBlocks);
+        }
+      );
 
+      function processVend(rawBlocks) {
+        var groupType = rawBlocks[0].groupType || 'Block';
+        var groupId = rawBlocks[0].groupId;
+
+        function doCalc(blocks, touPeriod) {
           // Step 4: Calculate breakdown
           var vatRate = parseFloat(config.vatRate) / 100;
           var vatAmount = round2(totalAmount - (totalAmount / (1 + vatRate)));
@@ -792,28 +891,57 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
             return res.status(400).json({ error: 'Amount too low to generate energy units after deductions' });
           }
 
-          // Calculate kWh using block tariff
+          // Calculate kWh based on tariff type
           var remainingAmount = energyAmount;
           var totalKwh = 0;
           var blockBreakdown = [];
 
-          for (var i = 0; i < blocks.length; i++) {
-            if (remainingAmount <= 0) break;
-            var block = blocks[i];
-            var blockRange = (parseFloat(block.maxKwh) || 999999) - (parseFloat(block.minKwh) || 0);
-            var blockCost = blockRange * parseFloat(block.rate);
-            var usedAmount = Math.min(remainingAmount, blockCost);
-            var usedKwh = usedAmount / parseFloat(block.rate);
-            totalKwh += usedKwh;
-            remainingAmount -= usedAmount;
+          if (groupType === 'TOU') {
+            // TOU: use the rate for the current period
+            var touBlock = blocks.find(function(b) { return b.period === touPeriod; }) || blocks[0];
+            var rate = parseFloat(touBlock.rate);
+            totalKwh = round2(remainingAmount / rate);
             blockBreakdown.push({
-              block: block.name,
-              rate: parseFloat(block.rate),
-              kWh: round2(usedKwh),
-              amount: round2(usedAmount)
+              block: touBlock.name + ' (' + (touPeriod || 'standard').toUpperCase() + ')',
+              rate: rate,
+              kWh: totalKwh,
+              amount: round2(remainingAmount),
+              period: touPeriod
             });
+          } else if (groupType === 'Flat') {
+            var flatRate = parseFloat(blocks[0].rate) || parseFloat(rawBlocks[0].flatRate) || 2.45;
+            totalKwh = round2(remainingAmount / flatRate);
+            blockBreakdown.push({
+              block: blocks[0].name || 'Flat Rate',
+              rate: flatRate,
+              kWh: totalKwh,
+              amount: round2(remainingAmount)
+            });
+          } else {
+            // Block tariff (inclining)
+            for (var i = 0; i < blocks.length; i++) {
+              if (remainingAmount <= 0) break;
+              var block = blocks[i];
+              var blockRange = (parseFloat(block.maxKwh) || 999999) - (parseFloat(block.minKwh) || 0);
+              var blockCost = blockRange * parseFloat(block.rate);
+              var usedAmount = Math.min(remainingAmount, blockCost);
+              var usedKwh = usedAmount / parseFloat(block.rate);
+              totalKwh += usedKwh;
+              remainingAmount -= usedAmount;
+              blockBreakdown.push({
+                block: block.name,
+                rate: parseFloat(block.rate),
+                kWh: round2(usedKwh),
+                amount: round2(usedAmount)
+              });
+            }
+            totalKwh = round2(totalKwh);
           }
-          totalKwh = round2(totalKwh);
+
+          // Compute per-kWh regulatory levies
+          var ecbLevyAmount = round2(totalKwh * parseFloat(config.ecbLevy || 0));
+          var nefLevyAmount = round2(totalKwh * parseFloat(config.nefLevy || 0));
+          var laSurchargeAmount = round2(totalKwh * parseFloat(config.laSurcharge || 0));
 
           // Step 5: Generate token and ref
           var token = generateToken();
@@ -851,18 +979,33 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
                     // 3. REL levy line item
                     lineItems.push([txnId, refNo, 'REL_LEVY', 'Rural Electrification Levy', relLevy, 0, 0, meterNo]);
 
-                    // 4. Arrears line item (only if applicable)
+                    // 4. ECB levy line item (per kWh)
+                    if (ecbLevyAmount > 0) {
+                      lineItems.push([txnId, refNo, 'REL_LEVY', 'ECB Levy @ N$' + parseFloat(config.ecbLevy).toFixed(4) + '/kWh x ' + totalKwh + ' kWh', ecbLevyAmount, totalKwh, parseFloat(config.ecbLevy), meterNo]);
+                    }
+
+                    // 5. NEF levy line item (per kWh)
+                    if (nefLevyAmount > 0) {
+                      lineItems.push([txnId, refNo, 'REL_LEVY', 'NEF Levy @ N$' + parseFloat(config.nefLevy).toFixed(4) + '/kWh x ' + totalKwh + ' kWh', nefLevyAmount, totalKwh, parseFloat(config.nefLevy), meterNo]);
+                    }
+
+                    // 6. LA Surcharge line item (per kWh)
+                    if (laSurchargeAmount > 0) {
+                      lineItems.push([txnId, refNo, 'REL_LEVY', 'LA Surcharge @ N$' + parseFloat(config.laSurcharge).toFixed(4) + '/kWh x ' + totalKwh + ' kWh', laSurchargeAmount, totalKwh, parseFloat(config.laSurcharge), meterNo]);
+                    }
+
+                    // 7. Arrears line item (only if applicable)
                     if (arrearsDeducted > 0) {
                       lineItems.push([txnId, refNo, 'ARREARS', 'Arrears deduction (' + config.arrearsPercentage + '% of N$' + afterVat.toFixed(2) + ')', arrearsDeducted, 0, parseFloat(config.arrearsPercentage), meterNo]);
                     }
 
-                    // 5. Energy line items (one per tariff block used)
+                    // 8. Energy line items (one per tariff block used)
                     for (var j = 0; j < blockBreakdown.length; j++) {
                       var bb = blockBreakdown[j];
                       lineItems.push([txnId, refNo, 'ENERGY', 'Energy: ' + bb.block + ' @ N$' + bb.rate.toFixed(4) + '/kWh', bb.amount, bb.kWh, bb.rate, meterNo]);
                     }
 
-                    // 6. Commission line item (if vendor)
+                    // 9. Commission line item (if vendor)
                     if (commission > 0) {
                       lineItems.push([txnId, refNo, 'COMMISSION', 'Vendor commission: ' + vendor.name + ' @ ' + (vendor.commissionRate || 1.5) + '%', commission, 0, parseFloat(vendor.commissionRate || 1.5), meterNo]);
                     }
@@ -919,7 +1062,7 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
                       operatorName, operatorId, req.ip
                     );
 
-                    // Return success with full breakdown
+                    // Return success with full Windhoek-compliant breakdown
                     res.json({
                       success: true,
                       data: {
@@ -930,12 +1073,17 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
                         customerName: customer.name,
                         amount: totalAmount,
                         kWh: totalKwh,
+                        tariffType: groupType,
+                        touPeriod: touPeriod || null,
                         breakdown: {
                           totalAmount: totalAmount,
                           vatAmount: vatAmount,
                           vatRate: parseFloat(config.vatRate),
                           fixedCharge: fixedCharge,
                           relLevy: relLevy,
+                          ecbLevy: ecbLevyAmount,
+                          nefLevy: nefLevyAmount,
+                          laSurcharge: laSurchargeAmount,
                           arrearsDeducted: arrearsDeducted,
                           energyAmount: energyAmount,
                           commission: commission,
@@ -966,8 +1114,17 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
 
             });
           });
+        } // end doCalc
+
+        // Resolve TOU period if applicable, then calculate
+        if (groupType === 'TOU') {
+          getCurrentTOUPeriod(groupId, function(err, period) {
+            doCalc(rawBlocks, period);
+          });
+        } else {
+          doCalc(rawBlocks, null);
         }
-      );
+      } // end processVend
     });
   });
 }
@@ -1510,7 +1667,7 @@ router.get('/tariffs/config', authenticateToken, function(req, res) {
 });
 
 router.put('/tariffs/config', authenticateToken, function(req, res) {
-  var fields = ['vatRate', 'fixedCharge', 'relLevy', 'minPurchase', 'arrearsMode', 'arrearsThreshold', 'arrearsPercentage'];
+  var fields = ['vatRate', 'fixedCharge', 'relLevy', 'ecbLevy', 'nefLevy', 'laSurcharge', 'minPurchase', 'arrearsMode', 'arrearsThreshold', 'arrearsPercentage'];
   var updates = [];
   var params = [];
   fields.forEach(function(f) {
@@ -1581,6 +1738,239 @@ router.put('/tariffs/groups/:id', authenticateToken, function(req, res) {
         });
       }
       logAudit('Tariff group updated: ' + (b.name || req.params.id), 'UPDATE', '', getOperatorName(req), getOperatorId(req), req.ip);
+      res.json({ success: true });
+    }
+  );
+});
+
+
+// Delete tariff group
+router.delete('/tariffs/groups/:id', authenticateToken, function(req, res) {
+  db.query('DELETE FROM TariffBlocks WHERE tariffGroupId = ?', [req.params.id], function() {
+    db.query('DELETE FROM TariffTOUSchedule WHERE tariffGroupId = ?', [req.params.id], function() {
+      db.query('DELETE FROM TariffGroups WHERE id = ?', [req.params.id], function(err, result) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Tariff group not found' });
+        logAudit('Tariff group deleted: ' + req.params.id, 'DELETE', '', getOperatorName(req), getOperatorId(req), req.ip);
+        res.json({ success: true });
+      });
+    });
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TOU SCHEDULES
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Get TOU schedule for a tariff group
+router.get('/tariffs/groups/:id/tou-schedule', authenticateToken, function(req, res) {
+  db.query('SELECT * FROM TariffTOUSchedule WHERE tariffGroupId = ? ORDER BY dayOfWeek, startHour', [req.params.id], function(err, results) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, data: results || [] });
+  });
+});
+
+// Set TOU schedule for a tariff group (replaces entire schedule)
+router.put('/tariffs/groups/:id/tou-schedule', authenticateToken, function(req, res) {
+  var schedule = req.body.schedule;
+  if (!schedule || !Array.isArray(schedule)) return res.status(400).json({ error: 'schedule array is required' });
+
+  db.query('DELETE FROM TariffTOUSchedule WHERE tariffGroupId = ?', [req.params.id], function(delErr) {
+    if (delErr) return res.status(500).json({ error: delErr.message });
+
+    if (schedule.length === 0) return res.json({ success: true, inserted: 0 });
+
+    var values = schedule.map(function(s) {
+      return [req.params.id, s.dayOfWeek, s.startHour, s.endHour, s.period];
+    });
+
+    var sql = 'INSERT INTO TariffTOUSchedule (tariffGroupId, dayOfWeek, startHour, endHour, period) VALUES ?';
+    db.query(sql, [values], function(err, result) {
+      if (err) return res.status(500).json({ error: err.message });
+      logAudit('TOU schedule updated for group ' + req.params.id, 'UPDATE', schedule.length + ' periods', getOperatorName(req), getOperatorId(req), req.ip);
+      res.json({ success: true, inserted: result.affectedRows });
+    });
+  });
+});
+
+// Get current TOU period for a tariff group
+router.get('/tariffs/groups/:id/current-period', authenticateToken, function(req, res) {
+  getCurrentTOUPeriod(parseInt(req.params.id), function(err, period) {
+    res.json({ success: true, data: { period: period, timestamp: new Date().toISOString() } });
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PUSH TARIFF TO METERS (via MQTT)
+// ═══════════════════════════════════════════════════════════════════════════
+
+var mqttHandler;
+try { mqttHandler = require('../services/mqttHandler'); } catch(e) { mqttHandler = null; }
+
+// Push tariff config to a specific meter
+router.post('/tariffs/push/:drn', authenticateToken, function(req, res) {
+  if (!mqttHandler) return res.status(500).json({ error: 'MQTT handler not available' });
+
+  var drn = req.params.drn;
+  var tariffGroupName = req.body.tariffGroup;
+
+  if (!tariffGroupName) return res.status(400).json({ error: 'tariffGroup name is required' });
+
+  // Lookup the group and its blocks
+  db.query(
+    'SELECT tg.id, tg.type, tg.flatRate, tb.rate, tb.period, tb.sortOrder FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder',
+    [tariffGroupName],
+    function(err, rows) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!rows || rows.length === 0) return res.status(404).json({ error: 'Tariff group not found' });
+
+      var groupType = rows[0].type;
+      var command;
+
+      if (groupType === 'TOU') {
+        // Send TOU mode with rates per period
+        var rates = {};
+        rows.forEach(function(r) { if (r.period) rates[r.period] = parseFloat(r.rate); });
+        command = {
+          type: 'tou_config',
+          mode: 'tou',
+          rates: rates,
+          group: tariffGroupName
+        };
+        // Also send the schedule
+        db.query('SELECT dayOfWeek, startHour, endHour, period FROM TariffTOUSchedule WHERE tariffGroupId = ? ORDER BY dayOfWeek, startHour', [rows[0].id], function(schErr, schedule) {
+          if (!schErr && schedule && schedule.length > 0) {
+            command.schedule = schedule;
+          }
+          try {
+            mqttHandler.publishCommand(drn, command, 1);
+            logAudit('TOU tariff pushed to meter ' + drn, 'UPDATE', 'Group: ' + tariffGroupName, getOperatorName(req), getOperatorId(req), req.ip);
+            res.json({ success: true, command: command });
+          } catch(e) {
+            res.status(500).json({ error: e.message });
+          }
+        });
+        return;
+      }
+
+      // Flat or Block mode
+      if (groupType === 'Flat') {
+        command = {
+          type: 'tou_config',
+          mode: 'flat',
+          rate: parseFloat(rows[0].flatRate || rows[0].rate),
+          group: tariffGroupName
+        };
+      } else {
+        command = {
+          type: 'tou_config',
+          mode: 'flat',
+          rate: parseFloat(rows[0].rate),
+          group: tariffGroupName
+        };
+      }
+
+      try {
+        mqttHandler.publishCommand(drn, command, 1);
+        logAudit('Tariff pushed to meter ' + drn, 'UPDATE', 'Group: ' + tariffGroupName + ', Mode: ' + command.mode, getOperatorName(req), getOperatorId(req), req.ip);
+        res.json({ success: true, command: command });
+      } catch(e) {
+        res.status(500).json({ error: e.message });
+      }
+    }
+  );
+});
+
+// Push tariff to ALL meters of a type
+router.post('/tariffs/push-all', authenticateToken, function(req, res) {
+  if (!mqttHandler) return res.status(500).json({ error: 'MQTT handler not available' });
+
+  var tariffGroupName = req.body.tariffGroup;
+  if (!tariffGroupName) return res.status(400).json({ error: 'tariffGroup name is required' });
+
+  db.query('SELECT DRN FROM MeterProfileReal WHERE tariff_type = ? OR tariff_type IS NULL', [tariffGroupName], function(err, meters) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!meters || meters.length === 0) return res.json({ success: true, pushed: 0, message: 'No meters found for this tariff group' });
+
+    var pushed = 0;
+    var errors = [];
+    meters.forEach(function(m) {
+      // For each meter, call the push endpoint internally
+      db.query(
+        'SELECT tg.type, tg.flatRate, tb.rate FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder LIMIT 1',
+        [tariffGroupName],
+        function(err2, rows) {
+          if (err2 || !rows || rows.length === 0) {
+            errors.push(m.DRN);
+            return;
+          }
+          var rate = parseFloat(rows[0].flatRate || rows[0].rate);
+          try {
+            mqttHandler.publishCommand(m.DRN, { type: 'tou_config', mode: rows[0].type === 'TOU' ? 'tou' : 'flat', rate: rate, group: tariffGroupName }, 1);
+            pushed++;
+          } catch(e) {
+            errors.push(m.DRN);
+          }
+        }
+      );
+    });
+
+    setTimeout(function() {
+      logAudit('Bulk tariff push: ' + tariffGroupName, 'UPDATE', 'Pushed to ' + pushed + '/' + meters.length + ' meters', getOperatorName(req), getOperatorId(req), req.ip);
+      res.json({ success: true, pushed: pushed, total: meters.length, errors: errors });
+    }, 500);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DSM CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Get DSM config for a meter
+router.get('/dsm/:drn', authenticateToken, function(req, res) {
+  db.query('SELECT * FROM MeterDSMConfig WHERE drn = ?', [req.params.drn], function(err, results) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, data: (results && results[0]) || { drn: req.params.drn, dsmEnabled: 0, geyserPeakAction: 'off' } });
+  });
+});
+
+// Get DSM config for all meters
+router.get('/dsm', authenticateToken, function(req, res) {
+  db.query('SELECT d.*, m.Name, m.Surname, m.City FROM MeterDSMConfig d LEFT JOIN MeterProfileReal m ON d.drn = m.DRN ORDER BY d.drn', function(err, results) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, data: results || [] });
+  });
+});
+
+// Update DSM config for a meter
+router.put('/dsm/:drn', authenticateToken, function(req, res) {
+  var b = req.body;
+  var drn = req.params.drn;
+  db.query(
+    'INSERT INTO MeterDSMConfig (drn, dsmEnabled, geyserPeakAction, geyserScheduleStart, geyserScheduleEnd) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE dsmEnabled = VALUES(dsmEnabled), geyserPeakAction = VALUES(geyserPeakAction), geyserScheduleStart = VALUES(geyserScheduleStart), geyserScheduleEnd = VALUES(geyserScheduleEnd)',
+    [drn, b.dsmEnabled ? 1 : 0, b.geyserPeakAction || 'off', b.geyserScheduleStart || 17, b.geyserScheduleEnd || 20],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+
+      // Push DSM config to meter via MQTT
+      if (mqttHandler) {
+        try {
+          mqttHandler.publishCommand(drn, {
+            type: 'tou_dsm',
+            enabled: b.dsmEnabled ? 1 : 0,
+            peak_action: b.geyserPeakAction || 'off',
+            start_hour: b.geyserScheduleStart || 17,
+            end_hour: b.geyserScheduleEnd || 20
+          }, 1);
+        } catch(e) {
+          console.error('[DSM] MQTT push error:', e.message);
+        }
+      }
+
+      logAudit('DSM config updated for ' + drn, 'UPDATE', 'Enabled: ' + (b.dsmEnabled ? 'Yes' : 'No') + ', Geyser: ' + (b.geyserPeakAction || 'off'), getOperatorName(req), getOperatorId(req), req.ip);
       res.json({ success: true });
     }
   );

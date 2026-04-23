@@ -402,6 +402,18 @@ export const vendingAPI = {
   getTariffGroups: () => get('/vending/tariffs/groups'),
   createTariffGroup: (data) => post('/vending/tariffs/groups', data),
   updateTariffGroup: (id, data) => put(`/vending/tariffs/groups/${id}`, data),
+  deleteTariffGroup: (id) => del(`/vending/tariffs/groups/${id}`),
+  // TOU Schedules
+  getTOUSchedule: (groupId) => get(`/vending/tariffs/groups/${groupId}/tou-schedule`),
+  updateTOUSchedule: (groupId, schedule) => put(`/vending/tariffs/groups/${groupId}/tou-schedule`, { schedule }),
+  getCurrentTOUPeriod: (groupId) => get(`/vending/tariffs/groups/${groupId}/current-period`),
+  // Push tariff to meters
+  pushTariffToMeter: (drn, tariffGroup) => post(`/vending/tariffs/push/${drn}`, { tariffGroup }),
+  pushTariffToAll: (tariffGroup) => post('/vending/tariffs/push-all', { tariffGroup }),
+  // DSM Configuration
+  getDSMConfig: (drn) => get(`/vending/dsm/${drn}`),
+  getAllDSMConfig: () => get('/vending/dsm'),
+  updateDSMConfig: (drn, data) => put(`/vending/dsm/${drn}`, data),
   // Arrears
   getArrears: () => get('/vending/arrears'),
   setArrears: (meterNo, amount) => post(`/vending/arrears/${meterNo}`, { amount }),
