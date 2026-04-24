@@ -35,6 +35,7 @@ const TOPICS = [
   'gx/+/relay_log',
   'gx/+/auth_numbers',
   'gx/+/energy_usage',
+  'gx/+/net_energy',
   'gx/+/emergency',
   'gx/+/ota/req',
   'gx/+/nextion/req',
@@ -473,6 +474,18 @@ function ensureTables() {
     INDEX idx_drn (DRN)
   )`, (err) => { if (err) console.error('[MQTT] MeterTOUConfig table error:', err.message); });
 
+  db.query(`CREATE TABLE IF NOT EXISTS MeterNetEnergy (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    DRN VARCHAR(50) NOT NULL,
+    import_energy_wh FLOAT,
+    export_energy_wh FLOAT,
+    net_energy_wh FLOAT,
+    record_time INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_drn (DRN),
+    INDEX idx_created (created_at)
+  )`, (err) => { if (err) console.error('[MQTT] MeterNetEnergy table error:', err.message); });
+
   db.query(`CREATE TABLE IF NOT EXISTS SuburbDailyEnergy (
     id INT AUTO_INCREMENT PRIMARY KEY,
     suburb VARCHAR(100) NOT NULL,
@@ -572,17 +585,18 @@ function handleMessage(topic, buf) {
 
   const firstByte = buf[0];
 
-  // Binary payloads start with type byte 0x01-0x06
-  if (firstByte >= 0x01 && firstByte <= 0x06) {
+  // Binary payloads start with type byte 0x01-0x07
+  if (firstByte >= 0x01 && firstByte <= 0x07) {
     console.log(`[MQTT] ${type} from ${drn} (binary, ${buf.length}B)`);
     switch (type) {
-      case 'power':     handlePowerBin(drn, buf); break;
-      case 'energy':    handleEnergyBin(drn, buf); break;
-      case 'cellular':  handleCellularBin(drn, buf); break;
-      case 'load':      handleLoadBin(drn, buf); break;
-      case 'token':     handleTokenBin(drn, buf); break;
-      case 'relay_log': handleRelayLogBin(drn, buf); break;
-      default:          console.warn(`[MQTT] Unknown type: ${type}`);
+      case 'power':      handlePowerBin(drn, buf); break;
+      case 'energy':     handleEnergyBin(drn, buf); break;
+      case 'cellular':   handleCellularBin(drn, buf); break;
+      case 'load':       handleLoadBin(drn, buf); break;
+      case 'token':      handleTokenBin(drn, buf); break;
+      case 'relay_log':  handleRelayLogBin(drn, buf); break;
+      case 'net_energy': handleNetEnergyBin(drn, buf); break;
+      default:           console.warn(`[MQTT] Unknown type: ${type}`);
     }
     return;
   }
@@ -662,6 +676,24 @@ function handleEnergyBin(drn, buf) {
   }, (err) => {
     if (err) console.error('[MQTT] Energy insert error:', err.message);
     else updateSuburbDailyEnergy(drn);
+  });
+}
+
+function handleNetEnergyBin(drn, buf) {
+  if (buf.length < 17) return console.error('[MQTT] NetEnergy packet too short:', buf.length);
+  const import_energy = buf.readFloatLE(1);
+  const export_energy = buf.readFloatLE(5);
+  const net_energy    = buf.readFloatLE(9);
+  const record_time   = buf.readUInt32LE(13);
+
+  db.query('INSERT INTO MeterNetEnergy SET ?', {
+    DRN: drn,
+    import_energy_wh: import_energy,
+    export_energy_wh: export_energy,
+    net_energy_wh: net_energy,
+    record_time: record_time,
+  }, (err) => {
+    if (err) console.error('[MQTT] NetEnergy insert error:', err.message);
   });
 }
 

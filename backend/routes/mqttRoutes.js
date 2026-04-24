@@ -1136,4 +1136,46 @@ router.get('/mqtt/tou-config/:drn', authenticateToken, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// Net Energy (Net Metering)
+// ═══════════════════════════════════════════════════════════════════════
+
+router.get('/mqtt/net-energy/:drn', authenticateToken, async (req, res) => {
+  try {
+    const row = await queryOne(
+      'SELECT * FROM MeterNetEnergy WHERE DRN = ? ORDER BY created_at DESC LIMIT 1',
+      [req.params.drn]
+    );
+    res.json({ success: true, data: row });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/mqtt/net-energy/:drn/history', authenticateToken, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const rows = await queryAll(
+      'SELECT * FROM MeterNetEnergy WHERE DRN = ? ORDER BY created_at DESC LIMIT ?',
+      [req.params.drn, limit]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/mqtt/net-energy/:drn/summary', authenticateToken, async (req, res) => {
+  try {
+    const row = await queryOne(
+      `SELECT
+        SUM(import_energy_wh) as total_import_wh,
+        SUM(export_energy_wh) as total_export_wh,
+        SUM(import_energy_wh) - SUM(export_energy_wh) as total_net_wh,
+        COUNT(*) as reading_count,
+        MIN(created_at) as first_reading,
+        MAX(created_at) as last_reading
+       FROM MeterNetEnergy WHERE DRN = ?`,
+      [req.params.drn]
+    );
+    res.json({ success: true, data: row });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
