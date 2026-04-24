@@ -2014,6 +2014,258 @@ router.put('/dsm/:drn', authenticateToken, function(req, res) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
+// MOBILE APP — TARIFF INFO & TOKEN PREVIEW
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get('/tariff-info/:drn', authenticateToken, function(req, res) {
+  var drn = req.params.drn;
+  lookupCustomer(drn, function(custErr, customer) {
+    var tariffName = (customer && customer.tariffGroup) || 'Residential Prepaid';
+
+    db.query('SELECT * FROM TariffConfig LIMIT 1', function(err, configRows) {
+      if (err) return res.status(500).json({ error: err.message });
+      var config = (configRows && configRows[0]) || {};
+
+      db.query(
+        'SELECT tg.*, GROUP_CONCAT(tb.name ORDER BY tb.sortOrder) as blockNames, GROUP_CONCAT(tb.rate ORDER BY tb.sortOrder) as blockRates FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? GROUP BY tg.id',
+        [tariffName],
+        function(tgErr, tgRows) {
+          if (tgErr) return res.status(500).json({ error: tgErr.message });
+          var tariffGroup = (tgRows && tgRows[0]) || null;
+
+          if (!tariffGroup) {
+            db.query(
+              'SELECT tg.*, GROUP_CONCAT(tb.name ORDER BY tb.sortOrder) as blockNames, GROUP_CONCAT(tb.rate ORDER BY tb.sortOrder) as blockRates FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name LIKE ? GROUP BY tg.id LIMIT 1',
+              ['%' + tariffName + '%'],
+              function(e2, r2) {
+                tariffGroup = (r2 && r2[0]) || null;
+                finishTariffInfo();
+              }
+            );
+          } else {
+            finishTariffInfo();
+          }
+
+          function finishTariffInfo() {
+            var now = new Date();
+            var dow = now.getDay();
+            var hour = now.getHours();
+            var currentPeriod = 'standard';
+            var nextPeriodChange = null;
+
+            if (tariffGroup && tariffGroup.type === 'TOU') {
+              db.query(
+                'SELECT * FROM TariffTOUSchedule WHERE tariffGroupId = ? ORDER BY dayOfWeek, startHour',
+                [tariffGroup.id],
+                function(sErr, schedule) {
+                  if (!sErr && schedule && schedule.length > 0) {
+                    var currentSlot = schedule.find(function(s) {
+                      return s.dayOfWeek === dow && s.startHour <= hour && s.endHour > hour;
+                    });
+                    if (currentSlot) currentPeriod = currentSlot.period;
+
+                    var nextSlot = schedule.find(function(s) {
+                      return (s.dayOfWeek === dow && s.startHour > hour) ||
+                             (s.dayOfWeek > dow) ||
+                             (s.dayOfWeek === 0 && dow === 6);
+                    });
+                    if (nextSlot) {
+                      var hoursUntil = nextSlot.startHour - hour;
+                      if (nextSlot.dayOfWeek !== dow) hoursUntil += (nextSlot.dayOfWeek - dow) * 24;
+                      if (hoursUntil < 0) hoursUntil += 168;
+                      nextPeriodChange = {
+                        period: nextSlot.period,
+                        hoursUntil: hoursUntil,
+                        startHour: nextSlot.startHour
+                      };
+                    }
+                  }
+                  sendResponse();
+                }
+              );
+            } else {
+              sendResponse();
+            }
+
+            function sendResponse() {
+              var currentRate = 0;
+              if (tariffGroup) {
+                if (tariffGroup.type === 'TOU') {
+                  if (currentPeriod === 'peak') currentRate = parseFloat(tariffGroup.peakRate || 0);
+                  else if (currentPeriod === 'off-peak') currentRate = parseFloat(tariffGroup.offPeakRate || 0);
+                  else currentRate = parseFloat(tariffGroup.standardRate || 0);
+                } else if (tariffGroup.type === 'Flat') {
+                  currentRate = parseFloat(tariffGroup.flatRate || 0);
+                }
+              }
+
+              res.json({
+                success: true,
+                data: {
+                  drn: drn,
+                  tariffGroup: tariffGroup ? {
+                    id: tariffGroup.id,
+                    name: tariffGroup.name,
+                    sgc: tariffGroup.sgc,
+                    description: tariffGroup.description,
+                    type: tariffGroup.type,
+                    billingType: tariffGroup.billingType,
+                    flatRate: tariffGroup.flatRate,
+                    peakRate: tariffGroup.peakRate,
+                    standardRate: tariffGroup.standardRate,
+                    offPeakRate: tariffGroup.offPeakRate,
+                    effectiveDate: tariffGroup.effectiveDate
+                  } : null,
+                  currentRate: currentRate,
+                  currentPeriod: currentPeriod,
+                  nextPeriodChange: nextPeriodChange,
+                  config: {
+                    vatRate: config.vatRate,
+                    fixedCharge: config.fixedCharge,
+                    ecbLevy: config.ecbLevy,
+                    nefLevy: config.nefLevy,
+                    laSurcharge: config.laSurcharge,
+                    relLevy: config.relLevy
+                  }
+                }
+              });
+            }
+          }
+        }
+      );
+    });
+  });
+});
+
+router.post('/token-preview', authenticateToken, function(req, res) {
+  var meterNo = req.body.meterNo;
+  var totalAmount = parseFloat(req.body.amount);
+
+  if (!meterNo || !totalAmount || totalAmount <= 0) {
+    return res.status(400).json({ error: 'meterNo and positive amount are required' });
+  }
+
+  db.query('SELECT * FROM TariffConfig LIMIT 1', function(err, configRows) {
+    if (err) return res.status(500).json({ error: err.message });
+    var config = (configRows && configRows[0]) || { vatRate: 15, fixedCharge: 8.50, relLevy: 2.40, ecbLevy: 0.0212, nefLevy: 0.0160, laSurcharge: 0.1200, arrearsPercentage: 25, arrearsMode: 'auto-deduct', minPurchase: 5 };
+
+    lookupCustomer(meterNo, function(custErr, customer) {
+      var tariffName = (customer && customer.tariffGroup) || 'Residential Prepaid';
+      var customerArrears = (customer && parseFloat(customer.arrears)) || 0;
+
+      db.query(
+        'SELECT tg.id as groupId, tg.type as groupType, tg.flatRate, tg.peakRate, tg.standardRate, tg.offPeakRate, tb.* FROM TariffBlocks tb JOIN TariffGroups tg ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder',
+        [tariffName],
+        function(blkErr, rawBlocks) {
+          if (!rawBlocks || rawBlocks.length === 0) {
+            db.query(
+              'SELECT tg.id as groupId, tg.type as groupType, tg.flatRate, tg.peakRate, tg.standardRate, tg.offPeakRate, tb.* FROM TariffBlocks tb JOIN TariffGroups tg ON tb.tariffGroupId = tg.id WHERE tg.name LIKE ? ORDER BY tb.sortOrder',
+              ['%' + tariffName + '%'],
+              function(e2, r2) {
+                if (!r2 || r2.length === 0) {
+                  r2 = [{ groupId: 0, groupType: 'Flat', name: 'Default', rate: 2.32, minKwh: 0, maxKwh: 999999 }];
+                }
+                calcPreview(r2);
+              }
+            );
+            return;
+          }
+          calcPreview(rawBlocks);
+        }
+      );
+
+      function calcPreview(rawBlocks) {
+        var groupType = rawBlocks[0].groupType || 'Flat';
+        var groupId = rawBlocks[0].groupId;
+
+        function doCalc(blocks, touPeriod) {
+          var vatRate = parseFloat(config.vatRate) / 100;
+          var vatAmount = round2(totalAmount - (totalAmount / (1 + vatRate)));
+          var afterVat = round2(totalAmount - vatAmount);
+          var fixedCharge = round2(parseFloat(config.fixedCharge));
+          var relLevy = round2(parseFloat(config.relLevy));
+
+          var arrearsDeducted = 0;
+          if (config.arrearsMode === 'auto-deduct' && customerArrears > 0) {
+            arrearsDeducted = round2(Math.min(customerArrears, afterVat * (parseFloat(config.arrearsPercentage) / 100)));
+          }
+
+          var energyAmount = round2(afterVat - fixedCharge - relLevy - arrearsDeducted);
+          if (energyAmount <= 0) {
+            return res.status(400).json({ error: 'Amount too low after deductions' });
+          }
+
+          var totalKwh = 0;
+          var blockBreakdown = [];
+
+          if (groupType === 'TOU') {
+            var touBlock = blocks.find(function(b) { return b.period === touPeriod; }) || blocks[0];
+            var rate = parseFloat(touBlock.rate);
+            totalKwh = round2(energyAmount / rate);
+            blockBreakdown.push({ block: touBlock.name + ' (' + (touPeriod || 'standard').toUpperCase() + ')', rate: rate, kWh: totalKwh, amount: round2(energyAmount) });
+          } else if (groupType === 'Flat') {
+            var flatRate = parseFloat(blocks[0].rate) || parseFloat(rawBlocks[0].flatRate) || 2.32;
+            totalKwh = round2(energyAmount / flatRate);
+            blockBreakdown.push({ block: 'Flat Rate', rate: flatRate, kWh: totalKwh, amount: round2(energyAmount) });
+          } else {
+            var remaining = energyAmount;
+            for (var i = 0; i < blocks.length && remaining > 0; i++) {
+              var block = blocks[i];
+              var blockRange = (parseFloat(block.maxKwh) || 999999) - (parseFloat(block.minKwh) || 0);
+              var blockCost = blockRange * parseFloat(block.rate);
+              var usedAmount = Math.min(remaining, blockCost);
+              var usedKwh = usedAmount / parseFloat(block.rate);
+              totalKwh += usedKwh;
+              remaining -= usedAmount;
+              blockBreakdown.push({ block: block.name, rate: parseFloat(block.rate), kWh: round2(usedKwh), amount: round2(usedAmount) });
+            }
+            totalKwh = round2(totalKwh);
+          }
+
+          var ecbLevyAmount = round2(totalKwh * parseFloat(config.ecbLevy || 0));
+          var nefLevyAmount = round2(totalKwh * parseFloat(config.nefLevy || 0));
+          var laSurchargeAmount = round2(totalKwh * parseFloat(config.laSurcharge || 0));
+
+          res.json({
+            success: true,
+            data: {
+              totalAmount: totalAmount,
+              tariffGroup: tariffName,
+              tariffType: groupType,
+              currentPeriod: touPeriod || null,
+              breakdown: {
+                vatAmount: vatAmount,
+                vatRate: parseFloat(config.vatRate),
+                fixedCharge: fixedCharge,
+                relLevy: relLevy,
+                arrearsDeducted: arrearsDeducted,
+                ecbLevy: ecbLevyAmount,
+                ecbLevyRate: parseFloat(config.ecbLevy || 0),
+                nefLevy: nefLevyAmount,
+                nefLevyRate: parseFloat(config.nefLevy || 0),
+                laSurcharge: laSurchargeAmount,
+                laSurchargeRate: parseFloat(config.laSurcharge || 0),
+                energyAmount: energyAmount,
+                totalKwh: totalKwh,
+                blocks: blockBreakdown
+              }
+            }
+          });
+        }
+
+        if (groupType === 'TOU') {
+          getCurrentTOUPeriod(groupId, function(err, period) {
+            doCalc(rawBlocks, period);
+          });
+        } else {
+          doCalc(rawBlocks, null);
+        }
+      }
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ARREARS
 // ═══════════════════════════════════════════════════════════════════════════
 
