@@ -31,7 +31,7 @@ import TamperDetection from "./pages/TamperDetection";
 import VsmTesting from "./pages/VsmTesting";
 import EmergencyNotifications from "./pages/EmergencyNotifications";
 import AppUsers from "./pages/AppUsers";
-import FirmwareOTA from "./pages/FirmwareOTA";
+// FirmwareOTA removed
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -44,7 +44,7 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Layout />}>
-              <Route index element={<Dashboard />} />
+              <Route index element={<Map />} />
               <Route path="vending" element={<Vending />} />
               <Route path="customers" element={<Customers />} />
               <Route path="transactions" element={<Transactions />} />
@@ -54,6 +54,7 @@ function App() {
               <Route path="tariffs" element={<Tariffs />} />
               <Route path="reports" element={<Reports />} />
               <Route path="admin" element={<Admin />} />
+              <Route path="dashboard" element={<Dashboard />} />
               <Route path="map" element={<Map />} />
               <Route path="meter/:drn" element={<MeterProfile />} />
               <Route path="meter-profiles" element={<MeterProfiles />} />
@@ -72,7 +73,6 @@ function App() {
               <Route path="vsm-testing" element={<VsmTesting />} />
               <Route path="emergency-notifications" element={<EmergencyNotifications />} />
               <Route path="app-users" element={<AppUsers />} />
-              <Route path="firmware-ota" element={<FirmwareOTA />} />
             </Route>
           </Routes>
         </AuthProvider>

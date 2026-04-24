@@ -281,6 +281,24 @@ exports.resetPasswordByEmail = function(Email, Password) {
   });
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// DELETE APP USER
+// ═══════════════════════════════════════════════════════════════════════════
+
+exports.deleteUser = function(UserID) {
+  return new Promise(function(resolve, reject) {
+    connection.query('DELETE FROM SystemUsers WHERE UserID = ?', [UserID], function(err, results) {
+      if (err) return reject(err);
+      if (results.affectedRows === 0) {
+        var notFound = new Error('User not found');
+        notFound.status = 404;
+        return reject(notFound);
+      }
+      resolve(results);
+    });
+  });
+};
+
 // Export helpers
 exports.logPlatformAudit = logPlatformAudit;
 exports.getGeoString = getGeoString;

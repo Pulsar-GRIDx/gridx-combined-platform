@@ -452,9 +452,148 @@ cron.schedule('0 8 * * *', () => {
   processBilling();
 });
 
+// ─── Postpaid Auto-Bill Generation ───
+// Generates PostpaidBills records for meters on their billing day
+async function generatePostpaidBills() {
+  try {
+    const today = new Date();
+    const currentDay = today.getDate();
+    const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    const isEndOfMonth = currentDay === lastDayOfMonth;
+
+    // Find postpaid meters whose billing day is today
+    const meters = await new Promise((resolve, reject) => {
+      connection.query(`
+        SELECT bc.DRN, bc.billing_period, bc.custom_billing_day, bc.billing_credit_days
+        FROM MeterBillingConfiguration bc
+        WHERE bc.billing_mode = 'Postpaid'
+          AND (
+            (bc.billing_period = '1st' AND ? = 1) OR
+            (bc.billing_period = '15th' AND ? = 15) OR
+            (bc.billing_period = 'End of the month' AND ?) OR
+            (bc.billing_period = 'Custom' AND bc.custom_billing_day = ?)
+          )
+      `, [currentDay, currentDay, isEndOfMonth, currentDay], (err, results) => {
+        if (err) reject(err);
+        else resolve(results);
+      });
+    });
+
+    if (meters.length === 0) {
+      logger.info('No postpaid bills to generate today');
+      return;
+    }
+
+    logger.info(`Generating postpaid bills for ${meters.length} meter(s)`);
+
+    for (const meter of meters) {
+      try {
+        // Determine billing period (last month)
+        const periodEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const periodStart = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
+
+        // Get energy consumption
+        const energyData = await new Promise((resolve, reject) => {
+          connection.query(`
+            SELECT COALESCE(MAX(units) - MIN(units), 0) as total_kwh
+            FROM MeterCumulativeEnergyUsage
+            WHERE DRN = ? AND date_time BETWEEN ? AND ?
+          `, [meter.DRN, periodStart, periodEnd], (err, results) => {
+            if (err) reject(err);
+            else resolve(results);
+          });
+        });
+
+        const totalKwh = parseFloat(energyData[0]?.total_kwh || 0);
+
+        // Get tariff rate
+        let tariffRate = 2.80;
+        const tariffData = await new Promise((resolve, reject) => {
+          connection.query('SELECT tariff_rates FROM MeterTariffRates WHERE DRN = ?',
+            [meter.DRN], (err, results) => {
+              if (err) reject(err);
+              else resolve(results);
+            });
+        }).catch(() => []);
+
+        if (tariffData.length > 0 && tariffData[0].tariff_rates) {
+          const rates = JSON.parse(tariffData[0].tariff_rates);
+          tariffRate = rates[2] || 2.80;
+        }
+
+        // Get tariff config
+        const tariffConfig = await new Promise((resolve, reject) => {
+          connection.query('SELECT * FROM TariffConfig LIMIT 1', (err, results) => {
+            if (err) reject(err);
+            else resolve(results);
+          });
+        }).catch(() => []);
+
+        const vatRate = tariffConfig[0]?.vatRate || 15.00;
+        const fixedCharge = tariffConfig[0]?.fixedCharge || 8.50;
+
+        // Calculate
+        const energyCharge = totalKwh * tariffRate;
+        const subtotal = energyCharge + fixedCharge;
+        const vatAmount = subtotal * (vatRate / 100);
+        const totalAmount = subtotal + vatAmount;
+
+        const creditDaysMap = { '7 Days': 7, '14 Days': 14, '30 Days': 30 };
+        const creditDays = creditDaysMap[meter.billing_credit_days] || 14;
+        const dueDate = new Date(periodEnd);
+        dueDate.setDate(dueDate.getDate() + creditDays);
+
+        // Check for existing bill for this period
+        const existing = await new Promise((resolve, reject) => {
+          connection.query(`
+            SELECT id FROM PostpaidBills
+            WHERE DRN = ? AND bill_period_start = ? AND bill_period_end = ?
+          `, [meter.DRN, periodStart, periodEnd], (err, results) => {
+            if (err) reject(err);
+            else resolve(results);
+          });
+        }).catch(() => []);
+
+        if (existing.length > 0) {
+          logger.info(`Bill already exists for ${meter.DRN} period ${periodStart.toISOString().split('T')[0]}`);
+          continue;
+        }
+
+        // Insert bill
+        await new Promise((resolve, reject) => {
+          connection.query(`
+            INSERT INTO PostpaidBills
+            (DRN, bill_period_start, bill_period_end, total_kwh, tariff_rate,
+             energy_charge, fixed_charge, vat_amount, total_amount, due_date, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Generated')
+          `, [meter.DRN, periodStart, periodEnd, totalKwh, tariffRate,
+              energyCharge.toFixed(2), fixedCharge, vatAmount.toFixed(2),
+              totalAmount.toFixed(2), dueDate], (err, results) => {
+            if (err) reject(err);
+            else resolve(results);
+          });
+        });
+
+        logger.info(`Postpaid bill generated for ${meter.DRN}: N$ ${totalAmount.toFixed(2)} (${totalKwh.toFixed(3)} kWh)`);
+      } catch (err) {
+        logger.error(`Failed to generate bill for ${meter.DRN}:`, err);
+      }
+    }
+  } catch (err) {
+    logger.error('Postpaid bill generation failed:', err);
+  }
+}
+
+// Schedule postpaid bill generation daily at 7 AM (before email notifications at 8 AM)
+cron.schedule('0 7 * * *', () => {
+  logger.info('Starting postpaid bill generation');
+  generatePostpaidBills();
+});
+
 // Manual trigger for testing
 module.exports = {
   processEmailNotifications: processBilling,
+  generatePostpaidBills,
   schedule: cron.schedule('0 8 * * *', () => {
     logger.info('Starting scheduled billing process');
     processBilling();

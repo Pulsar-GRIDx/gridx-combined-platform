@@ -37,12 +37,14 @@ const TOPICS = [
   'gx/+/energy_usage',
   'gx/+/emergency',
   'gx/+/ota/req',
+  'gx/+/nextion/req',
 ];
 
 // ==================== MQTT OTA State ====================
 
 const FIRMWARE_DIR = path.join(__dirname, '..', 'hardware', 'files', 'Data');
 let firmwareCache = null;  // { path, data, size, mtime }
+let nextionCache = null;   // { path, data, size, mtime }
 
 function loadFirmware(firmwarePath) {
   try {
@@ -68,6 +70,86 @@ function getFirmwareInfo() {
   } catch (err) {
     console.error(`[OTA] Failed to read fw_latest.json: ${err.message}`);
     return null;
+  }
+}
+
+function loadNextionTft(tftPath) {
+  try {
+    const stat = fs.statSync(tftPath);
+    if (nextionCache && nextionCache.path === tftPath && nextionCache.mtime === stat.mtimeMs) {
+      return nextionCache;
+    }
+    const data = fs.readFileSync(tftPath);
+    nextionCache = { path: tftPath, data, size: data.length, mtime: stat.mtimeMs };
+    console.log(`[Nextion] TFT loaded: ${tftPath} (${data.length} bytes)`);
+    return nextionCache;
+  } catch (err) {
+    console.error(`[Nextion] Failed to load TFT: ${err.message}`);
+    return null;
+  }
+}
+
+function getNextionInfo() {
+  const infoPath = path.join(FIRMWARE_DIR, 'nextion_latest.json');
+  try {
+    return JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+  } catch (err) {
+    return null;
+  }
+}
+
+function handleNextionRequest(drn, buf) {
+  let msg;
+  try {
+    msg = JSON.parse(buf.toString());
+  } catch (e) {
+    console.error(`[Nextion] Invalid JSON from ${drn}:`, buf.toString());
+    return;
+  }
+
+  const action = msg.action;
+
+  if (action === 'chunk') {
+    const offset = msg.offset || 0;
+    const requestedSize = msg.size || 4096;
+
+    const tftPath = path.join(FIRMWARE_DIR, 'nextion.tft');
+    const tft = loadNextionTft(tftPath);
+    if (!tft) {
+      console.error(`[Nextion] No TFT file for chunk request from ${drn}`);
+      return;
+    }
+
+    const remaining = tft.size - offset;
+    if (remaining <= 0) {
+      console.log(`[Nextion] ${drn}: offset ${offset} beyond TFT size ${tft.size}`);
+      return;
+    }
+    const chunkSize = Math.min(requestedSize, remaining);
+
+    // Binary response: [4B offset BE][4B length BE][data]
+    const header = Buffer.alloc(8);
+    header.writeUInt32BE(offset, 0);
+    header.writeUInt32BE(chunkSize, 4);
+    const chunkData = tft.data.slice(offset, offset + chunkSize);
+    const response = Buffer.concat([header, chunkData]);
+
+    const dataTopic = `gx/${drn}/nextion/data`;
+    mqttClient.publish(dataTopic, response, { qos: 1 }, (err) => {
+      if (err) {
+        console.error(`[Nextion] Publish failed for ${drn} offset ${offset}:`, err.message);
+        return;
+      }
+      const progress = Math.round(((offset + chunkSize) / tft.size) * 100);
+      if (progress % 10 === 0 || offset === 0 || offset + chunkSize >= tft.size) {
+        console.log(`[Nextion] ${drn}: chunk offset=${offset} size=${chunkSize} progress=${progress}%`);
+      }
+    });
+
+  } else if (action === 'complete') {
+    console.log(`[Nextion] ${drn}: TFT update completed successfully!`);
+  } else if (action === 'error') {
+    console.error(`[Nextion] ${drn}: TFT error: ${msg.detail || 'unknown'}`);
   }
 }
 
@@ -335,7 +417,7 @@ function ensureTables() {
     target_drn VARCHAR(50) NOT NULL,
     watt_hours INT NOT NULL,
     token VARCHAR(255),
-    status ENUM('pending','token_generated','forwarded','completed','failed') DEFAULT 'pending',
+    status ENUM('pending','token_generated','forwarded','completing','completed','failed') DEFAULT 'pending',
     source_ack_at TIMESTAMP NULL,
     target_ack_at TIMESTAMP NULL,
     error_detail VARCHAR(255),
@@ -390,6 +472,17 @@ function ensureTables() {
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_drn (DRN)
   )`, (err) => { if (err) console.error('[MQTT] MeterTOUConfig table error:', err.message); });
+
+  db.query(`CREATE TABLE IF NOT EXISTS SuburbDailyEnergy (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    suburb VARCHAR(100) NOT NULL,
+    energy_date DATE NOT NULL,
+    consumption_wh DECIMAL(14, 2) DEFAULT 0,
+    meter_count INT DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY idx_suburb_date (suburb, energy_date),
+    INDEX idx_date (energy_date)
+  )`, (err) => { if (err) console.error('[MQTT] SuburbDailyEnergy table error:', err.message); });
 }
 
 // ==================== Init ====================
@@ -438,6 +531,12 @@ function handleMessage(topic, buf) {
   // Handle OTA chunk requests: gx/{drn}/ota/req
   if (type === 'ota' && parts[3] === 'req') {
     handleOtaRequest(drn, buf);
+    return;
+  }
+
+  // Handle Nextion TFT chunk requests: gx/{drn}/nextion/req
+  if (type === 'nextion' && parts[3] === 'req') {
+    handleNextionRequest(drn, buf);
     return;
   }
 
@@ -517,6 +616,37 @@ function handlePowerBin(drn, buf) {
   }, (err) => { if (err) console.error('[MQTT] Power insert error:', err.message); });
 }
 
+function updateSuburbDailyEnergy(drn) {
+  const query = `
+    INSERT INTO SuburbDailyEnergy (suburb, energy_date, consumption_wh, meter_count)
+    SELECT
+      mli.LocationName,
+      CURDATE(),
+      COALESCE(
+        SUM(COALESCE(last_r.final_power, 0) - COALESCE(first_r.initial_power, 0)),
+        0
+      ),
+      COUNT(DISTINCT mli.DRN)
+    FROM MeterLocationInfoTable mli
+    LEFT JOIN (
+      SELECT DRN, MIN(CAST(active_energy AS DECIMAL(10,2))) AS initial_power
+      FROM MeterCumulativeEnergyUsage WHERE DATE(date_time) = CURDATE() GROUP BY DRN
+    ) first_r ON first_r.DRN = mli.DRN
+    LEFT JOIN (
+      SELECT DRN, MAX(CAST(active_energy AS DECIMAL(10,2))) AS final_power
+      FROM MeterCumulativeEnergyUsage WHERE DATE(date_time) = CURDATE() GROUP BY DRN
+    ) last_r ON last_r.DRN = mli.DRN
+    WHERE mli.LocationName = (SELECT LocationName FROM MeterLocationInfoTable WHERE DRN = ? LIMIT 1)
+    GROUP BY mli.LocationName
+    ON DUPLICATE KEY UPDATE
+      consumption_wh = VALUES(consumption_wh),
+      meter_count = VALUES(meter_count)
+  `;
+  db.query(query, [drn], (err) => {
+    if (err) console.error('[MQTT] SuburbDailyEnergy update error:', err.message);
+  });
+}
+
 function handleEnergyBin(drn, buf) {
   if (buf.length < 23) return console.error('[MQTT] Energy packet too short:', buf.length);
   db.query('INSERT INTO MeterCumulativeEnergyUsage SET ?', {
@@ -529,7 +659,10 @@ function handleEnergyBin(drn, buf) {
     meter_reset:     buf.readUInt8(18),
     record_time:     buf.readUInt32LE(19),
     source: 1,
-  }, (err) => { if (err) console.error('[MQTT] Energy insert error:', err.message); });
+  }, (err) => {
+    if (err) console.error('[MQTT] Energy insert error:', err.message);
+    else updateSuburbDailyEnergy(drn);
+  });
 }
 
 function handleCellularBin(drn, buf) {
@@ -571,11 +704,15 @@ function handleTokenBin(drn, buf) {
   const ttime = buf.readUInt32LE(off); off += 4;
   const amt = buf.readFloatLE(off);
 
+  console.log(`[MQTT] Token from ${drn} (binary): id=${tid.value}, method=${method}, amount=${amt}, cls=${cls}`);
   db.query('INSERT INTO STSTokesInfo SET ?', {
     DRN: drn, token_id: tid.value, token_cls: cls, submission_Method: method,
     display_msg: msg.value, display_auth_result: auth, display_token_result: tres,
     display_validation_result: vres, token_time: ttime, token_amount: amt,
-  }, (err) => { if (err) console.error('[MQTT] Token insert error:', err.message); });
+  }, (err) => {
+    if (err) console.error('[MQTT] Token insert error:', err.message);
+    else console.log(`[MQTT] Token stored for ${drn}: ${tid.value}`);
+  });
 }
 
 function handleRelayLogBin(drn, buf) {
@@ -742,12 +879,44 @@ function handleAckJson(drn, data) {
   if (data.type === 'credit_accept') {
     if (data.status === 'ok') {
       console.log(`[MQTT] Credit accept ACK: target=${drn} applied credit successfully`);
+
+      // Find the transfer record to get source_drn and watt_hours
       db.query(
-        'UPDATE CreditTransfers SET status = ?, target_ack_at = NOW() WHERE target_drn = ? AND status IN (?, ?) ORDER BY created_at DESC LIMIT 1',
-        ['completed', drn, 'token_generated', 'forwarded'],
-        (err) => {
-          if (err) console.error('[MQTT] CreditTransfer complete update error:', err.message);
-          else console.log(`[MQTT] Credit transfer to ${drn} marked COMPLETED`);
+        'SELECT id, source_drn, watt_hours FROM CreditTransfers WHERE target_drn = ? AND status IN (?, ?) ORDER BY created_at DESC LIMIT 1',
+        [drn, 'token_generated', 'forwarded'],
+        (err, rows) => {
+          if (err) {
+            console.error('[MQTT] CreditTransfer lookup error:', err.message);
+            return;
+          }
+          if (!rows || rows.length === 0) {
+            console.error('[MQTT] No matching transfer record found for target:', drn);
+            return;
+          }
+
+          const transfer = rows[0];
+          const sourceDrn = transfer.source_drn;
+          const wattHours = transfer.watt_hours;
+
+          // Update status to 'completing' (waiting for source deduction)
+          db.query(
+            'UPDATE CreditTransfers SET status = ?, target_ack_at = NOW() WHERE id = ?',
+            ['completing', transfer.id],
+            (err) => { if (err) console.error('[MQTT] CreditTransfer completing update error:', err.message); }
+          );
+
+          // Send credit_deduct command to source meter
+          try {
+            publishCommand(sourceDrn, {
+              type: 'credit_deduct',
+              watt_hours: wattHours,
+              target_meter: drn,
+              transfer_id: transfer.id,
+            }, 1);
+            console.log(`[MQTT] Sent credit_deduct to source ${sourceDrn}: ${wattHours} Wh`);
+          } catch (pubErr) {
+            console.error(`[MQTT] Failed to send credit_deduct to ${sourceDrn}:`, pubErr.message);
+          }
         }
       );
     } else {
@@ -755,6 +924,28 @@ function handleAckJson(drn, data) {
       db.query(
         'UPDATE CreditTransfers SET status = ?, error_detail = ?, target_ack_at = NOW() WHERE target_drn = ? AND status IN (?, ?) ORDER BY created_at DESC LIMIT 1',
         ['failed', 'Target meter rejected: ' + (data.detail || 'unknown'), drn, 'token_generated', 'forwarded'],
+        (err) => { if (err) console.error('[MQTT] CreditTransfer fail update error:', err.message); }
+      );
+    }
+  }
+
+  // On credit_deduct ACK from source meter — credit was deducted, transfer is complete
+  if (data.type === 'credit_deduct') {
+    if (data.status === 'ok') {
+      console.log(`[MQTT] Credit deduct ACK: source=${drn} deducted successfully`);
+      db.query(
+        'UPDATE CreditTransfers SET status = ? WHERE source_drn = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
+        ['completed', drn, 'completing'],
+        (err) => {
+          if (err) console.error('[MQTT] CreditTransfer complete update error:', err.message);
+          else console.log(`[MQTT] Credit transfer from ${drn} marked COMPLETED`);
+        }
+      );
+    } else {
+      console.error(`[MQTT] Credit deduct failed on source ${drn}: ${data.detail || 'unknown'}`);
+      db.query(
+        'UPDATE CreditTransfers SET status = ?, error_detail = ? WHERE source_drn = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
+        ['failed', 'Source deduction failed: ' + (data.detail || 'unknown'), drn, 'completing'],
         (err) => { if (err) console.error('[MQTT] CreditTransfer fail update error:', err.message); }
       );
     }
@@ -1028,7 +1219,10 @@ function handleJsonMessage(drn, type, data) {
         DRN: drn, active_energy: data[0], reactive_energy: data[1], units: data[2],
         tamper_state: data[3], tamp_time: data[4], meter_reset: data[5],
         record_time: data[6], source: 1,
-      }, (err) => { if (err) console.error('[MQTT] Energy insert error:', err.message); });
+      }, (err) => {
+        if (err) console.error('[MQTT] Energy insert error:', err.message);
+        else updateSuburbDailyEnergy(drn);
+      });
       break;
     }
     case 'cellular': {
@@ -1056,8 +1250,10 @@ function handleJsonMessage(drn, type, data) {
       } else if (typeof data === 'object' && !Array.isArray(data)) {
         record = { DRN: drn, ...data };
       } else return;
+      console.log(`[MQTT] Token from ${drn}: id=${record.token_id}, method=${record.submission_Method}, amount=${record.token_amount}`);
       db.query('INSERT INTO STSTokesInfo SET ?', record, (err) => {
         if (err) console.error('[MQTT] Token insert error:', err.message);
+        else console.log(`[MQTT] Token stored for ${drn}: ${record.token_id}`);
       });
       break;
     }

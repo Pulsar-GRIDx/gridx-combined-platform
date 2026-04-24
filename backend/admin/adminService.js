@@ -299,7 +299,7 @@ exports.getUserProfile = function(UserID) {
 
 exports.getAllUsers = function() {
   return new Promise(function(resolve, reject) {
-    connection.query('SELECT UserID, FirstName, Email, lastName FROM SystemUsers', function(err, results) {
+    connection.query('SELECT UserID, FirstName, LastName, Email, DRN, isVerified, login_count, lastLoginTime, ip_address FROM SystemUsers', function(err, results) {
       if (err) reject(err); else resolve(results);
     });
   });

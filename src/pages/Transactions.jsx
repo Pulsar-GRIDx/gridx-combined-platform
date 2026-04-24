@@ -102,7 +102,8 @@ const TRANSFER_STEPS = [
   { key: "pending", label: "Command Sent", icon: <SendOutlined /> },
   { key: "token_generated", label: "Source ACK", icon: <CheckCircleOutlined /> },
   { key: "forwarded", label: "Forwarded to Target", icon: <SwapHorizOutlined /> },
-  { key: "completed", label: "Target ACK", icon: <CheckCircleOutlined /> },
+  { key: "completing", label: "Target ACK", icon: <CheckCircleOutlined /> },
+  { key: "completed", label: "Source Deducted", icon: <CheckCircleOutlined /> },
 ];
 
 function getStepIndex(status) {
@@ -110,7 +111,8 @@ function getStepIndex(status) {
     case "pending": return 0;
     case "token_generated": return 1;
     case "forwarded": return 2;
-    case "completed": return 3;
+    case "completing": return 3;
+    case "completed": return 4;
     case "failed": return -1;
     default: return 0;
   }
@@ -285,6 +287,7 @@ export default function Transactions() {
       case "pending": return colors.blueAccent[400];
       case "token_generated": return colors.yellowAccent[500];
       case "forwarded": return "#42a5f5";
+      case "completing": return "#66bb6a";
       default: return colors.grey[300];
     }
   };
@@ -305,6 +308,7 @@ export default function Transactions() {
       case "pending": return "Pending";
       case "token_generated": return "Source Confirmed";
       case "forwarded": return "Forwarded";
+      case "completing": return "Deducting Source";
       case "completed": return "Completed";
       case "failed": return "Failed";
       default: return status;
@@ -316,6 +320,7 @@ export default function Transactions() {
       case "pending": return <HourglassEmptyOutlined fontSize="small" />;
       case "token_generated": return <SyncOutlined fontSize="small" />;
       case "forwarded": return <SwapHorizOutlined fontSize="small" />;
+      case "completing": return <SyncOutlined fontSize="small" />;
       case "completed": return <CheckCircleOutlined fontSize="small" />;
       case "failed": return <ErrorOutlined fontSize="small" />;
       default: return null;
@@ -325,9 +330,10 @@ export default function Transactions() {
   // ---- Progress percentage for transfer ----
   const getProgressPercent = (status) => {
     switch (status) {
-      case "pending": return 15;
-      case "token_generated": return 45;
-      case "forwarded": return 75;
+      case "pending": return 10;
+      case "token_generated": return 30;
+      case "forwarded": return 55;
+      case "completing": return 80;
       case "completed": return 100;
       case "failed": return 100;
       default: return 0;
@@ -528,7 +534,7 @@ export default function Transactions() {
             {[
               { label: "Total Transfers", count: Object.values(transferSummary).reduce((a, b) => a + b, 0), color: colors.blueAccent[500], icon: <SwapHorizOutlined /> },
               { label: "Pending", count: transferSummary.pending || 0, color: colors.blueAccent[400], icon: <HourglassEmptyOutlined /> },
-              { label: "In Progress", count: (transferSummary.token_generated || 0) + (transferSummary.forwarded || 0), color: "#42a5f5", icon: <SyncOutlined /> },
+              { label: "In Progress", count: (transferSummary.token_generated || 0) + (transferSummary.forwarded || 0) + (transferSummary.completing || 0), color: "#42a5f5", icon: <SyncOutlined /> },
               { label: "Completed", count: transferSummary.completed || 0, color: colors.greenAccent[500], icon: <CheckCircleOutlined /> },
               { label: "Failed", count: transferSummary.failed || 0, color: colors.redAccent[500], icon: <ErrorOutlined /> },
             ].map((card) => (
@@ -572,6 +578,7 @@ export default function Transactions() {
                 <MenuItem value="pending">Pending</MenuItem>
                 <MenuItem value="token_generated">Source Confirmed</MenuItem>
                 <MenuItem value="forwarded">Forwarded</MenuItem>
+                <MenuItem value="completing">Deducting Source</MenuItem>
                 <MenuItem value="completed">Completed</MenuItem>
                 <MenuItem value="failed">Failed</MenuItem>
               </Select>
@@ -669,7 +676,7 @@ export default function Transactions() {
                     <Box minWidth={90} textAlign="right">
                       <Typography variant="caption" color={colors.grey[500]}>Amount</Typography>
                       <Typography variant="body1" color={colors.greenAccent[500]} fontWeight="bold">
-                        {Number(t.watt_hours).toLocaleString()} Wh
+                        {(Number(t.watt_hours) / 1000).toFixed(1)} kWh
                       </Typography>
                     </Box>
 
@@ -746,7 +753,7 @@ export default function Transactions() {
                                         ...(isCurrent && !isFailed
                                           ? {
                                               boxShadow: `0 0 0 4px ${progressColor}22`,
-                                              animation: stepIndex < 3 ? "pulse 2s infinite" : "none",
+                                              animation: stepIndex < 4 ? "pulse 2s infinite" : "none",
                                               "@keyframes pulse": {
                                                 "0%": { boxShadow: `0 0 0 0 ${progressColor}44` },
                                                 "70%": { boxShadow: `0 0 0 8px ${progressColor}00` },
@@ -758,7 +765,7 @@ export default function Transactions() {
                                     >
                                       {isActive && idx < stepIndex ? (
                                         <CheckCircleOutlined sx={{ fontSize: 18 }} />
-                                      ) : isCurrent && stepIndex < 3 ? (
+                                      ) : isCurrent && stepIndex < 4 ? (
                                         <SyncOutlined sx={{ fontSize: 18, animation: "spin 2s linear infinite", "@keyframes spin": { "100%": { transform: "rotate(360deg)" } } }} />
                                       ) : (
                                         step.icon
@@ -844,7 +851,7 @@ export default function Transactions() {
                         {[
                           { time: t.created_at, label: "Transfer initiated", desc: `Command sent to source meter ${t.source_drn}`, done: true },
                           { time: t.source_ack_at, label: "Source meter confirmed", desc: t.token ? `Token generated: ${t.token.substring(0, 16)}...` : "Waiting for source meter response...", done: !!t.source_ack_at },
-                          { time: t.source_ack_at, label: "Token forwarded to target", desc: `Forwarded to meter ${t.target_drn} via MQTT`, done: stepIndex >= 2 },
+                          { time: t.source_ack_at, label: "Token forwarded to target", desc: `Forwarded to meter ${t.target_drn}`, done: stepIndex >= 2 },
                           { time: t.target_ack_at, label: "Target meter confirmed", desc: "Credit accepted and applied", done: t.status === "completed" },
                         ].map((event, i) => (
                           <Box key={i} display="flex" gap="12px" mb={1}>

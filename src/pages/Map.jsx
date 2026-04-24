@@ -1094,21 +1094,21 @@ export default function MapPage() {
                           {selectedNonGridx.meterNo}
                         </Typography>
                         {selectedNonGridx.utilityProvider && (
-                          <Typography variant="caption" display="block" color="#666">
+                          <Typography variant="caption" display="block" color={colors.grey[300]}>
                             Provider: {selectedNonGridx.utilityProvider}
                           </Typography>
                         )}
                         {selectedNonGridx.meterType && (
-                          <Typography variant="caption" display="block" color="#666">
+                          <Typography variant="caption" display="block" color={colors.grey[300]}>
                             Type: {selectedNonGridx.meterType}
                           </Typography>
                         )}
                         {selectedNonGridx.area && (
-                          <Typography variant="caption" display="block" color="#666">
+                          <Typography variant="caption" display="block" color={colors.grey[300]}>
                             {selectedNonGridx.area}
                           </Typography>
                         )}
-                        <Typography variant="caption" display="block" sx={{ mt: "2px", color: "#888" }}>
+                        <Typography variant="caption" display="block" sx={{ mt: "2px", color: colors.grey[300] }}>
                           {lat.toFixed(6)}, {lng.toFixed(6)}
                         </Typography>
                       </Box>

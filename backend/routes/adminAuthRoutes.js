@@ -75,6 +75,9 @@ router.post('/UserUpdate/:UserID', adminController.updateUserInfo);
 // Delete admin — ADMIN only
 router.delete('/deleteAdmin/:Admin_ID', auth.requireAdmin, adminController.deleteAdmin);
 
+// Delete app user — ADMIN only
+router.delete('/deleteUser/:UserID', auth.requireAdmin, adminController.deleteUser);
+
 // Toggle admin status — ADMIN only
 router.post('/updateStatus/:Admin_ID', auth.requireAdmin, adminController.updateAdminStatus);
 

@@ -160,7 +160,7 @@ export default function Installers() {
       "& fieldset": { borderColor: "rgba(255,255,255,0.15)" },
       "&:hover fieldset": { borderColor: "rgba(255,152,0,0.4)" },
     },
-    "& .MuiInputLabel-root": { color: "rgba(255,255,255,0.5)" },
+    "& .MuiInputLabel-root": { color: colors.grey[400] },
     "& input, & .MuiSelect-select": { color: "#fff" },
   };
 
@@ -304,8 +304,8 @@ export default function Installers() {
           </Box>
         ) : installers.length === 0 ? (
           <Box py={6} textAlign="center">
-            <EngineeringOutlined sx={{ fontSize: 48, color: "rgba(255,255,255,0.1)", mb: 1 }} />
-            <Typography color="rgba(255,255,255,0.3)">
+            <EngineeringOutlined sx={{ fontSize: 48, color: colors.grey[500], mb: 1 }} />
+            <Typography color={colors.grey[500]}>
               No installers added yet. Click "Add Installer" to get started.
             </Typography>
           </Box>
@@ -367,7 +367,7 @@ export default function Installers() {
                             <IconButton
                               size="small"
                               onClick={() => copyToClipboard(inst.email)}
-                              sx={{ color: "rgba(255,255,255,0.25)", p: "2px" }}
+                              sx={{ color: colors.grey[500], p: "2px" }}
                             >
                               <ContentCopyOutlined sx={{ fontSize: 13 }} />
                             </IconButton>
@@ -390,7 +390,7 @@ export default function Installers() {
                             <IconButton
                               size="small"
                               onClick={() => togglePasswordVisibility(inst.id)}
-                              sx={{ color: "rgba(255,255,255,0.3)", p: "2px" }}
+                              sx={{ color: colors.grey[500], p: "2px" }}
                             >
                               {pwVisible ? (
                                 <VisibilityOffOutlined sx={{ fontSize: 15 }} />
@@ -404,7 +404,7 @@ export default function Installers() {
                               <IconButton
                                 size="small"
                                 onClick={() => copyToClipboard(inst.displayPassword)}
-                                sx={{ color: "rgba(255,255,255,0.25)", p: "2px" }}
+                                sx={{ color: colors.grey[500], p: "2px" }}
                               >
                                 <ContentCopyOutlined sx={{ fontSize: 13 }} />
                               </IconButton>
@@ -481,7 +481,7 @@ export default function Installers() {
           )}
           <Typography
             variant="body2"
-            sx={{ color: "rgba(255,255,255,0.4)", mb: 2, fontSize: "0.8rem" }}
+            sx={{ color: colors.grey[400], mb: 2, fontSize: "0.8rem" }}
           >
             These credentials will be used to log into the commissioning app only. Installers
             cannot access the main dashboard.
@@ -549,7 +549,7 @@ export default function Installers() {
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button
             onClick={() => setDialogOpen(false)}
-            sx={{ color: "rgba(255,255,255,0.4)", textTransform: "none" }}
+            sx={{ color: colors.grey[400], textTransform: "none" }}
           >
             Cancel
           </Button>
@@ -588,7 +588,7 @@ export default function Installers() {
           Remove Installer
         </DialogTitle>
         <DialogContent>
-          <Typography sx={{ color: "rgba(255,255,255,0.6)" }}>
+          <Typography sx={{ color: colors.grey[300] }}>
             Are you sure you want to remove this installer? They will no longer be able to access
             the commissioning app.
           </Typography>
@@ -596,7 +596,7 @@ export default function Installers() {
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button
             onClick={() => setDeleteConfirm(null)}
-            sx={{ color: "rgba(255,255,255,0.4)", textTransform: "none" }}
+            sx={{ color: colors.grey[400], textTransform: "none" }}
           >
             Cancel
           </Button>

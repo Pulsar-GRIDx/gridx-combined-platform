@@ -1,4 +1,5 @@
 var adminService = require('./adminService');
+var customerService = require('../customer/customerService');
 var dotenv = require('dotenv');
 var nodemailer = require('nodemailer');
 var crypto = require('crypto');
@@ -486,6 +487,26 @@ exports.deleteAdmin = function(req, res) {
       res.status(200).json({ message: 'Admin deleted successfully' });
     })
     .catch(function(err) { res.status(500).json({ error: 'Internal server error', details: err }); });
+};
+
+exports.deleteUser = function(req, res) {
+  var UserID = req.params.UserID;
+
+  if (req.user.AccessLevel !== 'ADMIN') {
+    return res.status(403).json({ error: 'Only administrators can delete users' });
+  }
+
+  customerService.deleteUser(UserID)
+    .then(function() {
+      var ipAddress = resolveClientIp(req);
+      var geoStr = adminService.getGeoString(ipAddress);
+      adminService.logPlatformAudit('App user deleted: ID ' + UserID, 'USER_DELETE', 'Deleted by: ' + req.user.Email, req.user.Email, parseInt(UserID), ipAddress, geoStr, req.headers['user-agent']);
+      res.status(200).json({ message: 'User deleted successfully' });
+    })
+    .catch(function(err) {
+      var status = err.status || 500;
+      res.status(status).json({ error: err.message || 'Internal server error' });
+    });
 };
 
 exports.updateAdminStatus = function(req, res) {

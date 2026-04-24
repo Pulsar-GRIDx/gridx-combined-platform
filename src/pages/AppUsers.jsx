@@ -6,6 +6,13 @@ import {
   Chip,
   LinearProgress,
   Grid,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Button,
 } from "@mui/material";
 import { DataGrid, GridToolbar } from "@mui/x-data-grid";
 import { tokens } from "../theme";
@@ -16,6 +23,7 @@ import {
   PhoneAndroidOutlined,
   ElectricMeterOutlined,
   LoginOutlined,
+  DeleteOutlined,
 } from "@mui/icons-material";
 import { Link } from "react-router-dom";
 import Header from "../components/Header";
@@ -26,6 +34,8 @@ export default function AppUsers() {
   const colors = tokens(theme.palette.mode);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, user: null });
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const fetch = async () => {
@@ -41,6 +51,21 @@ export default function AppUsers() {
     };
     fetch();
   }, []);
+
+  const handleDeleteUser = async () => {
+    if (!deleteDialog.user) return;
+    setDeleting(true);
+    try {
+      await authAPI.deleteUser(deleteDialog.user.UserID);
+      setUsers((prev) => prev.filter((u) => u.UserID !== deleteDialog.user.UserID));
+    } catch (err) {
+      console.error("Failed to delete user:", err);
+      alert("Failed to delete user: " + (err.message || "Unknown error"));
+    } finally {
+      setDeleting(false);
+      setDeleteDialog({ open: false, user: null });
+    }
+  };
 
   const verified = users.filter((u) => u.isVerified === "1" || u.isVerified === 1).length;
   const unverified = users.length - verified;
@@ -127,6 +152,15 @@ export default function AppUsers() {
         <Typography variant="body2" fontFamily="monospace" color={colors.grey[300]}>{value || "-"}</Typography>
       ),
     },
+    {
+      field: "actions", headerName: "", flex: 0.05, minWidth: 50, sortable: false, filterable: false,
+      renderCell: ({ row }) => (
+        <IconButton size="small" onClick={() => setDeleteDialog({ open: true, user: row })}
+          sx={{ color: colors.redAccent[400], "&:hover": { color: colors.redAccent[300], bgcolor: "rgba(219,79,74,0.1)" } }}>
+          <DeleteOutlined fontSize="small" />
+        </IconButton>
+      ),
+    },
   ];
 
   const StatCard = ({ title, value, icon, color }) => (
@@ -192,6 +226,27 @@ export default function AppUsers() {
           </Box>
         )}
       </Box>
+
+      <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, user: null })}
+        PaperProps={{ sx: { bgcolor: colors.primary[400], color: colors.grey[100] } }}>
+        <DialogTitle>Delete App User</DialogTitle>
+        <DialogContent>
+          <DialogContentText color={colors.grey[300]}>
+            Are you sure you want to delete user{" "}
+            <strong>{deleteDialog.user?.FirstName} {deleteDialog.user?.LastName}</strong>{" "}
+            ({deleteDialog.user?.Email})? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialog({ open: false, user: null })} sx={{ color: colors.grey[300] }}>
+            Cancel
+          </Button>
+          <Button onClick={handleDeleteUser} disabled={deleting} variant="contained"
+            sx={{ bgcolor: colors.redAccent[500], "&:hover": { bgcolor: colors.redAccent[600] } }}>
+            {deleting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

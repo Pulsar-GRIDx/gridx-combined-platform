@@ -82,6 +82,7 @@ export const authAPI = {
   updateAdmin: (id, data) => post(`/AdminUpdate/${id}`, data),
   updateUser: (id, data) => post(`/UserUpdate/${id}`, data),
   deleteAdmin: (id) => del(`/deleteAdmin/${id}`),
+  deleteUser: (id) => del(`/deleteUser/${id}`),
   updateAdminStatus: (id) => post(`/updateStatus/${id}`),
   resetPassword: (id, Password) => post(`/resetPassword/${id}`, { Password }),
   unlockAccount: (id) => post(`/unlockAccount/${id}`),
@@ -258,6 +259,28 @@ export const billingAPI = {
   setTier: (data) => post('/meter-billing/config/tier', data),
 };
 
+// ===== POSTPAID BILLING =====
+export const postpaidAPI = {
+  getSummary: () => get('/postpaid/summary'),
+  getPrepaidMeters: () => get('/postpaid/prepaid-meters'),
+  getPostpaidMeters: () => get('/postpaid/postpaid-meters'),
+  getPostpaidBills: (params) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return get(`/postpaid/postpaid-bills${q ? '?' + q : ''}`);
+  },
+  generateBill: (data) => post('/postpaid/generate-bill', data),
+  recordPayment: (data) => post('/postpaid/record-payment', data),
+  switchMode: (data) => post('/postpaid/switch-mode', data),
+  getModeHistory: (drn) => get(`/postpaid/mode-history/${drn}`),
+  getAllMeters: () => get('/postpaid/all-meters'),
+  // Tariff management
+  getPrepaidTariffRates: () => get('/postpaid/prepaid-tariff-rates'),
+  applyPrepaidTariff: (data) => post('/postpaid/apply-prepaid-tariff', data),
+  getPostpaidTariffs: () => get('/postpaid/postpaid-tariffs'),
+  savePostpaidTariff: (data) => post('/postpaid/postpaid-tariffs', data),
+  deletePostpaidTariff: (id) => del(`/postpaid/postpaid-tariffs/${id}`),
+};
+
 // ===== METER PROFILE =====
 export const meterProfileAPI = {
   get: () => get('/settings/meterProfile'),
@@ -348,6 +371,13 @@ export const mqttAPI = {
   testPublish: (drn) => post('/mqtt/test-publish', { drn }),
   getLiveStatus: (threshold) => get(`/mqtt/live-status${threshold ? '?threshold=' + threshold : ''}`),
   getDashboardStats: () => get('/mqtt/dashboard-stats'),
+  // Credit transfers
+  listTransfers: (params) => {
+    const q = new URLSearchParams(params || {}).toString();
+    return get(`/mqtt/credit-transfers${q ? '?' + q : ''}`);
+  },
+  transferCredit: (drn, data) => post(`/mqtt/credit-transfer/${drn}`, data),
+  getTransferStatus: (drn, id) => get(`/mqtt/credit-transfer/${drn}/status/${id}`),
 };
 
 // ===== SUBURB ENERGY =====
@@ -481,6 +511,7 @@ export default {
   token: tokenAPI,
   notification: notificationAPI,
   billing: billingAPI,
+  postpaid: postpaidAPI,
   settings: settingsAPI,
   meterProfile: meterProfileAPI,
   meterRegistration: meterRegistrationAPI,

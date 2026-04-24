@@ -208,67 +208,38 @@ router.post('/getSuburbHourlyEnergy', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'Invalid suburbs data. Expecting an array.' });
   }
 
-  const query = `
-    SELECT 
-  mli.LocationName AS Suburb,
-  COALESCE(
-    SUM(
-      COALESCE(last_reading.final_power, 0) - COALESCE(first_reading.initial_power, 0)
-    ),
-    0.00
-  ) AS consumption
-FROM MeterLocationInfoTable mli
-LEFT JOIN (
-  SELECT DRN, 
-         MIN(CAST(active_energy AS DECIMAL(10, 2))) AS initial_power
-  FROM MeterCumulativeEnergyUsage
-  WHERE DATE(date_time) = CURDATE()
-  GROUP BY DRN
-) first_reading ON first_reading.DRN = mli.DRN
-LEFT JOIN (
-  SELECT DRN, 
-         MAX(CAST(active_energy AS DECIMAL(10, 2))) AS final_power
-  FROM MeterCumulativeEnergyUsage
-  WHERE DATE(date_time) = CURDATE()
-  GROUP BY DRN
-) last_reading ON last_reading.DRN = mli.DRN
-WHERE mli.LocationName IN (?)
-GROUP BY mli.LocationName
-
-
-  `;
-
   try {
+    // Fast path: read from pre-computed SuburbDailyEnergy table
     const result = await new Promise((resolve, reject) => {
-      connection.query(query, [suburbs], (err, data) => {
-        if (err) {
-          console.error('Database error:', err);
-          reject(err);
-        } else {
-          resolve(data);
+      connection.query(
+        'SELECT suburb AS Suburb, consumption_wh AS consumption FROM SuburbDailyEnergy WHERE energy_date = CURDATE() AND suburb IN (?)',
+        [suburbs],
+        (err, data) => {
+          if (err) reject(err);
+          else resolve(data);
         }
-      });
+      );
     });
 
-    // Create an object with all suburbs initialized to 0.00
+    // Initialize all suburbs to 0.00
     const locationConsumption = suburbs.reduce((acc, suburb) => {
       acc[suburb] = "0.00";
       return acc;
     }, {});
 
-    // Update values for suburbs that have data
+    // Update values for suburbs that have pre-computed data
     result.forEach(row => {
       if (row.Suburb && row.consumption !== null) {
-        locationConsumption[row.Suburb] = Number(row.consumption/1000).toFixed(2);
+        locationConsumption[row.Suburb] = Number(row.consumption / 1000).toFixed(2);
       }
     });
 
     res.json({ data: locationConsumption });
   } catch (err) {
-    logger.error('Error querying the database:', err);
-    return res.status(500).json({ 
+    logger.error('Error querying SuburbDailyEnergy:', err);
+    return res.status(500).json({
       error: 'An error occurred while querying the database.',
-      details: err.message 
+      details: err.message
     });
   }
 });

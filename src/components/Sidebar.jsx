@@ -28,7 +28,6 @@ import SecurityIcon from "@mui/icons-material/Security";
 import GppBadIcon from "@mui/icons-material/GppBad";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import PhoneAndroidIcon from "@mui/icons-material/PhoneAndroid";
-import SystemUpdateAltIcon from "@mui/icons-material/SystemUpdateAlt";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 
@@ -330,13 +329,13 @@ const Sidebar = () => {
           scrollbarColor: `${colors.grey[700]} transparent`,
         }}
       >
-        {/* Dashboard */}
+        {/* Map (default landing page) */}
         <NavItem
-          title="Dashboard"
+          title="Map"
           to="/"
-          icon={<HomeOutlinedIcon />}
+          icon={<MapOutlinedIcon />}
           isCollapsed={isCollapsed}
-          accentColor={colors.blueAccent[500]}
+          accentColor={colors.greenAccent[500]}
         />
 
         {/* System */}
@@ -346,11 +345,11 @@ const Sidebar = () => {
           colors={colors}
         />
         <NavItem
-          title="Map"
-          to="/map"
-          icon={<MapOutlinedIcon />}
+          title="Dashboard"
+          to="/dashboard"
+          icon={<HomeOutlinedIcon />}
           isCollapsed={isCollapsed}
-          accentColor={colors.greenAccent[500]}
+          accentColor={colors.blueAccent[500]}
         />
         <NavItem
           title="Grid Topology"
@@ -386,13 +385,6 @@ const Sidebar = () => {
           icon={<TuneIcon />}
           isCollapsed={isCollapsed}
           accentColor="#f2b705"
-        />
-        <NavItem
-          title="Firmware OTA"
-          to="/firmware-ota"
-          icon={<SystemUpdateAltIcon />}
-          isCollapsed={isCollapsed}
-          accentColor="#00bcd4"
         />
 
         {/* Vending */}

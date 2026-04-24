@@ -18,7 +18,7 @@ const Header = ({ title, subtitle }) => {
       <Typography variant="h5" color={colors.greenAccent[400]}>
         {subtitle}
       </Typography>
-      <Divider sx={{ m: "15px 0 0px 0px", backgroundColor: colors.greenAccent[300] }} />
+      <Divider sx={{ mt: "15px", mx: "-20px", backgroundColor: colors.greenAccent[300] }} />
     </Box>
   );
 };
