@@ -155,7 +155,10 @@ function generateHourlyData() {
 }
 
 /* ---- Net Metering Tab Component ---- */
-function NetMeteringTab({ drn, isDark, colors }) {
+function NetMeteringTab({ drn }) {
+  const theme = useTheme();
+  const colors = tokens(theme.palette.mode);
+  const isDark = theme.palette.mode === "dark";
   const [nmData, setNmData] = useState(null);
   const [nmHistory, setNmHistory] = useState([]);
   const [nmLoading, setNmLoading] = useState(true);
@@ -4811,7 +4814,7 @@ export default function MeterProfile() {
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {/* TAB 11: Net Metering                                              */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
-      {tab === 10 && <NetMeteringTab drn={drn} isDark={isDark} colors={colors} />}
+      {tab === 10 && <NetMeteringTab drn={drn} />}
 
       {/* ---- Confirmation Dialog ---- */}
       <Dialog
