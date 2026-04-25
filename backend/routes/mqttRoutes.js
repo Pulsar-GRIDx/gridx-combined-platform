@@ -1307,4 +1307,88 @@ router.get('/mqtt/net-energy/:drn/summary', authenticateToken, async (req, res) 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Per-meter hourly breakdown for a specific date
+router.get('/mqtt/net-energy/:drn/hourly', authenticateToken, async (req, res) => {
+  try {
+    const drn = req.params.drn;
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+
+    const hourly = await queryAll(
+      `SELECT HOUR(created_at) as hour,
+        MAX(import_energy_wh) - MIN(import_energy_wh) as import_wh,
+        MAX(export_energy_wh) - MIN(export_energy_wh) as export_wh
+       FROM MeterNetEnergy
+       WHERE DRN = ? AND DATE(created_at) = ?
+       GROUP BY HOUR(created_at)
+       ORDER BY hour`,
+      [drn, date]
+    );
+
+    const hourlyArr = Array.from({ length: 24 }, (_, i) => {
+      const h = hourly.find(r => r.hour === i);
+      return { hour: i, import: h ? h.import_wh : 0, export: h ? h.export_wh : 0 };
+    });
+
+    const todayImport = hourlyArr.reduce((s, h) => s + h.import, 0);
+    const todayExport = hourlyArr.reduce((s, h) => s + h.export, 0);
+    const peakExport = hourlyArr.reduce((m, h) => h.export > m.export ? h : m, { hour: 0, export: 0 });
+    const peakImport = hourlyArr.reduce((m, h) => h.import > m.import ? h : m, { hour: 0, import: 0 });
+
+    res.json({
+      success: true,
+      data: {
+        date,
+        total_import_wh: todayImport,
+        total_export_wh: todayExport,
+        net_wh: todayImport - todayExport,
+        peak_export_hour: peakExport.hour,
+        peak_import_hour: peakImport.hour,
+        hourly: hourlyArr
+      }
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Per-meter daily breakdown for last N days
+router.get('/mqtt/net-energy/:drn/daily', authenticateToken, async (req, res) => {
+  try {
+    const drn = req.params.drn;
+    const days = parseInt(req.query.days) || 30;
+
+    const daily = await queryAll(
+      `SELECT DATE(created_at) as date,
+        DATE_FORMAT(DATE(created_at), '%b %d') as label,
+        MAX(import_energy_wh) - MIN(import_energy_wh) as import_wh,
+        MAX(export_energy_wh) - MIN(export_energy_wh) as export_wh
+       FROM MeterNetEnergy
+       WHERE DRN = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY date`,
+      [drn, days]
+    );
+
+    const rows = daily.map(d => ({
+      date: d.date,
+      label: d.label,
+      import: d.import_wh || 0,
+      export: d.export_wh || 0,
+      net: (d.import_wh || 0) - (d.export_wh || 0)
+    }));
+
+    const totalImport = rows.reduce((s, r) => s + r.import, 0);
+    const totalExport = rows.reduce((s, r) => s + r.export, 0);
+
+    res.json({
+      success: true,
+      data: {
+        days,
+        total_import_wh: totalImport,
+        total_export_wh: totalExport,
+        net_wh: totalImport - totalExport,
+        history: rows
+      }
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
