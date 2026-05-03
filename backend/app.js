@@ -13,8 +13,19 @@ const app = express();
 app.set('trust proxy', 1);
 
 // CORS
+const allowedOrigins = [
+  process.env.FRONTEND_DOMAIN,
+  'https://pulsar-gridx.github.io',
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_DOMAIN || '*',
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
