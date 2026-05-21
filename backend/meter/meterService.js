@@ -617,25 +617,23 @@ exports.getLastMonthData = (DRN) => {
 
 exports.getCurrentYearData = (DRN) => {
   const query = `
-  WITH last_per_month AS (
-    SELECT 
-      YEAR(date_time) AS y,
-      MONTH(date_time) AS m,
-      CAST(active_energy AS DECIMAL(10,2)) AS ae,
-      ROW_NUMBER() OVER (PARTITION BY YEAR(date_time), MONTH(date_time) ORDER BY date_time DESC) AS rn
-    FROM MeterCumulativeEnergyUsage
-    WHERE DRN = ? AND YEAR(date_time) = YEAR(CURDATE())
-  ), months AS (
-    SELECT y, m, ae,
-           LAG(ae) OVER (ORDER BY y, m) AS prev_ae
-    FROM last_per_month
-    WHERE rn = 1
-  )
   SELECT m AS month, COALESCE((ae - prev_ae) / 1000, 0) AS total_energy_consumption
-  FROM months
+  FROM (
+    SELECT
+      MONTH(t1.date_time) AS m,
+      CAST(t1.active_energy AS DECIMAL(10,2)) AS ae,
+      LAG(CAST(t1.active_energy AS DECIMAL(10,2))) OVER (ORDER BY MONTH(t1.date_time)) AS prev_ae
+    FROM MeterCumulativeEnergyUsage t1
+    INNER JOIN (
+      SELECT MAX(id) as max_id
+      FROM MeterCumulativeEnergyUsage
+      WHERE DRN = ? AND date_time >= CONCAT(YEAR(CURDATE()), '-01-01')
+      GROUP BY MONTH(date_time)
+    ) t2 ON t1.id = t2.max_id
+  ) sub
   ORDER BY m
   `;
-  
+
   return new Promise((resolve, reject) => {
     db.query(query, [DRN], (err, data) => {
       if (err) {
@@ -643,13 +641,13 @@ exports.getCurrentYearData = (DRN) => {
       } else {
         // Initialize array with 12 months (0 values)
         const monthlyData = Array(12).fill(0);
-        
+
         // Fill the array with actual data
         data.forEach(row => {
           const monthIndex = row.month - 1; // Convert to 0-based index (Jan=0, Dec=11)
           monthlyData[monthIndex] = parseFloat(row.total_energy_consumption) || 0;
         });
-        
+
         resolve(monthlyData);
       }
     });
@@ -658,22 +656,21 @@ exports.getCurrentYearData = (DRN) => {
 
 exports.getLastYearData = (DRN) => {
   const query = `
-  WITH last_per_month AS (
-    SELECT 
-      YEAR(date_time) AS y,
-      MONTH(date_time) AS m,
-      CAST(active_energy AS DECIMAL(10,2)) AS ae,
-      ROW_NUMBER() OVER (PARTITION BY YEAR(date_time), MONTH(date_time) ORDER BY date_time DESC) AS rn
-    FROM MeterCumulativeEnergyUsage
-    WHERE DRN = ? AND YEAR(date_time) = YEAR(CURDATE()) - 1
-  ), months AS (
-    SELECT y, m, ae,
-           LAG(ae) OVER (ORDER BY y, m) AS prev_ae
-    FROM last_per_month
-    WHERE rn = 1
-  )
   SELECT m AS month, COALESCE((ae - prev_ae) / 1000, 0) AS total_energy_consumption
-  FROM months
+  FROM (
+    SELECT
+      MONTH(t1.date_time) AS m,
+      CAST(t1.active_energy AS DECIMAL(10,2)) AS ae,
+      LAG(CAST(t1.active_energy AS DECIMAL(10,2))) OVER (ORDER BY MONTH(t1.date_time)) AS prev_ae
+    FROM MeterCumulativeEnergyUsage t1
+    INNER JOIN (
+      SELECT MAX(id) as max_id
+      FROM MeterCumulativeEnergyUsage
+      WHERE DRN = ? AND date_time >= CONCAT(YEAR(CURDATE()) - 1, '-01-01')
+        AND date_time < CONCAT(YEAR(CURDATE()), '-01-01')
+      GROUP BY MONTH(date_time)
+    ) t2 ON t1.id = t2.max_id
+  ) sub
   ORDER BY m
   `;
 
@@ -1029,23 +1026,26 @@ exports.getEnergyData = () => {
 
 
 //----------------------------------------CurrentAnd Last year energy for all the months---------------------------------------//
+let _monthlyCache = { data: null, ts: 0 };
+const MONTHLY_CACHE_TTL = 10 * 60 * 1000;
 exports.getMonthlyDataForCurrentAndLastYear = () => {
+  if (_monthlyCache.data && Date.now() - _monthlyCache.ts < MONTHLY_CACHE_TTL) {
+    return Promise.resolve(_monthlyCache.data);
+  }
   const getMonthlyDataForCurrentAndLastYear = `
-  WITH last_per_month AS (
-    -- Last reading per DRN per month for current and last year only
-    SELECT 
-      YEAR(m.date_time) AS y,
-      MONTH(m.date_time) AS m,
-      m.DRN,
-      CAST(m.active_energy AS DECIMAL(13,3)) AS ae,
-      ROW_NUMBER() OVER (
-        PARTITION BY m.DRN, YEAR(m.date_time), MONTH(m.date_time)
-        ORDER BY m.date_time DESC
-      ) AS rn
-    FROM MeterCumulativeEnergyUsage m
-    WHERE YEAR(m.date_time) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
-  ), monthly_last AS (
-    SELECT y, m, DRN, ae FROM last_per_month WHERE rn = 1
+  WITH monthly_last AS (
+    SELECT
+      YEAR(t1.date_time) AS y,
+      MONTH(t1.date_time) AS m,
+      t1.DRN,
+      CAST(t1.active_energy AS DECIMAL(13,3)) AS ae
+    FROM MeterCumulativeEnergyUsage t1
+    INNER JOIN (
+      SELECT DRN, YEAR(date_time) AS y, MONTH(date_time) AS m, MAX(id) AS max_id
+      FROM MeterCumulativeEnergyUsage
+      WHERE date_time >= CONCAT(YEAR(CURDATE()) - 1, '-01-01')
+      GROUP BY DRN, YEAR(date_time), MONTH(date_time)
+    ) t2 ON t1.id = t2.max_id
   ), per_drn_usage AS (
     -- For each DRN-month, first try immediate previous month, if not exists then last reading before current month
     SELECT 
@@ -1086,7 +1086,10 @@ exports.getMonthlyDataForCurrentAndLastYear = () => {
     db.query(getMonthlyDataForCurrentAndLastYear,
        (err, monthlyData) => {
       if (err) reject(err);
-      else resolve(monthlyData);
+      else {
+        _monthlyCache = { data: monthlyData, ts: Date.now() };
+        resolve(monthlyData);
+      }
     });
   });
 };
@@ -1386,23 +1389,31 @@ exports.getWeeklyApparentPowerBySuburb = function(suburbs, callback) {
 
 
 //Yearly Suburb Apparent Power
+let _suburbYearlyCache = {};
+const SUBURB_CACHE_TTL = 10 * 60 * 1000;
 exports.getYearlyApparentPowerBySuburb = function(suburbs, callback) {
-  
+  const cacheKey = JSON.stringify(suburbs);
+  const cached = _suburbYearlyCache[cacheKey];
+  if (cached && Date.now() - cached.ts < SUBURB_CACHE_TTL) {
+    return callback(null, cached.data);
+  }
   const query = `
   WITH subs AS (
     SELECT DISTINCT DRN FROM MeterLocationInfoTable WHERE Suburb IN (?)
-  ), last_per_month AS (
-    SELECT 
-      YEAR(m.date_time) AS y,
-      MONTH(m.date_time) AS m,
-      m.DRN,
-      CAST(m.units AS DECIMAL(10,2)) AS u,
-      ROW_NUMBER() OVER (PARTITION BY YEAR(m.date_time), MONTH(m.date_time), m.DRN ORDER BY m.date_time DESC) AS rn
-    FROM MeterCumulativeEnergyUsage m
-    JOIN subs s ON s.DRN = m.DRN
-    WHERE YEAR(m.date_time) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
   ), monthly_last AS (
-    SELECT y, m, DRN, u FROM last_per_month WHERE rn = 1
+    SELECT
+      YEAR(t1.date_time) AS y,
+      MONTH(t1.date_time) AS m,
+      t1.DRN,
+      CAST(t1.units AS DECIMAL(10,2)) AS u
+    FROM MeterCumulativeEnergyUsage t1
+    INNER JOIN (
+      SELECT m2.DRN, YEAR(m2.date_time) AS y, MONTH(m2.date_time) AS mo, MAX(m2.id) AS max_id
+      FROM MeterCumulativeEnergyUsage m2
+      JOIN subs s2 ON s2.DRN = m2.DRN
+      WHERE m2.date_time >= CONCAT(YEAR(CURDATE()) - 1, '-01-01')
+      GROUP BY m2.DRN, YEAR(m2.date_time), MONTH(m2.date_time)
+    ) t2 ON t1.id = t2.max_id
   ), agg AS (
     SELECT y, m, SUM(u) AS sum_u
     FROM monthly_last
@@ -1440,6 +1451,7 @@ exports.getYearlyApparentPowerBySuburb = function(suburbs, callback) {
       lastYearPowerConsumption[month] = result.lastYearPowerConsumption ;
     });
 
+    _suburbYearlyCache[cacheKey] = { data: { currentYearPowerConsumption, lastYearPowerConsumption }, ts: Date.now() };
     callback(null, { currentYearPowerConsumption, lastYearPowerConsumption });
   });
 }

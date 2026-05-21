@@ -69,6 +69,7 @@ const postpaidRoutes = require('./billing/postpaidRoutes');
 const meterRegistrationRoutes = require('./meter/meterRegistrationRoutes');
 const meterDataRoutes = require('./routes/meterDataRoutes');
 const mqttRoutes = require('./routes/mqttRoutes');
+const summaryRoutes = require('./routes/summaryRoutes');
 let otaRoutes;
 try { otaRoutes = require('./routes/otaRoutes'); } catch (e) { /* optional */ }
 const groupControlRoutes = require('./routes/groupControlRoutes');
@@ -170,6 +171,7 @@ apiRouter.use('/', geyserControlRoutes);
 apiRouter.use('/vending', vendingRoutes);
 apiRouter.use('/', tamperRoutes);
 apiRouter.use('/', vsmRoutes);
+apiRouter.use('/summary', summaryRoutes);
 // Meter config commands (auth number, sleep mode, base URL, status)
 const meterConfigRoutes = require('./meterProfile/meterConfigRoutes');
 apiRouter.use('/meter-config', meterConfigRoutes);
@@ -293,6 +295,13 @@ try {
   require('./services/billingNotificationCron');
 } catch (err) {
   console.warn('Billing notification cron skipped:', err.message);
+}
+
+// Initialize summary worker (pre-computed dashboard tables)
+try {
+  require('./services/summaryWorker').init();
+} catch (err) {
+  console.warn('Summary worker skipped:', err.message);
 }
 
 // Global error handler
