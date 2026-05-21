@@ -57,6 +57,57 @@ router.get('/meterPower/getMeterByDRN/:id', authenticateToken, async (req, res) 
   }
 });
 
+// GET /meterPower/power15min/:id — 15-minute aggregated power for today
+router.get('/meterPower/power15min/:id', authenticateToken, async (req, res) => {
+  try {
+    const rows = await queryAll(
+      `SELECT
+        HOUR(date_time) as hour,
+        FLOOR(MINUTE(date_time)/15) as quarter,
+        ROUND(AVG(active_power), 2) as avgPower,
+        ROUND(MAX(active_power), 2) as peakPower,
+        ROUND(AVG(voltage), 1) as avgVoltage,
+        ROUND(AVG(current), 3) as avgCurrent,
+        ROUND(AVG(power_factor), 3) as avgPF,
+        ROUND(AVG(reactive_power), 2) as avgReactive,
+        ROUND(AVG(apparent_power), 2) as avgApparent,
+        ROUND(AVG(frequency), 4) as avgFrequency,
+        COUNT(*) as readings
+      FROM MeteringPower
+      WHERE DRN = ? AND DATE(date_time) = CURDATE()
+      GROUP BY HOUR(date_time), FLOOR(MINUTE(date_time)/15)
+      ORDER BY hour, quarter`,
+      [req.params.id]
+    );
+    const arr = [];
+    for (let i = 0; i < 96; i++) {
+      const h = Math.floor(i / 4);
+      const q = i % 4;
+      arr.push({
+        time: String(h).padStart(2, '0') + ':' + String(q * 15).padStart(2, '0'),
+        power: 0, peak: 0, voltage: 0, current: 0, pf: 0,
+        reactive: 0, apparent: 0, frequency: 0,
+      });
+    }
+    rows.forEach(row => {
+      const idx = row.hour * 4 + row.quarter;
+      if (idx >= 0 && idx < 96) {
+        arr[idx].power = parseFloat(row.avgPower) || 0;
+        arr[idx].peak = parseFloat(row.peakPower) || 0;
+        arr[idx].voltage = parseFloat(row.avgVoltage) || 0;
+        arr[idx].current = parseFloat(row.avgCurrent) || 0;
+        arr[idx].pf = parseFloat(row.avgPF) || 0;
+        arr[idx].reactive = parseFloat(row.avgReactive) || 0;
+        arr[idx].apparent = parseFloat(row.avgApparent) || 0;
+        arr[idx].frequency = parseFloat(row.avgFrequency) || 0;
+      }
+    });
+    res.json(arr);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── ENERGY DATA ───────────────────────────────────────────
 // GET /meterEnergy/getLastUpdate/:id
 router.get('/meterEnergy/getLastUpdate/:id', authenticateToken, async (req, res) => {

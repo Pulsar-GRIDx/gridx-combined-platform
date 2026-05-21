@@ -38,10 +38,119 @@ const TOPICS = [
   'gx/+/net_energy',
   'gx/+/hourly_energy',
   'gx/+/daily_energy',
+  'gx/+/thd',
   'gx/+/emergency',
   'gx/+/ota/req',
   'gx/+/nextion/req',
 ];
+
+// ==================== Server-Side Hourly Energy Tracker ====================
+// Server-side hourly energy tracking using SERVER time.
+// Tracks cumulative import/export from net_energy readings + power direction from power readings.
+// On hour rollover, computes deltas and writes to MeterHourlyEnergyServer (separate from ESP32 data).
+const serverHourlyState = {};
+const powerDirectionState = {};
+
+function serverRecordPowerDirection(drn, active_power) {
+  if (!powerDirectionState[drn]) {
+    powerDirectionState[drn] = { importing: 0, exporting: 0, lastPower: active_power };
+  }
+  const pd = powerDirectionState[drn];
+  pd.lastPower = active_power;
+  if (active_power >= 0) pd.importing++;
+  else pd.exporting++;
+}
+
+function serverHourlyTrack(drn, import_wh, export_wh) {
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentDate = now.toISOString().split('T')[0];
+
+  if (!serverHourlyState[drn]) {
+    serverHourlyState[drn] = {
+      hour: currentHour, date: currentDate,
+      firstImport: import_wh, firstExport: export_wh,
+      lastImport: import_wh, lastExport: export_wh,
+      readings: 1
+    };
+    return;
+  }
+
+  const s = serverHourlyState[drn];
+
+  if (currentHour !== s.hour || currentDate !== s.date) {
+    if (s.readings >= 2) {
+      const impDelta = Math.max(0, Math.round(s.lastImport - s.firstImport));
+      const expDelta = Math.max(0, Math.round(s.lastExport - s.firstExport));
+      const netWh = impDelta - expDelta;
+
+      const pd = powerDirectionState[drn] || { importing: 0, exporting: 0 };
+      const totalPowerReadings = pd.importing + pd.exporting;
+      const dominantDir = totalPowerReadings === 0 ? 'unknown'
+        : pd.importing >= pd.exporting ? 'import' : 'export';
+      const dirConfidence = totalPowerReadings === 0 ? 0
+        : Math.round(Math.max(pd.importing, pd.exporting) / totalPowerReadings * 100);
+
+      db.query(
+        `INSERT INTO MeterHourlyEnergyServer
+           (DRN, date, hour, import_wh, export_wh, net_wh, dominant_direction, direction_confidence, power_readings, energy_readings, record_time)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UNIX_TIMESTAMP())
+         ON DUPLICATE KEY UPDATE
+           import_wh = VALUES(import_wh), export_wh = VALUES(export_wh),
+           net_wh = VALUES(net_wh), dominant_direction = VALUES(dominant_direction),
+           direction_confidence = VALUES(direction_confidence),
+           power_readings = VALUES(power_readings), energy_readings = VALUES(energy_readings),
+           record_time = VALUES(record_time)`,
+        [drn, s.date, s.hour, impDelta, expDelta, netWh, dominantDir, dirConfidence, totalPowerReadings, s.readings],
+        (err) => {
+          if (err) console.error('[HOURLY-SERVER] upsert error:', err.message);
+          else console.log(`[HOURLY-SERVER] ${drn} ${s.date} h${String(s.hour).padStart(2,'0')}: imp=${impDelta}Wh exp=${expDelta}Wh net=${netWh}Wh dir=${dominantDir}(${dirConfidence}%) (${s.readings} energy, ${totalPowerReadings} power readings)`);
+        }
+      );
+    }
+    s.hour = currentHour;
+    s.date = currentDate;
+    s.firstImport = import_wh;
+    s.firstExport = export_wh;
+    s.lastImport = import_wh;
+    s.lastExport = export_wh;
+    s.readings = 1;
+    if (powerDirectionState[drn]) {
+      powerDirectionState[drn].importing = 0;
+      powerDirectionState[drn].exporting = 0;
+    }
+  } else {
+    s.lastImport = import_wh;
+    s.lastExport = export_wh;
+    s.readings++;
+  }
+}
+
+function bootstrapServerHourly() {
+  const currentHour = new Date().getHours();
+  db.query(
+    `SELECT DRN, min_import_wh, min_export_wh, max_import_wh, max_export_wh, reading_count
+     FROM MeterNetEnergyHourly
+     WHERE date = CURDATE() AND hour = ?`,
+    [currentHour],
+    (err, rows) => {
+      if (err) return console.error('[HOURLY-SERVER] Bootstrap error:', err.message);
+      if (!rows || rows.length === 0) return console.log('[HOURLY-SERVER] No data to bootstrap for current hour');
+      rows.forEach(r => {
+        serverHourlyState[r.DRN] = {
+          hour: currentHour,
+          date: new Date().toISOString().split('T')[0],
+          firstImport: r.min_import_wh,
+          firstExport: r.min_export_wh,
+          lastImport: r.max_import_wh,
+          lastExport: r.max_export_wh,
+          readings: r.reading_count || 1
+        };
+      });
+      console.log(`[HOURLY-SERVER] Bootstrapped ${rows.length} meter(s) for hour ${currentHour}`);
+    }
+  );
+}
 
 // ==================== MQTT OTA State ====================
 
@@ -557,6 +666,36 @@ function ensureTables() {
     UNIQUE KEY idx_drn_date (DRN, date)
   )`, (err) => { if (err) console.error('[MQTT] MeterDailyEnergyActual table error:', err.message); });
 
+  db.query(`CREATE TABLE IF NOT EXISTS MeterHourlyEnergyServer (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    DRN VARCHAR(50) NOT NULL,
+    date DATE NOT NULL,
+    hour TINYINT NOT NULL,
+    import_wh INT DEFAULT 0,
+    export_wh INT DEFAULT 0,
+    net_wh INT DEFAULT 0,
+    dominant_direction VARCHAR(10) DEFAULT 'unknown',
+    direction_confidence TINYINT DEFAULT 0,
+    power_readings INT DEFAULT 0,
+    energy_readings INT DEFAULT 0,
+    record_time INT UNSIGNED DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY idx_drn_date_hour (DRN, date, hour)
+  )`, (err) => { if (err) console.error('[MQTT] MeterHourlyEnergyServer table error:', err.message); });
+
+  db.query(`CREATE TABLE IF NOT EXISTS MeterTHD (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    DRN VARCHAR(50) NOT NULL,
+    thd_voltage FLOAT DEFAULT 0,
+    thd_current FLOAT DEFAULT 0,
+    distortion_va FLOAT DEFAULT 0,
+    displacement_pf FLOAT DEFAULT 0,
+    record_time INT UNSIGNED DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_drn (DRN),
+    INDEX idx_drn_time (DRN, created_at)
+  )`, (err) => { if (err) console.error('[MQTT] MeterTHD table error:', err.message); });
+
   db.query(`CREATE TABLE IF NOT EXISTS SuburbDailyEnergy (
     id INT AUTO_INCREMENT PRIMARY KEY,
     suburb VARCHAR(100) NOT NULL,
@@ -595,6 +734,7 @@ async function init() {
       if (err) console.error('[MQTT] Subscribe error (qos1):', err.message);
       else console.log('[MQTT] Subscribed to:', TOPICS.join(', '));
     });
+    bootstrapServerHourly();
   });
 
   mqttClient.on('message', (topic, message) => {
@@ -662,7 +802,7 @@ function handleMessage(topic, buf) {
   const firstByte = buf[0];
 
   // Binary payloads start with type byte 0x01-0x09
-  if (firstByte >= 0x01 && firstByte <= 0x09) {
+  if ((firstByte >= 0x01 && firstByte <= 0x09) || firstByte === 0x0B) {
     console.log(`[MQTT] ${type} from ${drn} (binary, ${buf.length}B)`);
     switch (type) {
       case 'power':         handlePowerBin(drn, buf); break;
@@ -674,6 +814,7 @@ function handleMessage(topic, buf) {
       case 'net_energy':    handleNetEnergyBin(drn, buf); break;
       case 'hourly_energy': handleHourlyEnergyBin(drn, buf); break;
       case 'daily_energy':  handleDailyEnergyBin(drn, buf); break;
+      case 'thd':           handleThdBin(drn, buf); break;
       default:              console.warn(`[MQTT] Unknown type: ${type}`);
     }
     return;
@@ -693,11 +834,13 @@ function handleMessage(topic, buf) {
 
 function handlePowerBin(drn, buf) {
   if (buf.length < 37) return console.error('[MQTT] Power packet too short:', buf.length);
+  const active_power = buf.readFloatLE(9);
+  serverRecordPowerDirection(drn, active_power);
   db.query('INSERT INTO MeteringPower SET ?', {
     DRN: drn,
     current:        buf.readFloatLE(1),
     voltage:        buf.readFloatLE(5),
-    active_power:   buf.readFloatLE(9),
+    active_power:   active_power,
     reactive_power: buf.readFloatLE(13),
     apparent_power: buf.readFloatLE(17),
     temperature:    buf.readFloatLE(21),
@@ -764,6 +907,9 @@ function handleNetEnergyBin(drn, buf) {
   const net_energy    = buf.readFloatLE(9);
   const record_time   = buf.readUInt32LE(13);
 
+  // Server-side hourly tracking — uses server clock, not ESP32 time
+  serverHourlyTrack(drn, import_energy, export_energy);
+
   db.query('INSERT INTO MeterNetEnergy SET ?', {
     DRN: drn,
     import_energy_wh: import_energy,
@@ -809,11 +955,16 @@ function handleHourlyEnergyBin(drn, buf) {
   const export_wh   = buf.readUInt32LE(10);
   const active_wh   = buf.readUInt32LE(14);
 
-  console.log(`[MQTT] HourlyEnergy from ${drn}: hr=${hour} import=${import_wh}Wh export=${export_wh}Wh active=${active_wh}Wh`);
+  const currentHour = new Date().getHours();
+  const storeDate = hour > currentHour
+    ? `DATE_SUB(CURDATE(), INTERVAL 1 DAY)`
+    : `CURDATE()`;
+
+  console.log(`[MQTT] HourlyEnergy from ${drn}: hr=${hour} import=${import_wh}Wh export=${export_wh}Wh active=${active_wh}Wh${hour > currentHour ? ' (stored as yesterday)' : ''}`);
 
   db.query(
     `INSERT INTO MeterHourlyEnergyActual (DRN, date, hour, import_wh, export_wh, active_wh, record_time)
-     VALUES (?, CURDATE(), ?, ?, ?, ?, ?)
+     VALUES (?, ${storeDate}, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        import_wh = VALUES(import_wh),
        export_wh = VALUES(export_wh),
@@ -843,6 +994,24 @@ function handleDailyEnergyBin(drn, buf) {
        record_time = VALUES(record_time)`,
     [drn, import_wh, export_wh, active_wh, record_time],
     (err) => { if (err) console.error('[MQTT] DailyEnergyActual upsert error:', err.message); }
+  );
+}
+
+function handleThdBin(drn, buf) {
+  if (buf.length < 21) return console.error('[MQTT] THD packet too short:', buf.length);
+  const thd_voltage      = buf.readFloatLE(1);
+  const thd_current      = buf.readFloatLE(5);
+  const distortion_va    = buf.readFloatLE(9);
+  const displacement_pf  = buf.readFloatLE(13);
+  const record_time      = buf.readUInt32LE(17);
+
+  console.log(`[MQTT] THD from ${drn}: V=${thd_voltage.toFixed(2)}% I=${thd_current.toFixed(2)}% D=${distortion_va.toFixed(1)}VA DPF=${displacement_pf.toFixed(3)}`);
+
+  db.query(
+    `INSERT INTO MeterTHD (DRN, thd_voltage, thd_current, distortion_va, displacement_pf, record_time)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [drn, thd_voltage, thd_current, distortion_va, displacement_pf, record_time],
+    (err) => { if (err) console.error('[MQTT] THD insert error:', err.message); }
   );
 }
 

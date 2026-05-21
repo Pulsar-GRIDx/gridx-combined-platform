@@ -579,6 +579,31 @@ router.get('/mqtt/live-status', authenticateToken, async (req, res) => {
 // DASHBOARD STATS — aggregated MQTT-logged data for dashboard
 // ═══════════════════════════════════════════════════════════════════════
 
+function buildPower15minArr(power15minResult) {
+  const arr = [];
+  for (let i = 0; i < 96; i++) {
+    const h = Math.floor(i / 4);
+    const q = i % 4;
+    arr.push({
+      time: String(h).padStart(2, '0') + ':' + String(q * 15).padStart(2, '0'),
+      power: 0, peak: 0, voltage: 0, current: 0, pf: 0,
+    });
+  }
+  if (power15minResult && power15minResult.status === 'fulfilled' && Array.isArray(power15minResult.value)) {
+    power15minResult.value.forEach(row => {
+      const idx = row.hour * 4 + row.quarter;
+      if (idx >= 0 && idx < 96) {
+        arr[idx].power = parseFloat(row.avgPower) || 0;
+        arr[idx].peak = parseFloat(row.peakPower) || 0;
+        arr[idx].voltage = parseFloat(row.avgVoltage) || 0;
+        arr[idx].current = parseFloat(row.avgCurrent) || 0;
+        arr[idx].pf = parseFloat(row.avgPF) || 0;
+      }
+    });
+  }
+  return arr;
+}
+
 /**
  * GET /mqtt/dashboard-stats
  * Single endpoint returning all dashboard KPIs from MQTT-logged data:
@@ -605,6 +630,7 @@ router.get('/mqtt/dashboard-stats', authenticateToken, async (req, res) => {
       hourlyTokenCounts,
       remainingUnits,
       hourlyEnergy,
+      power15min,
     ] = await Promise.allSettled([
       // 1. Live/offline from MeterLastSeen
       queryAll(
@@ -716,6 +742,24 @@ router.get('/mqtt/dashboard-stats', authenticateToken, async (req, res) => {
          ORDER BY hour`,
         []
       ),
+      // 11. 15-minute averaged power data for today
+      queryAll(
+        `SELECT
+           CONCAT(LPAD(HOUR(date_time), 2, '0'), ':', LPAD(FLOOR(MINUTE(date_time)/15)*15, 2, '0')) as time_slot,
+           HOUR(date_time) as hour,
+           FLOOR(MINUTE(date_time)/15) as quarter,
+           ROUND(AVG(active_power), 2) as avgPower,
+           ROUND(MAX(active_power), 2) as peakPower,
+           ROUND(AVG(voltage), 1) as avgVoltage,
+           ROUND(AVG(current), 3) as avgCurrent,
+           ROUND(AVG(power_factor), 3) as avgPF,
+           COUNT(*) as readings
+         FROM MeteringPower
+         WHERE DATE(date_time) = CURDATE()
+         GROUP BY HOUR(date_time), FLOOR(MINUTE(date_time)/15)
+         ORDER BY hour, quarter`,
+        []
+      ),
     ]);
 
     // Build 24-hour array for hourly power
@@ -781,6 +825,7 @@ router.get('/mqtt/dashboard-stats', authenticateToken, async (req, res) => {
         }
         return arr;
       })(),
+      power15min: buildPower15minArr(power15min),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1450,6 +1495,50 @@ router.get('/mqtt/actual-energy/:drn/hourly', authenticateToken, async (req, res
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.get('/mqtt/server-energy/:drn/hourly', authenticateToken, async (req, res) => {
+  try {
+    const drn = req.params.drn;
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const rows = await queryAll(
+      `SELECT hour, import_wh, export_wh, net_wh, dominant_direction, direction_confidence, power_readings, energy_readings
+       FROM MeterHourlyEnergyServer
+       WHERE DRN = ? AND date = ?
+       ORDER BY hour`,
+      [drn, date]
+    );
+
+    const hourly = [];
+    let totalImport = 0, totalExport = 0, totalNet = 0;
+    for (let h = 0; h < 24; h++) {
+      const row = rows.find(r => r.hour === h);
+      const imp = row ? row.import_wh : 0;
+      const exp = row ? row.export_wh : 0;
+      const net = row ? row.net_wh : 0;
+      totalImport += imp;
+      totalExport += exp;
+      totalNet += net;
+      hourly.push({
+        hour: h, import_wh: imp, export_wh: exp, net_wh: net,
+        dominant_direction: row ? row.dominant_direction : 'none',
+        direction_confidence: row ? row.direction_confidence : 0,
+        power_readings: row ? row.power_readings : 0,
+        energy_readings: row ? row.energy_readings : 0
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        date, source: 'server',
+        total_import_wh: totalImport,
+        total_export_wh: totalExport,
+        total_net_wh: totalNet,
+        hourly
+      }
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/mqtt/actual-energy/:drn/daily', authenticateToken, async (req, res) => {
   try {
     const drn = req.params.drn;
@@ -1539,6 +1628,75 @@ router.get('/mqtt/net-metering-configs', authenticateToken, async (req, res) => 
        ORDER BY nmc.updated_at DESC`
     );
     res.json({ success: true, data: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// THD (Total Harmonic Distortion) Data
+// ═══════════════════════════════════════════════════════════════════════
+
+router.get('/mqtt/thd/:drn', authenticateToken, async (req, res) => {
+  try {
+    const { drn } = req.params;
+    const [rows] = await dbPromise.query(
+      `SELECT thd_voltage, thd_current, distortion_va, displacement_pf, record_time, created_at
+       FROM MeterTHD WHERE DRN = ? ORDER BY created_at DESC LIMIT 1`,
+      [drn]
+    );
+    res.json({ success: true, data: rows[0] || null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/mqtt/thd/:drn/history', authenticateToken, async (req, res) => {
+  try {
+    const { drn } = req.params;
+    const limit = parseInt(req.query.limit) || 72;
+    const [rows] = await dbPromise.query(
+      `SELECT thd_voltage, thd_current, distortion_va, displacement_pf, record_time, created_at
+       FROM MeterTHD WHERE DRN = ? ORDER BY created_at DESC LIMIT ?`,
+      [drn, limit]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/mqtt/thd/:drn/15min', authenticateToken, async (req, res) => {
+  try {
+    const { drn } = req.params;
+    const rows = await queryAll(
+      `SELECT
+        HOUR(created_at) as hour,
+        FLOOR(MINUTE(created_at)/15) as quarter,
+        ROUND(AVG(thd_voltage), 2) as avgThdV,
+        ROUND(AVG(thd_current), 2) as avgThdI,
+        ROUND(AVG(distortion_va), 2) as avgDistVA,
+        ROUND(AVG(displacement_pf), 3) as avgDispPF,
+        COUNT(*) as readings
+      FROM MeterTHD
+      WHERE DRN = ? AND DATE(created_at) = CURDATE()
+      GROUP BY HOUR(created_at), FLOOR(MINUTE(created_at)/15)
+      ORDER BY hour, quarter`,
+      [drn]
+    );
+    const arr = [];
+    for (let i = 0; i < 96; i++) {
+      const h = Math.floor(i / 4);
+      const q = i % 4;
+      arr.push({
+        time: String(h).padStart(2, '0') + ':' + String(q * 15).padStart(2, '0'),
+        thdV: 0, thdI: 0, distVA: 0, dispPF: 0,
+      });
+    }
+    rows.forEach(row => {
+      const idx = row.hour * 4 + row.quarter;
+      if (idx >= 0 && idx < 96) {
+        arr[idx].thdV = parseFloat(row.avgThdV) || 0;
+        arr[idx].thdI = parseFloat(row.avgThdI) || 0;
+        arr[idx].distVA = parseFloat(row.avgDistVA) || 0;
+        arr[idx].dispPF = parseFloat(row.avgDispPF) || 0;
+      }
+    });
+    res.json({ success: true, data: arr });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

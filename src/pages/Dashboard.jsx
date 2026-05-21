@@ -196,6 +196,7 @@ export default function Dashboard() {
   const [hourlyTokenCounts, setHourlyTokenCounts] = useState([]);
   const [hourlyEnergyData, setHourlyEnergyData] = useState([]);
   const [totalRemainingUnits, setTotalRemainingUnits] = useState(0);
+  const [power15minData, setPower15minData] = useState([]);
   const [hourlyRevenue, setHourlyRevenue] = useState([]);
   const [revenuePeriod, setRevenuePeriod] = useState("weekly");
   const [revenuePeriodData, setRevenuePeriodData] = useState([]);
@@ -336,6 +337,10 @@ export default function Dashboard() {
           kWh: Number(val) || 0,
         }));
         setHourlyEnergyData(eData);
+      }
+
+      if (Array.isArray(stats.power15min)) {
+        setPower15minData(stats.power15min);
       }
 
       setLastUpdate(new Date());
@@ -637,7 +642,7 @@ export default function Dashboard() {
                 </Box>
               </Box>
 
-              <Box height="350px">
+              <Box height="calc(100% - 120px)">
                 {suburbChartData.length === 0 ? (
                   <Skeleton variant="rectangular" width="100%" height="100%" sx={{ bgcolor: colors.primary[500], borderRadius: 1 }} />
                 ) : (
@@ -742,7 +747,7 @@ export default function Dashboard() {
                 </Box>
               </Box>
 
-              <Box height="350px">
+              <Box height="calc(100% - 120px)">
                 {hourlyData.length === 0 ? (
                   <Skeleton variant="rectangular" width="100%" height="100%" sx={{ bgcolor: colors.primary[500], borderRadius: 1 }} />
                 ) : (
@@ -797,6 +802,155 @@ export default function Dashboard() {
                       name="Energy (kWh)"
                       dot={{ r: 3, fill: colors.greenAccent[500] }}
                       activeDot={{ r: 5 }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+                )}
+              </Box>
+            </Box>
+          );
+        })()}
+
+        {/* ROW 2c: 15-Minute Power Profile Chart */}
+        {(() => {
+          const hasData = power15minData.some((d) => d.power > 0);
+          const powerValues = power15minData.filter((d) => d.power > 0).map((d) => d.power);
+          const avgPwr = powerValues.length ? powerValues.reduce((a, b) => a + b, 0) / powerValues.length : 0;
+          const maxPwr = powerValues.length ? Math.max(...powerValues) : 0;
+          const voltValues = power15minData.filter((d) => d.voltage > 0).map((d) => d.voltage);
+          const avgVolt = voltValues.length ? voltValues.reduce((a, b) => a + b, 0) / voltValues.length : 0;
+
+          return (
+            <Box
+              gridColumn="span 12"
+              gridRow="span 4"
+              backgroundColor={colors.primary[400]}
+              p="15px"
+            >
+              <Box display="flex" alignItems="center" gap={1} mb="10px">
+                <BoltIcon sx={{ color: colors.blueAccent[400], fontSize: 20 }} />
+                <Typography variant="h5" fontWeight="600" color={colors.grey[100]}>
+                  Power Profile (15-min intervals)
+                </Typography>
+                <DataBadge live sx={{ ml: "auto" }} />
+              </Box>
+
+              <Box sx={{
+                display: "flex",
+                justifyContent: "space-around",
+                backgroundColor: colors.primary[500],
+                borderRadius: "8px",
+                p: 1.5,
+                mb: 2,
+                gap: 2,
+                flexWrap: "wrap",
+              }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <ElectricalServicesIcon sx={{ color: colors.blueAccent[400], fontSize: "1.8rem" }} />
+                  <Box>
+                    <Typography variant="body2" color={colors.grey[300]}>Average Power</Typography>
+                    <Typography variant="h5" sx={{ color: colors.blueAccent[400], fontWeight: 700 }}>
+                      {avgPwr.toFixed(1)} W
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <FlashOnIcon sx={{ color: "#f2b705", fontSize: "1.8rem" }} />
+                  <Box>
+                    <Typography variant="body2" color={colors.grey[300]}>Peak Power</Typography>
+                    <Typography variant="h5" sx={{ color: "#f2b705", fontWeight: 700 }}>
+                      {maxPwr.toFixed(1)} W
+                    </Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <SettingsInputCompositeIcon sx={{ color: colors.greenAccent[500], fontSize: "1.8rem" }} />
+                  <Box>
+                    <Typography variant="body2" color={colors.grey[300]}>Avg Voltage</Typography>
+                    <Typography variant="h5" sx={{ color: colors.greenAccent[500], fontWeight: 700 }}>
+                      {avgVolt.toFixed(1)} V
+                    </Typography>
+                  </Box>
+                </Box>
+              </Box>
+
+              <Box height="calc(100% - 120px)">
+                {!hasData ? (
+                  <Skeleton variant="rectangular" width="100%" height="100%" sx={{ bgcolor: colors.primary[500], borderRadius: 1 }} />
+                ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={power15minData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradPower15" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={colors.blueAccent[400]} stopOpacity={0.4} />
+                        <stop offset="95%" stopColor={colors.blueAccent[400]} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                    <XAxis
+                      dataKey="time"
+                      stroke={colors.grey[300]}
+                      tick={{ fontSize: 10 }}
+                      interval={3}
+                      tickFormatter={(val) => val.endsWith(":00") ? val : ""}
+                    />
+                    <YAxis
+                      stroke={colors.grey[300]}
+                      tick={{ fontSize: 11 }}
+                      label={{ value: "Watts", angle: -90, position: "insideLeft", style: { fill: colors.grey[400], fontSize: 11 } }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: colors.primary[400],
+                        border: `1px solid ${colors.grey[700]}`,
+                        borderRadius: 4,
+                        color: colors.grey[100],
+                      }}
+                      formatter={(value, name) => {
+                        if (name === "power") return [`${Number(value).toFixed(1)} W`, "Avg Power"];
+                        if (name === "peak") return [`${Number(value).toFixed(1)} W`, "Peak Power"];
+                        return [value, name];
+                      }}
+                      labelFormatter={(label) => `Time: ${label}`}
+                    />
+                    <Legend
+                      wrapperStyle={{ fontSize: 11, color: colors.grey[300] }}
+                      formatter={(val) => val === "power" ? "Avg Power (W)" : val === "peak" ? "Peak Power (W)" : val}
+                    />
+                    {avgPwr > 0 && (
+                      <ReferenceLine
+                        y={avgPwr}
+                        stroke={colors.blueAccent[400]}
+                        strokeDasharray="5 5"
+                        label={{
+                          value: `Avg: ${avgPwr.toFixed(0)} W`,
+                          fill: colors.blueAccent[400],
+                          fontSize: 11,
+                          fontWeight: 600,
+                          position: "insideTopRight",
+                        }}
+                      />
+                    )}
+                    <Area
+                      type="monotone"
+                      dataKey="power"
+                      stroke={colors.blueAccent[400]}
+                      strokeWidth={2}
+                      fill="url(#gradPower15)"
+                      name="power"
+                      dot={false}
+                      activeDot={{ r: 4 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="peak"
+                      stroke="#f2b705"
+                      strokeWidth={1}
+                      fill="none"
+                      strokeDasharray="3 3"
+                      name="peak"
+                      dot={false}
+                      activeDot={{ r: 3 }}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
