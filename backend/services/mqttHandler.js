@@ -696,6 +696,40 @@ function ensureTables() {
     INDEX idx_drn_time (DRN, created_at)
   )`, (err) => { if (err) console.error('[MQTT] MeterTHD table error:', err.message); });
 
+  db.query(`CREATE TABLE IF NOT EXISTS SummaryDataUsage (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    DRN VARCHAR(50) NOT NULL,
+    usage_date DATE NOT NULL,
+    usage_hour TINYINT NOT NULL,
+    msg_count INT DEFAULT 0,
+    payload_bytes BIGINT DEFAULT 0,
+    estimated_bytes BIGINT DEFAULT 0,
+    power_msgs INT DEFAULT 0,
+    energy_msgs INT DEFAULT 0,
+    net_energy_msgs INT DEFAULT 0,
+    cellular_msgs INT DEFAULT 0,
+    load_msgs INT DEFAULT 0,
+    token_msgs INT DEFAULT 0,
+    health_msgs INT DEFAULT 0,
+    other_msgs INT DEFAULT 0,
+    UNIQUE KEY uq_drn_date_hour (DRN, usage_date, usage_hour),
+    KEY idx_date (usage_date),
+    KEY idx_drn (DRN)
+  ) ENGINE=InnoDB`, (err) => { if (err) console.error('[MQTT] SummaryDataUsage table error:', err.message); });
+
+  db.query(`CREATE TABLE IF NOT EXISTS DataCostConfig (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    cost_per_mb DECIMAL(10,4) NOT NULL DEFAULT 0.50,
+    currency VARCHAR(10) DEFAULT 'NAD',
+    overhead_multiplier DECIMAL(4,2) DEFAULT 1.50,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB`, (err) => {
+    if (err) console.error('[MQTT] DataCostConfig table error:', err.message);
+    else {
+      db.query(`INSERT IGNORE INTO DataCostConfig (id, cost_per_mb, currency) VALUES (1, 0.50, 'NAD')`, () => {});
+    }
+  });
+
   db.query(`CREATE TABLE IF NOT EXISTS SuburbDailyEnergy (
     id INT AUTO_INCREMENT PRIMARY KEY,
     suburb VARCHAR(100) NOT NULL,
@@ -745,7 +779,56 @@ async function init() {
   mqttClient.on('error', (err) => console.error('[MQTT] Connection error:', err.message));
   mqttClient.on('reconnect', () => console.log('[MQTT] Reconnecting...'));
 
+  setInterval(flushDataUsage, 60 * 1000);
+
   return mqttClient;
+}
+
+// ==================== Data Usage Tracking ====================
+const TRANSPORT_OVERHEAD = 118; // TCP/IP (60) + TLS (29) + MQTT header+topic (~29)
+const dataUsageCounters = {}; // { "DRN:YYYY-MM-DD:HH": { msg_count, payload_bytes, estimated_bytes, power, energy, net_energy, cellular, load, token, health, other } }
+
+function trackDataUsage(drn, type, payloadBytes) {
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0];
+  const hour = now.getHours();
+  const key = `${drn}:${dateStr}:${hour}`;
+  if (!dataUsageCounters[key]) {
+    dataUsageCounters[key] = { drn, date: dateStr, hour, msg_count: 0, payload_bytes: 0, estimated_bytes: 0, power: 0, energy: 0, net_energy: 0, cellular: 0, load: 0, token: 0, health: 0, other: 0 };
+  }
+  const c = dataUsageCounters[key];
+  c.msg_count++;
+  c.payload_bytes += payloadBytes;
+  c.estimated_bytes += payloadBytes + TRANSPORT_OVERHEAD;
+  const typeMap = { power: 'power', energy: 'energy', net_energy: 'net_energy', cellular: 'cellular', load: 'load', token: 'token', health: 'health' };
+  c[typeMap[type] || 'other']++;
+}
+
+function flushDataUsage() {
+  const keys = Object.keys(dataUsageCounters);
+  if (keys.length === 0) return;
+  const batch = keys.map(k => dataUsageCounters[k]);
+  keys.forEach(k => delete dataUsageCounters[k]);
+  for (const c of batch) {
+    db.query(
+      `INSERT INTO SummaryDataUsage (DRN, usage_date, usage_hour, msg_count, payload_bytes, estimated_bytes, power_msgs, energy_msgs, net_energy_msgs, cellular_msgs, load_msgs, token_msgs, health_msgs, other_msgs)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         msg_count = msg_count + VALUES(msg_count),
+         payload_bytes = payload_bytes + VALUES(payload_bytes),
+         estimated_bytes = estimated_bytes + VALUES(estimated_bytes),
+         power_msgs = power_msgs + VALUES(power_msgs),
+         energy_msgs = energy_msgs + VALUES(energy_msgs),
+         net_energy_msgs = net_energy_msgs + VALUES(net_energy_msgs),
+         cellular_msgs = cellular_msgs + VALUES(cellular_msgs),
+         load_msgs = load_msgs + VALUES(load_msgs),
+         token_msgs = token_msgs + VALUES(token_msgs),
+         health_msgs = health_msgs + VALUES(health_msgs),
+         other_msgs = other_msgs + VALUES(other_msgs)`,
+      [c.drn, c.date, c.hour, c.msg_count, c.payload_bytes, c.estimated_bytes, c.power, c.energy, c.net_energy, c.cellular, c.load, c.token, c.health, c.other],
+      (err) => { if (err) console.error('[MQTT] DataUsage flush error:', err.message); }
+    );
+  }
 }
 
 // ==================== Message Router ====================
@@ -770,6 +853,8 @@ function handleMessage(topic, buf) {
   }
 
   if (parts.length !== 3) return;
+
+  trackDataUsage(drn, type, buf.length);
 
   // Update last-seen timestamp for live/offline tracking
   db.query(

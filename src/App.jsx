@@ -31,7 +31,7 @@ import VsmTesting from "./pages/VsmTesting";
 import EmergencyNotifications from "./pages/EmergencyNotifications";
 import AppUsers from "./pages/AppUsers";
 import NetMetering from "./pages/NetMetering";
-// FirmwareOTA removed
+import DataUsage from "./pages/DataUsage";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -73,6 +73,7 @@ function App() {
               <Route path="emergency-notifications" element={<EmergencyNotifications />} />
               <Route path="app-users" element={<AppUsers />} />
               <Route path="net-metering" element={<NetMetering />} />
+              <Route path="data-usage" element={<DataUsage />} />
             </Route>
           </Routes>
         </AuthProvider>

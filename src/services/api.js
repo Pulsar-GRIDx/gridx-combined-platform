@@ -530,6 +530,18 @@ export const nonGridxAPI = {
   getProviders: () => get('/vending/non-gridx-customers/providers/list'),
 };
 
+// ===== DATA USAGE =====
+export const dataUsageAPI = {
+  getNetworkToday: () => get('/summary/data-usage/network/today'),
+  getNetworkDaily: (days = 30) => get(`/summary/data-usage/network/daily?days=${days}`),
+  getNetworkMeters: (days = 7) => get(`/summary/data-usage/network/meters?days=${days}`),
+  getMeterToday: (drn) => get(`/summary/data-usage/meter/${drn}/today`),
+  getMeterDaily: (drn, days = 30) => get(`/summary/data-usage/meter/${drn}/daily?days=${days}`),
+  getBreakdown: (drn, days = 7) => get(`/summary/data-usage/breakdown/${drn}?days=${days}`),
+  getConfig: () => get('/summary/data-usage/config'),
+  updateConfig: (data) => put('/summary/data-usage/config', data),
+};
+
 export default {
   auth: authAPI,
   meter: meterAPI,
@@ -554,4 +566,5 @@ export default {
   integration: integrationAPI,
   nonGridx: nonGridxAPI,
   netMetering: netMeteringAPI,
+  dataUsage: dataUsageAPI,
 };

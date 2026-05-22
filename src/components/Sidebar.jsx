@@ -30,6 +30,7 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import PhoneAndroidIcon from "@mui/icons-material/PhoneAndroid";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
+import CellTowerIcon from "@mui/icons-material/CellTower";
 
 /* ── Nav Item ── */
 const NavItem = ({ title, to, icon, isCollapsed, accentColor }) => {
@@ -497,6 +498,13 @@ const Sidebar = () => {
           icon={<InsertChartIcon />}
           isCollapsed={isCollapsed}
           accentColor={colors.blueAccent[500]}
+        />
+        <NavItem
+          title="Data Usage"
+          to="/data-usage"
+          icon={<CellTowerIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#06b6d4"
         />
         {/* Administration */}
         <SectionHeader
