@@ -63,10 +63,13 @@ import {
   useJsApiLoader,
   Marker,
   Polygon,
+  Polyline,
+  InfoWindow,
 } from "@react-google-maps/api";
 import Header from "../components/Header";
 import { tokens } from "../theme";
-import { groupControlAPI, meterAPI } from "../services/api";
+import { groupControlAPI, meterAPI, energyAnalyticsAPI } from "../services/api";
+import EnergyAnalytics, { getSubstationMarkers, getConnectionLines } from "../components/EnergyAnalytics";
 const GOOGLE_MAPS_KEY = "AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk";
 const LIBRARIES = ["drawing"];
 const MAP_CONTAINER = { width: "100%", height: "100%" };
@@ -138,6 +141,50 @@ function iconSelected() {
     `<path d="M17 12 L14 20 H18 L16 26 L24 18 H20 L22 12 Z" fill="white"/>`, 44);
 }
 
+// Substation marker icons
+function iconSubstationPrimary() {
+  const size = 52;
+  const half = size / 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <defs>
+      <filter id="glow-p" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="3" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <rect x="6" y="6" width="${size-12}" height="${size-12}" rx="8" fill="#3b82f6" filter="url(#glow-p)" opacity="0.9"/>
+    <rect x="6" y="6" width="${size-12}" height="${size-12}" rx="8" fill="none" stroke="white" stroke-width="2" opacity="0.8"/>
+    <path d="M20 16 L17 24 H21 L19 30 L28 22 H24 L26 16 Z" fill="white" opacity="0.95"/>
+    <path d="M30 16 L27 24 H31 L29 30 L38 22 H34 L36 16 Z" fill="white" opacity="0.7"/>
+  </svg>`;
+  return {
+    url: `data:image/svg+xml,${encodeURIComponent(svg)}`,
+    scaledSize: { width: size, height: size, equals: () => false },
+    anchor: { x: half, y: half, equals: () => false },
+  };
+}
+
+function iconSubstationDist(color) {
+  const size = 44;
+  const half = size / 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <defs>
+      <filter id="glow-d" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="2" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <polygon points="${half},4 ${size-4},${half} ${half},${size-4} 4,${half}" fill="${color}" filter="url(#glow-d)" opacity="0.85"/>
+    <polygon points="${half},4 ${size-4},${half} ${half},${size-4} 4,${half}" fill="none" stroke="white" stroke-width="1.5" opacity="0.7"/>
+    <path d="M18 14 L15 22 H19 L17 28 L26 20 H22 L24 14 Z" fill="white" opacity="0.9"/>
+  </svg>`;
+  return {
+    url: `data:image/svg+xml,${encodeURIComponent(svg)}`,
+    scaledSize: { width: size, height: size, equals: () => false },
+    anchor: { x: half, y: half, equals: () => false },
+  };
+}
+
 /* ================================================================== */
 /* Group Control Page                                                  */
 /* ================================================================== */
@@ -182,6 +229,13 @@ export default function GroupControl() {
   // Snackbar
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
 
+  // Energy analytics overlays
+  const [substationConfig, setSubstationConfig] = useState([]);
+  const [powerFlowData, setPowerFlowData] = useState([]);
+  const [analyticsRegions, setAnalyticsRegions] = useState([]);
+  const [showFlowLines, setShowFlowLines] = useState(true);
+  const [hoveredSubstation, setHoveredSubstation] = useState(null);
+
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_KEY,
     libraries: LIBRARIES,
@@ -210,6 +264,25 @@ export default function GroupControl() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Fetch energy analytics overlay data
+  useEffect(() => {
+    async function loadAnalytics() {
+      try {
+        const [scRes, pfRes, regRes] = await Promise.allSettled([
+          energyAnalyticsAPI.getSubstationConfig(),
+          energyAnalyticsAPI.getPowerFlow(),
+          energyAnalyticsAPI.getRegionalSummary(),
+        ]);
+        if (scRes.status === "fulfilled") setSubstationConfig(Array.isArray(scRes.value) ? scRes.value : []);
+        if (pfRes.status === "fulfilled") setPowerFlowData(Array.isArray(pfRes.value) ? pfRes.value : []);
+        if (regRes.status === "fulfilled") setAnalyticsRegions(Array.isArray(regRes.value) ? regRes.value : []);
+      } catch {}
+    }
+    loadAnalytics();
+    const interval = setInterval(loadAnalytics, 15000);
+    return () => clearInterval(interval);
+  }, []);
 
   /* ---- Load group members when group selected ---- */
   const loadGroupMembers = useCallback(async (groupId) => {
@@ -263,6 +336,15 @@ export default function GroupControl() {
       geyserOff: sel.filter(m => m.geyser_state === "0" || m.geyser_state === 0).length,
     };
   }, [meters, selectedMeters]);
+
+  /* ---- Substation markers & flow lines for map ---- */
+  const substationMarkers = useMemo(() =>
+    getSubstationMarkers(substationConfig, analyticsRegions),
+  [substationConfig, analyticsRegions]);
+
+  const connectionLines = useMemo(() =>
+    showFlowLines ? getConnectionLines(substationConfig, powerFlowData) : [],
+  [substationConfig, powerFlowData, showFlowLines]);
 
   /* ---- Get marker icon based on state ---- */
   const getMarkerIcon = useCallback((meter) => {
@@ -438,10 +520,10 @@ export default function GroupControl() {
   const totalSelected = selectedMeters.size;
 
   return (
-    <Box m="10px 20px" height="calc(100vh - 80px)" display="flex" flexDirection="column">
+    <Box m="10px 20px" display="flex" flexDirection="column" sx={{ minHeight: "calc(100vh - 80px)" }}>
       <Header title="GROUP CONTROL" subtitle="Group-based ripple control, load management & calibration" />
 
-      <Box flex={1} display="flex" gap="12px" overflow="hidden" mt="8px">
+      <Box height="calc(100vh - 200px)" minHeight="500px" display="flex" gap="12px" overflow="hidden" mt="8px">
         {/* =============== LEFT PANEL — Groups & Areas =============== */}
         <Box
           width="280px"
@@ -800,11 +882,115 @@ export default function GroupControl() {
                   />
                 );
               })}
+
+              {/* Substation markers */}
+              {substationMarkers.map(sub => {
+                if (!sub.lat || !sub.lng) return null;
+                return (
+                  <Marker
+                    key={`sub-${sub.id}`}
+                    position={{ lat: sub.lat, lng: sub.lng }}
+                    icon={sub.isPrimary ? iconSubstationPrimary() : iconSubstationDist(sub.markerColor)}
+                    title={sub.name}
+                    onClick={() => setHoveredSubstation(hoveredSubstation?.id === sub.id ? null : sub)}
+                    zIndex={sub.isPrimary ? 1000 : 900}
+                  />
+                );
+              })}
+
+              {/* Substation info window */}
+              {hoveredSubstation && (
+                <InfoWindow
+                  position={{ lat: hoveredSubstation.lat, lng: hoveredSubstation.lng }}
+                  onCloseClick={() => setHoveredSubstation(null)}
+                  options={{ pixelOffset: { width: 0, height: -24, equals: () => false } }}
+                >
+                  <Box sx={{ p: "4px", minWidth: 180, color: "#1a1a2e" }}>
+                    <Typography variant="subtitle2" fontWeight={700} fontSize="12px" gutterBottom>
+                      {hoveredSubstation.name}
+                    </Typography>
+                    <Typography variant="caption" fontSize="10px" display="block" color="#666">
+                      {hoveredSubstation.isPrimary ? "Primary Substation" : "Distribution Substation"}
+                    </Typography>
+                    <Typography variant="caption" fontSize="10px" display="block" color="#666">
+                      District: {hoveredSubstation.district}
+                    </Typography>
+                    {hoveredSubstation.regionData && (
+                      <Box mt="4px" pt="4px" borderTop="1px solid #eee">
+                        <Typography variant="caption" fontSize="10px" display="block">
+                          <strong>Total Power:</strong> {Math.abs(hoveredSubstation.regionData.power.total_active_power).toFixed(1)} W
+                          {hoveredSubstation.regionData.energy.direction === "net_exporting" ? " (exporting)" : " (consuming)"}
+                        </Typography>
+                        <Typography variant="caption" fontSize="10px" display="block">
+                          <strong>Import:</strong> {(hoveredSubstation.regionData.energy.total_import_wh / 1000).toFixed(2)} kWh
+                        </Typography>
+                        <Typography variant="caption" fontSize="10px" display="block">
+                          <strong>Export:</strong> {(hoveredSubstation.regionData.energy.total_export_wh / 1000).toFixed(2)} kWh
+                        </Typography>
+                        <Typography variant="caption" fontSize="10px" display="block">
+                          <strong>Meters:</strong> {hoveredSubstation.regionData.meterCount} ({hoveredSubstation.regionData.online} online)
+                        </Typography>
+                        <Typography variant="caption" fontSize="10px" display="block">
+                          <strong>Avg Voltage:</strong> {hoveredSubstation.regionData.power.avg_voltage.toFixed(1)} V
+                        </Typography>
+                        <Typography variant="caption" fontSize="10px" display="block">
+                          <strong>Avg PF:</strong> {hoveredSubstation.regionData.power.avg_power_factor.toFixed(3)}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </InfoWindow>
+              )}
+
+              {/* Power flow connection lines */}
+              {connectionLines.map(line => (
+                <Polyline
+                  key={line.id}
+                  path={[line.from, line.to]}
+                  options={{
+                    strokeColor: line.color,
+                    strokeOpacity: 0.7,
+                    strokeWeight: line.weight,
+                    icons: line.type === "meter" ? [{
+                      icon: {
+                        path: 'M 0,-1 L 2,0 L 0,1',
+                        scale: 3,
+                        strokeColor: line.direction === "exporting" ? "#22c55e" : "#f59e0b",
+                        strokeOpacity: 0.9,
+                        fillColor: line.direction === "exporting" ? "#22c55e" : "#f59e0b",
+                        fillOpacity: 0.7,
+                      },
+                      offset: "50%",
+                    }] : [{
+                      icon: {
+                        path: 'M 0,-1 L 2,0 L 0,1',
+                        scale: 4,
+                        strokeColor: "#3b82f6",
+                        strokeOpacity: 0.8,
+                        fillColor: "#3b82f6",
+                        fillOpacity: 0.5,
+                      },
+                      offset: "40%",
+                    }, {
+                      icon: {
+                        path: 'M 0,-1 L 2,0 L 0,1',
+                        scale: 4,
+                        strokeColor: "#3b82f6",
+                        strokeOpacity: 0.8,
+                        fillColor: "#3b82f6",
+                        fillOpacity: 0.5,
+                      },
+                      offset: "70%",
+                    }],
+                    geodesic: true,
+                  }}
+                />
+              ))}
             </GoogleMap>
           </Box>
 
           {/* Legend */}
-          <Box display="flex" gap="16px" justifyContent="center" py="4px">
+          <Box display="flex" gap="12px" justifyContent="center" alignItems="center" py="4px" flexWrap="wrap">
             {[
               { color: "#4cceac", label: "Mains ON + Geyser ON" },
               { color: "#f2b705", label: "Mains ON + Geyser OFF" },
@@ -819,6 +1005,38 @@ export default function GroupControl() {
                 </Typography>
               </Box>
             ))}
+            <Box sx={{ width: "1px", height: 12, bgcolor: "rgba(255,255,255,0.15)", mx: "4px" }} />
+            {[
+              { color: "#3b82f6", label: "Primary Sub", shape: "square" },
+              { color: "#f59e0b", label: "Dist. Sub (Load)", shape: "diamond" },
+              { color: "#22c55e", label: "Dist. Sub (Export)", shape: "diamond" },
+            ].map(item => (
+              <Box key={item.label} display="flex" alignItems="center" gap="4px">
+                {item.shape === "diamond" ? (
+                  <Box sx={{ width: 8, height: 8, bgcolor: item.color, transform: "rotate(45deg)" }} />
+                ) : (
+                  <Box sx={{ width: 8, height: 8, bgcolor: item.color, borderRadius: "2px" }} />
+                )}
+                <Typography variant="caption" color={colors.grey[400]} fontSize="10px">
+                  {item.label}
+                </Typography>
+              </Box>
+            ))}
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={showFlowLines}
+                  onChange={(e) => setShowFlowLines(e.target.checked)}
+                  size="small"
+                  sx={{
+                    "& .MuiSwitch-switchBase.Mui-checked": { color: "#3b82f6" },
+                    "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#3b82f6" },
+                  }}
+                />
+              }
+              label={<Typography variant="caption" color={colors.grey[400]} fontSize="10px">Flow Lines</Typography>}
+              sx={{ ml: "4px", mr: 0 }}
+            />
           </Box>
         </Box>
 
@@ -916,6 +1134,9 @@ export default function GroupControl() {
           )}
         </Box>
       </Box>
+
+      {/* =============== ENERGY ANALYTICS DASHBOARD =============== */}
+      <EnergyAnalytics />
 
       {/* =============== DIALOGS =============== */}
 

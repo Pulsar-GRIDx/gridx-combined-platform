@@ -538,8 +538,17 @@ export const dataUsageAPI = {
   getMeterToday: (drn) => get(`/summary/data-usage/meter/${drn}/today`),
   getMeterDaily: (drn, days = 30) => get(`/summary/data-usage/meter/${drn}/daily?days=${days}`),
   getBreakdown: (drn, days = 7) => get(`/summary/data-usage/breakdown/${drn}?days=${days}`),
+  getNetworkBreakdown: (days = 7) => get(`/summary/data-usage/network/breakdown?days=${days}`),
   getConfig: () => get('/summary/data-usage/config'),
   updateConfig: (data) => put('/summary/data-usage/config', data),
+};
+
+// ===== ENERGY ANALYTICS =====
+export const energyAnalyticsAPI = {
+  getRegionalSummary: () => get('/energy-analytics/regional-summary'),
+  getSubstations: () => get('/energy-analytics/substations'),
+  getSubstationConfig: () => get('/energy-analytics/substation-config'),
+  getPowerFlow: () => get('/energy-analytics/power-flow'),
 };
 
 export default {
@@ -567,4 +576,5 @@ export default {
   nonGridx: nonGridxAPI,
   netMetering: netMeteringAPI,
   dataUsage: dataUsageAPI,
+  energyAnalytics: energyAnalyticsAPI,
 };

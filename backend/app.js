@@ -80,6 +80,7 @@ const customerAuthRoutes = require('./routes/customerAuthRoutes');
 const tamperRoutes = require('./routes/tamperRoutes');
 const vsmRoutes = require('./routes/vsmRoutes');
 const meterValidationRoutes = require('./routes/meterValidationRoutes');
+const energyAnalyticsRoutes = require('./routes/energyAnalyticsRoutes');
 const authorizedNumbersRoutes = require('./meter/authorizedNumbersRoutes');
 const { confirmValidation } = require('./customer/meterValidationController');
 
@@ -172,6 +173,7 @@ apiRouter.use('/vending', vendingRoutes);
 apiRouter.use('/', tamperRoutes);
 apiRouter.use('/', vsmRoutes);
 apiRouter.use('/summary', summaryRoutes);
+apiRouter.use('/energy-analytics', energyAnalyticsRoutes);
 // Meter config commands (auth number, sleep mode, base URL, status)
 const meterConfigRoutes = require('./meterProfile/meterConfigRoutes');
 apiRouter.use('/meter-config', meterConfigRoutes);
@@ -295,6 +297,12 @@ try {
   require('./services/billingNotificationCron');
 } catch (err) {
   console.warn('Billing notification cron skipped:', err.message);
+}
+
+try {
+  require('./notifications/timeInterval');
+} catch (err) {
+  console.warn('Offline detection cron skipped:', err.message);
 }
 
 // Initialize summary worker (pre-computed dashboard tables)
