@@ -89,6 +89,15 @@ async function ensureSubstationConfig() {
     { drn: 'SUB-WW-001', name: 'Windhoek West Distribution',      lat: -22.5677, lng: 17.0755, parent: vanEck.id,    district: 'Windhoek West' },
     { drn: 'SUB-WNR-001', name: 'Windhoek North Distribution',    lat: -22.5550, lng: 17.0725, parent: brakwater.id, district: 'Windhoek North' },
     { drn: 'SUB-CBD-001', name: 'Windhoek CBD Distribution',      lat: -22.5609, lng: 17.0658, parent: vanEck.id,    district: 'Windhoek CBD' },
+    { drn: 'SUB-AC-001', name: 'Academia Distribution',           lat: -22.5823, lng: 17.0783, parent: auas.id,      district: 'Academia' },
+    { drn: 'SUB-LW-001', name: 'Ludwigsdorf Distribution',        lat: -22.5612, lng: 17.0877, parent: vanEck.id,    district: 'Ludwigsdorf' },
+    { drn: 'SUB-KW-001', name: 'Klein Windhoek Distribution',     lat: -22.5713, lng: 17.0912, parent: vanEck.id,    district: 'Klein Windhoek' },
+    { drn: 'SUB-SH-001', name: 'Suiderhof Distribution',          lat: -22.5888, lng: 17.0777, parent: auas.id,      district: 'Suiderhof' },
+    { drn: 'SUB-OT-001', name: 'Otjomuise Distribution',          lat: -22.5555, lng: 17.0299, parent: brakwater.id, district: 'Otjomuise' },
+    { drn: 'SUB-HP-001', name: 'Hochland Park Distribution',      lat: -22.5745, lng: 17.0510, parent: vanEck.id,    district: 'Hochland Park' },
+    { drn: 'SUB-PR-001', name: 'Prosperita Distribution',         lat: -22.5750, lng: 17.0380, parent: vanEck.id,    district: 'Prosperita' },
+    { drn: 'SUB-AV-001', name: 'Avis Distribution',               lat: -22.5580, lng: 17.0900, parent: vanEck.id,    district: 'Avis' },
+    { drn: 'SUB-AB-001', name: 'Auasblick Distribution',          lat: -22.5900, lng: 17.0880, parent: auas.id,      district: 'Auasblick' },
   ];
 
   for (const d of distributions) {
@@ -98,7 +107,7 @@ async function ensureSubstationConfig() {
     );
   }
 
-  console.log('[EnergyAnalytics] SubstationConfig seeded with 16 Windhoek substations');
+  console.log('[EnergyAnalytics] SubstationConfig seeded with 25 Windhoek substations');
 }
 
 // Run on module load (non-blocking)
