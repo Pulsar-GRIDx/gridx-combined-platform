@@ -27,6 +27,7 @@ router.delete('/deleteNotifications/:id', authenticateTokenAndGetAdmin_ID,(req, 
 
 
 router.get('/notificationsByDRN/:DRN', notificationController.getAllNotificationsByDRN);
+router.get('/clientNotifications/:DRN', notificationController.getClientNotificationsByDRN);
 router.get('/criticalNotifications' , notificationController.getAllCriticalNotifications) ;
 router.get('/getAll',notificationController.getAll);
 router.get('/notificationTypes',notificationController.getMeterNotificationsByType);

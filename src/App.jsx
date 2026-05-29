@@ -32,6 +32,7 @@ import EmergencyNotifications from "./pages/EmergencyNotifications";
 import AppUsers from "./pages/AppUsers";
 import NetMetering from "./pages/NetMetering";
 import DataUsage from "./pages/DataUsage";
+import SubstationProfile from "./pages/SubstationProfile";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -57,6 +58,7 @@ function App() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="map" element={<Map />} />
               <Route path="meter/:drn" element={<MeterProfile />} />
+              <Route path="substation/:drn" element={<SubstationProfile />} />
               <Route path="meter-profiles" element={<MeterProfiles />} />
               <Route path="meter-summary" element={<MeterSummary />} />
               <Route path="analysis" element={<Analysis />} />

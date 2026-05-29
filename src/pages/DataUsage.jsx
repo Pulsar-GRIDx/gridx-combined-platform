@@ -10,10 +10,10 @@ import MessageIcon from "@mui/icons-material/Message";
 import RouterIcon from "@mui/icons-material/Router";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
-  ResponsiveContainer, Legend, PieChart, Pie, Cell as RCell,
+  ResponsiveContainer, PieChart, Pie, Cell as RCell,
 } from "recharts";
 
-const COLORS = ["#3b82f6", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#eab308", "#ef4444", "#64748b"];
+const COLORS = ["#3b82f6", "#f97316", "#22c55e", "#a855f7", "#ef4444", "#06b6d4", "#eab308", "#ec4899"];
 
 const DataUsage = () => {
   const theme = useTheme();
@@ -22,21 +22,27 @@ const DataUsage = () => {
 
   const [networkToday, setNetworkToday] = useState(null);
   const [networkDaily, setNetworkDaily] = useState(null);
+  const [networkYearly, setNetworkYearly] = useState(null);
   const [meterRanking, setMeterRanking] = useState(null);
+  const [networkBreakdown, setNetworkBreakdown] = useState(null);
   const [view, setView] = useState("today");
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [today, daily, meters] = await Promise.all([
+      const [today, daily, yearly, meters, bk] = await Promise.all([
         dataUsageAPI.getNetworkToday(),
         dataUsageAPI.getNetworkDaily(30),
+        dataUsageAPI.getNetworkDaily(365),
         dataUsageAPI.getNetworkMeters(7),
+        dataUsageAPI.getNetworkBreakdown(7),
       ]);
       setNetworkToday(today);
       setNetworkDaily(daily);
+      setNetworkYearly(yearly);
       setMeterRanking(meters);
+      setNetworkBreakdown(bk);
     } catch (err) {
       console.error("Data usage fetch error:", err);
     } finally {
@@ -54,6 +60,19 @@ const DataUsage = () => {
   };
 
   const cardBg = isDark ? colors.primary[400] : "#fff";
+
+  const getViewTotals = () => {
+    if (view === "today") return { bytes: networkToday?.totalBytes || 0, cost: networkToday?.totalCost || 0, msgs: networkToday?.totalMsgs || 0 };
+    if (view === "monthly") {
+      const msgs = networkDaily?.daily?.reduce((s, d) => s + d.msgs, 0) || 0;
+      return { bytes: networkDaily?.totalBytes || 0, cost: networkDaily?.totalCost || 0, msgs };
+    }
+    const msgs = networkYearly?.daily?.reduce((s, d) => s + d.msgs, 0) || 0;
+    return { bytes: networkYearly?.totalBytes || 0, cost: networkYearly?.totalCost || 0, msgs };
+  };
+
+  const totals = getViewTotals();
+  const viewLabel = view === "today" ? "Today's" : view === "monthly" ? "30-Day" : "Yearly";
 
   const StatCard = ({ title, value, subtitle, icon, color }) => (
     <Box sx={{ bgcolor: cardBg, borderRadius: "12px", p: "20px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -76,15 +95,43 @@ const DataUsage = () => {
     meters: h.meters,
   })) : [];
 
-  const dailyChartData = networkDaily ? networkDaily.daily.map(d => {
-    const dt = new Date(d.date);
-    return {
-      date: `${dt.getDate()}/${dt.getMonth() + 1}`,
-      data: +(d.mb * 1024).toFixed(1),
-      cost: d.cost,
-      meters: d.meters,
-    };
-  }) : [];
+  const aggregateMonthly = (daily) => {
+    const months = {};
+    daily.forEach(d => {
+      const dt = new Date(d.date);
+      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+      if (!months[key]) months[key] = { date: dt.toLocaleString("default", { month: "short", year: "2-digit" }), bytes: 0, cost: 0, msgs: 0, meters: 0 };
+      months[key].bytes += d.bytes || 0;
+      months[key].cost += d.cost || 0;
+      months[key].msgs += d.msgs || 0;
+      months[key].meters = Math.max(months[key].meters, d.meters || 0);
+    });
+    return Object.values(months);
+  };
+
+  const getDailyChartData = () => {
+    const src = view === "yearly" ? networkYearly : networkDaily;
+    if (!src?.daily) return [];
+    if (view === "yearly") {
+      return aggregateMonthly(src.daily).map(m => ({
+        date: m.date,
+        data: +(m.bytes / 1024).toFixed(1),
+        cost: +m.cost.toFixed(4),
+        meters: m.meters,
+      }));
+    }
+    return src.daily.map(d => {
+      const dt = new Date(d.date);
+      return {
+        date: `${dt.getDate()}/${dt.getMonth() + 1}`,
+        data: +(d.bytes / 1024).toFixed(1),
+        cost: d.cost,
+        meters: d.meters,
+      };
+    });
+  };
+
+  const dailyChartData = getDailyChartData();
 
   return (
     <Box m="20px">
@@ -94,6 +141,7 @@ const DataUsage = () => {
         <ToggleButtonGroup value={view} exclusive onChange={(e, v) => { if (v) setView(v); }} size="small">
           <ToggleButton value="today" sx={{ textTransform: "none", px: 2 }}>Today</ToggleButton>
           <ToggleButton value="monthly" sx={{ textTransform: "none", px: 2 }}>30 Days</ToggleButton>
+          <ToggleButton value="yearly" sx={{ textTransform: "none", px: 2 }}>Yearly</ToggleButton>
         </ToggleButtonGroup>
         <Chip
           icon={<CellTowerIcon sx={{ fontSize: 16 }} />}
@@ -107,17 +155,17 @@ const DataUsage = () => {
       <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gap="15px" mb="20px">
         <Box gridColumn="span 3">
           <StatCard
-            title={view === "today" ? "Today's Data" : "30-Day Data"}
-            value={formatBytes(view === "today" ? (networkToday?.totalBytes || 0) : (networkDaily?.totalBytes || 0))}
-            subtitle={`${view === "today" ? (networkToday?.totalMsgs || 0) : networkDaily?.daily?.reduce((s, d) => s + d.msgs, 0) || 0} messages`}
+            title={`${viewLabel} Data`}
+            value={formatBytes(totals.bytes)}
+            subtitle={`${totals.msgs} messages`}
             icon={<DataUsageIcon sx={{ fontSize: 26, color: "#3b82f6" }} />}
             color="#3b82f6"
           />
         </Box>
         <Box gridColumn="span 3">
           <StatCard
-            title={view === "today" ? "Today's Cost" : "30-Day Cost"}
-            value={`N$ ${(view === "today" ? (networkToday?.totalCost || 0) : (networkDaily?.totalCost || 0)).toFixed(2)}`}
+            title={`${viewLabel} Cost`}
+            value={`N$ ${totals.cost.toFixed(2)}`}
             subtitle={`@ N$ ${networkToday?.costPerMb || 0.50}/MB`}
             icon={<AttachMoneyIcon sx={{ fontSize: 26, color: "#f97316" }} />}
             color="#f97316"
@@ -135,8 +183,8 @@ const DataUsage = () => {
         <Box gridColumn="span 3">
           <StatCard
             title="Total Messages"
-            value={(view === "today" ? (networkToday?.totalMsgs || 0) : networkDaily?.daily?.reduce((s, d) => s + d.msgs, 0) || 0).toLocaleString()}
-            subtitle="MQTT transmissions"
+            value={totals.msgs.toLocaleString()}
+            subtitle="Transmissions"
             icon={<MessageIcon sx={{ fontSize: 26, color: "#a855f7" }} />}
             color="#a855f7"
           />
@@ -145,10 +193,9 @@ const DataUsage = () => {
 
       {/* Charts row */}
       <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gap="15px" mb="20px">
-        {/* Main chart */}
         <Box gridColumn="span 8" sx={{ bgcolor: cardBg, borderRadius: "12px", p: "20px" }}>
           <Typography sx={{ fontSize: "15px", fontWeight: 600, color: colors.grey[100], mb: "15px" }}>
-            {view === "today" ? "Hourly Data Consumption (KB)" : "Daily Data Consumption (KB)"}
+            {view === "today" ? "Hourly Data Consumption (KB)" : view === "monthly" ? "Daily Data Consumption (KB)" : "Monthly Data Consumption (KB)"}
           </Typography>
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={view === "today" ? hourlyData : dailyChartData}>
@@ -167,10 +214,9 @@ const DataUsage = () => {
           </ResponsiveContainer>
         </Box>
 
-        {/* Cost chart */}
         <Box gridColumn="span 4" sx={{ bgcolor: cardBg, borderRadius: "12px", p: "20px" }}>
           <Typography sx={{ fontSize: "15px", fontWeight: 600, color: colors.grey[100], mb: "15px" }}>
-            {view === "today" ? "Hourly Cost (N$)" : "Daily Cost (N$)"}
+            {view === "today" ? "Hourly Cost (N$)" : view === "monthly" ? "Daily Cost (N$)" : "Monthly Cost (N$)"}
           </Typography>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={view === "today" ? hourlyData : dailyChartData}>
@@ -181,6 +227,101 @@ const DataUsage = () => {
               <Bar dataKey="cost" fill="#f97316" radius={[4, 4, 0, 0]} name="Cost (N$)" />
             </BarChart>
           </ResponsiveContainer>
+        </Box>
+      </Box>
+
+      {/* Message Type Breakdown - Side by Side */}
+      <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gap="15px" mb="20px">
+        <Box gridColumn="span 6" sx={{ bgcolor: cardBg, borderRadius: "12px", p: "20px" }}>
+          <Typography sx={{ fontSize: "15px", fontWeight: 600, color: colors.grey[100], mb: "15px" }}>
+            Data Size by Message Type (7 Days)
+          </Typography>
+          {networkBreakdown?.breakdown?.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={networkBreakdown.breakdown}>
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(148,163,184,0.1)" : "rgba(0,0,0,0.06)"} />
+                <XAxis dataKey="type" tick={{ fill: colors.grey[400], fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: colors.grey[400], fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1024 ? `${(v / 1024).toFixed(1)} KB` : `${v} B`} />
+                <RTooltip
+                  contentStyle={{ backgroundColor: isDark ? "#1e293b" : "#fff", border: "none", borderRadius: 8, fontSize: 13 }}
+                  formatter={(val) => [val >= 1024 ? `${(val / 1024).toFixed(1)} KB` : `${val} B`, "Data Size"]}
+                />
+                <Bar dataKey="bytes" fill="#3b82f6" radius={[6, 6, 0, 0]} name="Data Size" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <Box sx={{ textAlign: "center", py: 8 }}>
+              <Typography sx={{ color: colors.grey[400], fontSize: 14 }}>No data available yet.</Typography>
+            </Box>
+          )}
+        </Box>
+        <Box gridColumn="span 6" sx={{ bgcolor: cardBg, borderRadius: "12px", p: "20px" }}>
+          <Typography sx={{ fontSize: "15px", fontWeight: 600, color: colors.grey[100], mb: "15px" }}>
+            Message Count by Type (7 Days)
+          </Typography>
+          {networkBreakdown?.breakdown?.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={networkBreakdown.breakdown}>
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(148,163,184,0.1)" : "rgba(0,0,0,0.06)"} />
+                <XAxis dataKey="type" tick={{ fill: colors.grey[400], fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: colors.grey[400], fontSize: 11 }} axisLine={false} tickLine={false} />
+                <RTooltip
+                  contentStyle={{ backgroundColor: isDark ? "#1e293b" : "#fff", border: "none", borderRadius: 8, fontSize: 13 }}
+                  formatter={(val) => [val.toLocaleString(), "Messages"]}
+                />
+                <Bar dataKey="count" fill="#a855f7" radius={[6, 6, 0, 0]} name="Messages" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <Box sx={{ textAlign: "center", py: 8 }}>
+              <Typography sx={{ color: colors.grey[400], fontSize: 14 }}>No data available yet.</Typography>
+            </Box>
+          )}
+        </Box>
+      </Box>
+
+      {/* Message Type Breakdown - Donut Chart */}
+      <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gap="15px" mb="20px">
+        <Box gridColumn="span 12" sx={{ bgcolor: cardBg, borderRadius: "12px", p: "20px" }}>
+          <Typography sx={{ fontSize: "15px", fontWeight: 600, color: colors.grey[100], mb: "15px" }}>
+            Message Type Breakdown (7 Days)
+          </Typography>
+          {networkBreakdown?.breakdown?.length > 0 ? (
+            <Box display="flex" alignItems="center" justifyContent="center" gap="40px">
+              <ResponsiveContainer width="45%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={networkBreakdown.breakdown.map(b => ({ name: b.type, value: b.bytes }))}
+                    cx="50%" cy="50%" innerRadius={70} outerRadius={120}
+                    paddingAngle={3} dataKey="value"
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {networkBreakdown.breakdown.map((b, i) => (
+                      <RCell key={b.type} fill={COLORS[i % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <RTooltip
+                    contentStyle={{ backgroundColor: isDark ? "#1e293b" : "#fff", border: "none", borderRadius: 8, fontSize: 13 }}
+                    formatter={(val) => [formatBytes(val), "Data"]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <Box>
+                {networkBreakdown.breakdown.map((b, i) => (
+                  <Box key={b.type} display="flex" alignItems="center" gap="10px" mb="8px">
+                    <Box sx={{ width: 12, height: 12, borderRadius: "3px", bgcolor: COLORS[i % COLORS.length] }} />
+                    <Typography sx={{ fontSize: 13, color: colors.grey[200], minWidth: 90 }}>{b.type}</Typography>
+                    <Typography sx={{ fontSize: 13, color: colors.grey[100], fontWeight: 600 }}>{formatBytes(b.bytes)}</Typography>
+                    <Typography sx={{ fontSize: 12, color: colors.grey[400] }}>({b.count} msgs)</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          ) : (
+            <Box sx={{ textAlign: "center", py: 8 }}>
+              <Typography sx={{ color: colors.grey[400], fontSize: 14 }}>No data available yet.</Typography>
+            </Box>
+          )}
         </Box>
       </Box>
 

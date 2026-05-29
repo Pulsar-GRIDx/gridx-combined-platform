@@ -384,8 +384,36 @@ router.get('/data-usage/breakdown/:drn', authenticateToken, async (req, res) => 
       { type: 'Token', count: Number(row.token_m) || 0, avgBytes: 50 },
       { type: 'Health', count: Number(row.health) || 0, avgBytes: 250 },
       { type: 'Other', count: Number(row.other) || 0, avgBytes: 100 },
-    ].filter(b => b.count > 0);
+    ].filter(b => b.count > 0).map(b => ({ ...b, bytes: b.count * (b.avgBytes + 118) }));
     res.json({ drn: req.params.drn, days, breakdown });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── DATA USAGE: network-wide message type breakdown (admin) ─────
+router.get('/data-usage/network/breakdown', authenticateToken, async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 7;
+    const row = await queryOne(
+      `SELECT SUM(power_msgs) as power, SUM(energy_msgs) as energy, SUM(net_energy_msgs) as net_energy,
+              SUM(cellular_msgs) as cellular, SUM(load_msgs) as load_m, SUM(token_msgs) as token_m,
+              SUM(health_msgs) as health, SUM(other_msgs) as other
+       FROM SummaryDataUsage WHERE usage_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)`,
+      [days]
+    );
+    if (!row) return res.json({ breakdown: [] });
+    const breakdown = [
+      { type: 'Power', count: Number(row.power) || 0, avgBytes: 37 },
+      { type: 'Energy', count: Number(row.energy) || 0, avgBytes: 23 },
+      { type: 'Net Energy', count: Number(row.net_energy) || 0, avgBytes: 17 },
+      { type: 'Cellular', count: Number(row.cellular) || 0, avgBytes: 50 },
+      { type: 'Load Control', count: Number(row.load_m) || 0, avgBytes: 5 },
+      { type: 'Token', count: Number(row.token_m) || 0, avgBytes: 50 },
+      { type: 'Health', count: Number(row.health) || 0, avgBytes: 250 },
+      { type: 'Other', count: Number(row.other) || 0, avgBytes: 100 },
+    ].filter(b => b.count > 0).map(b => ({ ...b, bytes: b.count * (b.avgBytes + 118) }));
+    res.json({ days, breakdown });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

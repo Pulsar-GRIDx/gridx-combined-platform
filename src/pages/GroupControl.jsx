@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, memo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Typography,
@@ -213,6 +214,7 @@ const MeterMarker = memo(function MeterMarker({ meter, icon, onClick }) {
 /* Group Control Page                                                  */
 /* ================================================================== */
 export default function GroupControl() {
+  const navigate = useNavigate();
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
 
@@ -468,15 +470,7 @@ export default function GroupControl() {
     }
     // Show detail popup
     setClickedMeter(meter);
-    setMeterDetail(null);
     setTracePathDrn(null);
-    setMeterDetailLoading(true);
-    energyAnalyticsAPI.getMeterDetail(meter.DRN)
-      .then(data => {
-        setMeterDetail(data);
-      })
-      .catch(() => setMeterDetail(null))
-      .finally(() => setMeterDetailLoading(false));
   }, [selectionMode]);
 
   /* ---- Substation click: topology highlight ---- */
@@ -1116,93 +1110,37 @@ export default function GroupControl() {
                   onCloseClick={() => { setHoveredSubstation(null); clearHighlights(); }}
                   options={{ pixelOffset: { width: 0, height: -24, equals: () => false } }}
                 >
-                  <Box sx={{ p: "6px", minWidth: 220, color: "#1a1a2e" }}>
-                    <Typography variant="subtitle2" fontWeight={700} fontSize="13px" gutterBottom>
-                      {hoveredSubstation.name}
-                    </Typography>
-                    <Typography variant="caption" fontSize="10px" display="block" color="#555" mb="2px">
+                  <Box sx={{ p: "6px", minWidth: 160, color: "#1a1a2e", textAlign: "center" }}>
+                    <Typography variant="caption" fontSize="10px" color="#888" display="block">
                       {hoveredSubstation.isPrimary ? "Primary Substation" : "Distribution Substation"}
                     </Typography>
-                    <Typography variant="caption" fontSize="10px" display="block" color="#555" mb="4px">
-                      District: {hoveredSubstation.district || "—"}
+                    <Typography variant="subtitle2" fontWeight={700} fontSize="13px" fontFamily="monospace" mt="2px">
+                      {hoveredSubstation.drn || hoveredSubstation.name}
                     </Typography>
-                    {hoveredSubstation.regionData && (
-                      <Box mt="4px" pt="4px" borderTop="1px solid #ddd">
-                        <Box display="grid" gridTemplateColumns="1fr 1fr" gap="4px">
-                          <Box>
-                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Total Power</Typography>
-                            <Typography variant="caption" fontSize="11px" fontWeight={700} color={hoveredSubstation.regionData.energy.direction === "net_exporting" ? "#16a34a" : "#d97706"}>
-                              {Math.abs(hoveredSubstation.regionData.power.total_active_power).toFixed(1)} W
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Direction</Typography>
-                            <Typography variant="caption" fontSize="11px" fontWeight={600} color={hoveredSubstation.regionData.energy.direction === "net_exporting" ? "#16a34a" : "#d97706"}>
-                              {hoveredSubstation.regionData.energy.direction === "net_exporting" ? "Exporting" : "Importing"}
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Import</Typography>
-                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
-                              {(hoveredSubstation.regionData.energy.total_import_wh / 1000).toFixed(2)} kWh
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Export</Typography>
-                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
-                              {(hoveredSubstation.regionData.energy.total_export_wh / 1000).toFixed(2)} kWh
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Meters</Typography>
-                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
-                              {hoveredSubstation.regionData.meterCount} ({hoveredSubstation.regionData.online} online)
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Avg Voltage</Typography>
-                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
-                              {hoveredSubstation.regionData.power.avg_voltage.toFixed(1)} V
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Avg PF</Typography>
-                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
-                              {hoveredSubstation.regionData.power.avg_power_factor.toFixed(3)}
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Net Demand</Typography>
-                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
-                              {((hoveredSubstation.regionData.energy.total_import_wh - hoveredSubstation.regionData.energy.total_export_wh) / 1000).toFixed(2)} kWh
-                            </Typography>
-                          </Box>
-                        </Box>
-                        {!hoveredSubstation.isPrimary && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => handleViewConnectedMeters(hoveredSubstation)}
-                            sx={{
-                              mt: "6px",
-                              width: "100%",
-                              fontSize: "10px",
-                              textTransform: "none",
-                              borderColor: "#3b82f6",
-                              color: "#3b82f6",
-                              py: "2px",
-                            }}
-                          >
-                            View Connected Meters
-                          </Button>
-                        )}
-                      </Box>
-                    )}
+                    <Typography variant="caption" fontSize="10px" display="block" color="#555" mb="6px">
+                      {hoveredSubstation.name}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={() => navigate(`/substation/${hoveredSubstation.drn}`)}
+                      sx={{
+                        width: "100%",
+                        fontSize: "10px",
+                        textTransform: "none",
+                        bgcolor: "#3b82f6",
+                        color: "#fff",
+                        py: "3px",
+                        "&:hover": { bgcolor: "#2563eb" },
+                      }}
+                    >
+                      View Profile
+                    </Button>
                   </Box>
                 </InfoWindow>
               )}
 
-              {/* Meter detail info window */}
+              {/* Meter info window */}
               {clickedMeter && (() => {
                 const lat = parseFloat(clickedMeter.Lat);
                 const lng = parseFloat(clickedMeter.Longitude);
@@ -1211,213 +1149,34 @@ export default function GroupControl() {
                   <InfoWindow
                     position={{ lat, lng }}
                     onCloseClick={() => { setClickedMeter(null); setMeterDetail(null); setTracePathDrn(null); clearHighlights(); }}
-                    options={{ pixelOffset: { width: 0, height: -24, equals: () => false }, maxWidth: 340 }}
+                    options={{ pixelOffset: { width: 0, height: -24, equals: () => false } }}
                   >
-                    <Box sx={{ p: "4px", minWidth: 300, maxWidth: 320, color: "#1a1a2e" }}>
-                      {meterDetailLoading ? (
-                        <Box display="flex" justifyContent="center" alignItems="center" py="20px">
-                          <CircularProgress size={24} sx={{ color: "#3b82f6" }} />
-                        </Box>
-                      ) : (
-                        <>
-                          {/* Header */}
-                          <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb="8px">
-                            <Box>
-                              <Typography variant="subtitle2" fontWeight={700} fontSize="13px" color="#111">
-                                {meterDetail?.DRN || clickedMeter.DRN}
-                              </Typography>
-                              <Typography variant="caption" fontSize="10px" color="#666">
-                                {meterDetail?.customerName || clickedMeter.customerName || "—"}
-                              </Typography>
-                            </Box>
-                            <Box display="flex" gap="4px">
-                              <Box sx={{
-                                px: "6px", py: "2px", borderRadius: "4px", fontSize: "9px", fontWeight: 700,
-                                bgcolor: (clickedMeter.mains_state === "1" || clickedMeter.mains_state === 1) ? "#dcfce7" : "#fee2e2",
-                                color: (clickedMeter.mains_state === "1" || clickedMeter.mains_state === 1) ? "#16a34a" : "#dc2626",
-                              }}>
-                                MAINS {(clickedMeter.mains_state === "1" || clickedMeter.mains_state === 1) ? "ON" : "OFF"}
-                              </Box>
-                              <Box sx={{
-                                px: "6px", py: "2px", borderRadius: "4px", fontSize: "9px", fontWeight: 700,
-                                bgcolor: (clickedMeter.geyser_state === "1" || clickedMeter.geyser_state === 1) ? "#fef3c7" : "#f3f4f6",
-                                color: (clickedMeter.geyser_state === "1" || clickedMeter.geyser_state === 1) ? "#d97706" : "#6b7280",
-                              }}>
-                                GEYSER {(clickedMeter.geyser_state === "1" || clickedMeter.geyser_state === 1) ? "ON" : "OFF"}
-                              </Box>
-                            </Box>
-                          </Box>
-
-                          {/* Identification */}
-                          <Box mb="8px" p="6px" bgcolor="#f8fafc" borderRadius="6px">
-                            <Typography variant="caption" fontWeight={700} fontSize="10px" color="#374151" display="block" mb="4px">
-                              IDENTIFICATION
-                            </Typography>
-                            <Box display="grid" gridTemplateColumns="1fr 1fr" gap="3px">
-                              <Box>
-                                <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Address</Typography>
-                                <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
-                                  {meterDetail?.address || clickedMeter.LocationName || "—"}
-                                </Typography>
-                              </Box>
-                              <Box>
-                                <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Region/Suburb</Typography>
-                                <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
-                                  {meterDetail?.suburb || meterDetail?.region || "—"}
-                                </Typography>
-                              </Box>
-                              <Box>
-                                <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">GPS</Typography>
-                                <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
-                                  {parseFloat(clickedMeter.Lat).toFixed(5)}, {parseFloat(clickedMeter.Longitude).toFixed(5)}
-                                </Typography>
-                              </Box>
-                              <Box>
-                                <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Status</Typography>
-                                <Typography variant="caption" fontSize="10px" fontWeight={600}
-                                  color={(clickedMeter.Status === "1" || clickedMeter.Status === 1 || clickedMeter.Status === "Active") ? "#16a34a" : "#dc2626"}>
-                                  {(clickedMeter.Status === "1" || clickedMeter.Status === 1 || clickedMeter.Status === "Active") ? "Online" : "Offline"}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </Box>
-
-                          {/* Live Measurements */}
-                          {meterDetail && (
-                            <Box mb="8px" p="6px" bgcolor="#f0f9ff" borderRadius="6px">
-                              <Typography variant="caption" fontWeight={700} fontSize="10px" color="#374151" display="block" mb="4px">
-                                LIVE MEASUREMENTS
-                              </Typography>
-                              <Box display="grid" gridTemplateColumns="1fr 1fr 1fr" gap="4px">
-                                {[
-                                  { label: "Voltage", value: meterDetail.voltage ? `${meterDetail.voltage.toFixed(1)} V` : "—" },
-                                  { label: "Current", value: meterDetail.current ? `${meterDetail.current.toFixed(2)} A` : "—" },
-                                  { label: "Active P", value: meterDetail.active_power ? `${meterDetail.active_power.toFixed(1)} W` : "—" },
-                                  { label: "React. P", value: meterDetail.reactive_power ? `${meterDetail.reactive_power.toFixed(1)} VAR` : "—" },
-                                  { label: "App. P", value: meterDetail.apparent_power ? `${meterDetail.apparent_power.toFixed(1)} VA` : "—" },
-                                  { label: "Freq.", value: meterDetail.frequency ? `${meterDetail.frequency.toFixed(2)} Hz` : "—" },
-                                  { label: "Power Factor", value: meterDetail.power_factor ? meterDetail.power_factor.toFixed(3) : "—" },
-                                  { label: "Import kWh", value: meterDetail.total_import_kwh ? `${meterDetail.total_import_kwh.toFixed(2)}` : "—" },
-                                  { label: "Export kWh", value: meterDetail.total_export_kwh ? `${meterDetail.total_export_kwh.toFixed(2)}` : "—" },
-                                ].map(item => (
-                                  <Box key={item.label}>
-                                    <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">{item.label}</Typography>
-                                    <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>{item.value}</Typography>
-                                  </Box>
-                                ))}
-                              </Box>
-                            </Box>
-                          )}
-
-                          {/* Energy + Net Metering */}
-                          {meterDetail && (
-                            <Box mb="8px" p="6px" bgcolor="#f0fdf4" borderRadius="6px">
-                              <Typography variant="caption" fontWeight={700} fontSize="10px" color="#374151" display="block" mb="4px">
-                                ENERGY & NET METERING
-                              </Typography>
-                              <Box display="grid" gridTemplateColumns="1fr 1fr" gap="3px">
-                                <Box>
-                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Credit Balance</Typography>
-                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>
-                                    {meterDetail.credit_balance != null ? `N$ ${meterDetail.credit_balance.toFixed(2)}` : "—"}
-                                  </Typography>
-                                </Box>
-                                <Box>
-                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Remaining Units</Typography>
-                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>
-                                    {meterDetail.remaining_units != null ? `${meterDetail.remaining_units.toFixed(1)} kWh` : "—"}
-                                  </Typography>
-                                </Box>
-                                <Box>
-                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Active Tariff</Typography>
-                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>
-                                    {meterDetail.tariff || "—"}
-                                  </Typography>
-                                </Box>
-                                <Box>
-                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Direction</Typography>
-                                  <Typography variant="caption" fontSize="10px" fontWeight={700}
-                                    color={meterDetail.direction === "exporting" ? "#16a34a" : "#d97706"}>
-                                    {meterDetail.direction === "exporting" ? "Exporting" : "Importing"}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                            </Box>
-                          )}
-
-                          {/* Communication */}
-                          {meterDetail && (
-                            <Box mb="8px" p="6px" bgcolor="#faf5ff" borderRadius="6px">
-                              <Typography variant="caption" fontWeight={700} fontSize="10px" color="#374151" display="block" mb="4px">
-                                COMMUNICATION
-                              </Typography>
-                              <Box display="grid" gridTemplateColumns="1fr 1fr" gap="3px">
-                                <Box>
-                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">MQTT Status</Typography>
-                                  <Typography variant="caption" fontSize="10px" color={meterDetail.mqtt_connected ? "#16a34a" : "#dc2626"} fontWeight={600}>
-                                    {meterDetail.mqtt_connected ? "Connected" : "Disconnected"}
-                                  </Typography>
-                                </Box>
-                                <Box>
-                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Signal</Typography>
-                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>
-                                    {meterDetail.signal_strength != null ? `${meterDetail.signal_strength} dBm` : "—"}
-                                  </Typography>
-                                </Box>
-                                <Box>
-                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Firmware</Typography>
-                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
-                                    {meterDetail.firmware_version || "—"}
-                                  </Typography>
-                                </Box>
-                                <Box>
-                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Network</Typography>
-                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
-                                    {meterDetail.network_operator || "—"}
-                                  </Typography>
-                                </Box>
-                                <Box>
-                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Last Seen</Typography>
-                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
-                                    {meterDetail.last_seen ? new Date(meterDetail.last_seen).toLocaleString() : "—"}
-                                  </Typography>
-                                </Box>
-                                <Box>
-                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">SIM</Typography>
-                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
-                                    {meterDetail.sim_number || "—"}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                            </Box>
-                          )}
-
-                          {/* Action buttons */}
-                          <Box display="flex" gap="4px" mt="4px">
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => handleTracePath(clickedMeter.DRN)}
-                              startIcon={<AccountTreeOutlined sx={{ fontSize: 12 }} />}
-                              sx={{ flex: 1, fontSize: "9px", textTransform: "none", borderColor: "#06b6d4", color: "#06b6d4", py: "2px" }}
-                            >
-                              Trace Path
-                            </Button>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => {
-                                setSelectedMeters(prev => { const n = new Set(prev); n.add(clickedMeter.DRN); return n; });
-                                setClickedMeter(null);
-                              }}
-                              startIcon={<CheckCircleOutlined sx={{ fontSize: 12 }} />}
-                              sx={{ flex: 1, fontSize: "9px", textTransform: "none", borderColor: "#6870fa", color: "#6870fa", py: "2px" }}
-                            >
-                              Select
-                            </Button>
-                          </Box>
-                        </>
-                      )}
+                    <Box sx={{ p: "6px", minWidth: 160, color: "#1a1a2e", textAlign: "center" }}>
+                      <Typography variant="caption" fontSize="10px" color="#888" display="block">
+                        Smart Meter
+                      </Typography>
+                      <Typography variant="subtitle2" fontWeight={700} fontSize="13px" fontFamily="monospace" mt="2px">
+                        {clickedMeter.DRN}
+                      </Typography>
+                      <Typography variant="caption" fontSize="10px" display="block" color="#555" mb="6px">
+                        {clickedMeter.LocationName || clickedMeter.Suburb || ""}
+                      </Typography>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => navigate(`/meter/${clickedMeter.DRN}`)}
+                        sx={{
+                          width: "100%",
+                          fontSize: "10px",
+                          textTransform: "none",
+                          bgcolor: "#3b82f6",
+                          color: "#fff",
+                          py: "3px",
+                          "&:hover": { bgcolor: "#2563eb" },
+                        }}
+                      >
+                        View Profile
+                      </Button>
                     </Box>
                   </InfoWindow>
                 );

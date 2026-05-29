@@ -14,6 +14,16 @@ exports.getAllNotificationsByDRN = (req, res) => {
     });
 };
 
+exports.getClientNotificationsByDRN = (req, res) => {
+  const DRN = req.params.DRN;
+  notificationService.getClientNotificationsByDRN(DRN)
+    .then(notifications => res.json(notifications))
+    .catch(err => {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to fetch notifications' });
+    });
+};
+
 
 exports.getAllCriticalNotifications = (req, res) => {
   console.log('getAllCriticalNotifications endpoint called');

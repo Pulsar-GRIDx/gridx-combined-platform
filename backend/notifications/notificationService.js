@@ -2,7 +2,7 @@ const db = require('../config/db');
 ///Get Notifications By DRN
 exports.getNotificationsByDRN = (DRN) => {
     const query = "SELECT Alarm , date_time FROM MeterNotifications WHERE DRN = ? ORDER BY date_time DESC LIMIT 25";
-  
+
     return new Promise((resolve, reject) => {
       db.query(query, [DRN], (err, notifications) => {
         if (err) {
@@ -13,6 +13,31 @@ exports.getNotificationsByDRN = (DRN) => {
       });
     });
   };
+
+exports.getClientNotificationsByDRN = (DRN) => {
+  const query = `
+    SELECT AlarmType,
+      CASE AlarmType
+        WHEN 'Meter Reset' THEN CONCAT('Meter restarted (', COUNT(*), ' events)')
+        ELSE Alarm
+      END as Alarm,
+      MAX(date_time) as date_time,
+      COUNT(*) as occurrences
+    FROM MeterNotifications
+    WHERE DRN = ?
+      AND AlarmType IN ('Meter Reset', 'Meter Offline')
+      AND date_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    GROUP BY AlarmType, DATE(date_time)
+    ORDER BY date_time DESC
+    LIMIT 10
+  `;
+  return new Promise((resolve, reject) => {
+    db.query(query, [DRN], (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+};
 
 //Get All Critical Notifications
 
