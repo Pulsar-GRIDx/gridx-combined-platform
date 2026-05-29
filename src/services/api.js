@@ -549,6 +549,10 @@ export const energyAnalyticsAPI = {
   getSubstations: () => get('/energy-analytics/substations'),
   getSubstationConfig: () => get('/energy-analytics/substation-config'),
   getPowerFlow: () => get('/energy-analytics/power-flow'),
+  getMeterDetail: (drn) => get(`/energy-analytics/meter-detail/${drn}`),
+  getDistrictStats: () => get('/energy-analytics/district-stats'),
+  getSuburbBoundaries: () => get('/energy-analytics/suburb-boundaries'),
+  triggerReverseGeocode: () => get('/energy-analytics/reverse-geocode'),
 };
 
 export default {

@@ -468,4 +468,439 @@ router.get('/sse', authenticateToken, (req, res) => {
   });
 });
 
+// ─── 6. Reverse-Geocode meters missing Suburb ────────────────────────
+router.get('/reverse-geocode', authenticateToken, async (req, res) => {
+  const GMAPS_KEY = 'AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk';
+  const DELAY_MS  = 200;
+
+  try {
+    const meters = await queryAll(`
+      SELECT DRN, Lat, Longitude
+      FROM MeterLocationInfoTable
+      WHERE (Suburb IS NULL OR Suburb = '')
+        AND Lat IS NOT NULL AND Lat != 0
+        AND Longitude IS NOT NULL AND Longitude != 0
+    `);
+
+    let geocoded = 0;
+    let errors   = 0;
+
+    for (const meter of meters) {
+      const lat = parseFloat(meter.Lat);
+      const lng = parseFloat(meter.Longitude);
+      if (isNaN(lat) || isNaN(lng)) { errors++; continue; }
+
+      try {
+        const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GMAPS_KEY}`;
+        const resp = await fetch(url);
+        const data = await resp.json();
+
+        if (data.status !== 'OK' || !data.results || !data.results.length) {
+          errors++;
+        } else {
+          // Walk through all results' address_components to find suburb
+          const SUBURB_TYPES = ['sublocality_level_1', 'sublocality', 'neighborhood', 'locality'];
+          let suburb = null;
+
+          outer:
+          for (const result of data.results) {
+            for (const wantedType of SUBURB_TYPES) {
+              for (const comp of result.address_components) {
+                if (comp.types.includes(wantedType)) {
+                  suburb = comp.long_name;
+                  break outer;
+                }
+              }
+            }
+          }
+
+          if (suburb) {
+            await runExec(
+              `UPDATE MeterLocationInfoTable SET Suburb = ? WHERE DRN = ?`,
+              [suburb, meter.DRN]
+            );
+            geocoded++;
+          } else {
+            errors++;
+          }
+        }
+      } catch (fetchErr) {
+        console.error(`[reverse-geocode] DRN ${meter.DRN}:`, fetchErr.message);
+        errors++;
+      }
+
+      // Rate-limit: 200 ms between calls
+      await new Promise(r => setTimeout(r, DELAY_MS));
+    }
+
+    res.json({ geocoded, errors, total: meters.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── 7. Meter Detail — comprehensive single-meter snapshot ───────────
+router.get('/meter-detail/:drn', authenticateToken, async (req, res) => {
+  const { drn } = req.params;
+  if (!drn) return res.status(400).json({ error: 'DRN required' });
+
+  try {
+    const [
+      locationRow,
+      profileRow,
+      latestPower,
+      latestEnergy,
+      latestMains,
+      latestHeater,
+      lastSeenRow,
+      cellularRow,
+      otaRow,
+      stsRow,
+      netMeteringRow,
+    ] = await Promise.all([
+      // MeterLocationInfoTable
+      queryOne(
+        `SELECT DRN, LocationName, Lat, Longitude, Status, Suburb, Type
+         FROM MeterLocationInfoTable WHERE DRN = ? LIMIT 1`,
+        [drn]
+      ),
+      // MeterProfileReal
+      queryOne(
+        `SELECT Name, Surname, StreetName, HouseNumber, City, Region,
+                TransformerDRN, SIMNumber, tariff_type
+         FROM MeterProfileReal WHERE DRN = ? LIMIT 1`,
+        [drn]
+      ),
+      // MeteringPower — latest record
+      queryOne(
+        `SELECT active_power, reactive_power, apparent_power, voltage,
+                current, power_factor, frequency, temperature, date_time
+         FROM MeteringPower WHERE DRN = ?
+         ORDER BY date_time DESC LIMIT 1`,
+        [drn]
+      ),
+      // MeterNetEnergy — latest record
+      queryOne(
+        `SELECT import_energy_wh, export_energy_wh, net_energy_wh, created_at
+         FROM MeterNetEnergy WHERE DRN = ?
+         ORDER BY created_at DESC LIMIT 1`,
+        [drn]
+      ),
+      // MeterMainsStateTable — latest
+      queryOne(
+        `SELECT * FROM MeterMainsStateTable WHERE DRN = ?
+         ORDER BY date_time DESC LIMIT 1`,
+        [drn]
+      ),
+      // MeterHeaterStateTable — latest
+      queryOne(
+        `SELECT * FROM MeterHeaterStateTable WHERE DRN = ?
+         ORDER BY date_time DESC LIMIT 1`,
+        [drn]
+      ),
+      // MeterLastSeen
+      queryOne(
+        `SELECT last_seen, last_topic, message_count
+         FROM MeterLastSeen WHERE DRN = ? LIMIT 1`,
+        [drn]
+      ),
+      // MeterCellularNetworkProperties — latest
+      queryOne(
+        `SELECT signal_strength, service_provider, sim_phone_number, IMEU, date_time
+         FROM MeterCellularNetworkProperties WHERE DRN = ?
+         ORDER BY date_time DESC LIMIT 1`,
+        [drn]
+      ),
+      // MeterOTAStatus
+      queryOne(
+        `SELECT firmware_version, status AS ota_status, updated_at
+         FROM MeterOTAStatus WHERE DRN = ? LIMIT 1`,
+        [drn]
+      ),
+      // STSTokesInfo — latest token
+      queryOne(
+        `SELECT token_amount, token_time
+         FROM STSTokesInfo WHERE DRN = ?
+         ORDER BY token_time DESC LIMIT 1`,
+        [drn]
+      ),
+      // MeterNetMeteringConfig
+      queryOne(
+        `SELECT * FROM MeterNetMeteringConfig WHERE DRN = ? LIMIT 1`,
+        [drn]
+      ),
+    ]);
+
+    // Derive online status from Status field or last_seen recency
+    const statusFlag = locationRow ? String(locationRow.Status) : '0';
+    const isOnline = statusFlag === '1' || statusFlag.toLowerCase() === 'active';
+
+    // Determine mains state from the latest row (column names may vary)
+    const mainsState = latestMains
+      ? (latestMains.mains_state ?? latestMains.state ?? latestMains.MainsState ?? null)
+      : null;
+    const heaterState = latestHeater
+      ? (latestHeater.heater_state ?? latestHeater.state ?? latestHeater.HeaterState ?? null)
+      : null;
+
+    // Net metering flow direction
+    const activePower  = parseFloat(latestPower?.active_power)  || 0;
+    const importEnergy = parseFloat(latestEnergy?.import_energy_wh) || 0;
+    const exportEnergy = parseFloat(latestEnergy?.export_energy_wh) || 0;
+    const netFlow = activePower >= 0 ? 'importing' : 'exporting';
+
+    const detail = {
+      identification: {
+        drn,
+        name:     profileRow?.Name    ?? null,
+        surname:  profileRow?.Surname ?? null,
+        address: profileRow
+          ? [profileRow.HouseNumber, profileRow.StreetName, profileRow.City].filter(Boolean).join(', ')
+          : null,
+        gps: locationRow
+          ? { lat: parseFloat(locationRow.Lat) || 0, lng: parseFloat(locationRow.Longitude) || 0 }
+          : null,
+        region:      profileRow?.Region      ?? locationRow?.LocationName ?? null,
+        suburb:      locationRow?.Suburb     ?? null,
+        meterType:   locationRow?.Type       ?? null,
+        tariffType:  profileRow?.tariff_type ?? null,
+        transformerDRN: profileRow?.TransformerDRN ?? null,
+      },
+      electrical: {
+        mainsStatus:    mainsState,
+        relayStatus:    heaterState,
+        online:         isOnline,
+        signalStrength: cellularRow?.signal_strength ?? null,
+        lastSeen:       lastSeenRow?.last_seen        ?? null,
+        lastTopic:      lastSeenRow?.last_topic       ?? null,
+        messageCount:   lastSeenRow?.message_count    ?? null,
+      },
+      energy: {
+        creditBalance:  stsRow?.token_amount ?? null,
+        lastTokenTime:  stsRow?.token_time   ?? null,
+        activeTariff:   profileRow?.tariff_type ?? null,
+        totalImport:    importEnergy,
+        totalExport:    exportEnergy,
+        netEnergy:      parseFloat(latestEnergy?.net_energy_wh) || 0,
+      },
+      live: {
+        voltage:        +(parseFloat(latestPower?.voltage)       || 0).toFixed(2),
+        current:        +(parseFloat(latestPower?.current)       || 0).toFixed(3),
+        activePower:    +(parseFloat(latestPower?.active_power)  || 0).toFixed(2),
+        reactivePower:  +(parseFloat(latestPower?.reactive_power)|| 0).toFixed(2),
+        apparentPower:  +(parseFloat(latestPower?.apparent_power)|| 0).toFixed(2),
+        frequency:      +(parseFloat(latestPower?.frequency)     || 0).toFixed(4),
+        powerFactor:    +(parseFloat(latestPower?.power_factor)  || 0).toFixed(3),
+        temperature:    +(parseFloat(latestPower?.temperature)   || 0).toFixed(1),
+        recordedAt:     latestPower?.date_time ?? null,
+      },
+      netMetering: {
+        importPower:      activePower >= 0 ? +activePower.toFixed(2) : 0,
+        exportPower:      activePower <  0 ? +Math.abs(activePower).toFixed(2) : 0,
+        netFlowDirection: netFlow,
+        dailyImport:      importEnergy,
+        dailyExport:      exportEnergy,
+        config:           netMeteringRow ?? null,
+      },
+      communication: {
+        mqttStatus:       isOnline ? 'connected' : 'disconnected',
+        firmwareVersion:  otaRow?.firmware_version ?? null,
+        otaStatus:        otaRow?.ota_status       ?? null,
+        lastOtaUpdate:    otaRow?.updated_at       ?? null,
+        simNumber:        cellularRow?.sim_phone_number ?? profileRow?.SIMNumber ?? null,
+        networkOperator:  cellularRow?.service_provider ?? null,
+        imei:             cellularRow?.IMEU ?? null,
+      },
+    };
+
+    res.json(detail);
+  } catch (err) {
+    console.error('[meter-detail]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── 8. District Stats — aggregated per suburb ───────────────────────
+router.get('/district-stats', authenticateToken, async (req, res) => {
+  try {
+    // All meters with suburb + status
+    const meters = await queryAll(`
+      SELECT DRN, Suburb, Status
+      FROM MeterLocationInfoTable
+      ORDER BY Suburb
+    `);
+
+    if (!meters.length) return res.json([]);
+
+    // Latest power per DRN
+    const latestPower = await queryAll(`
+      SELECT mp.DRN, mp.active_power, mp.voltage
+      FROM MeteringPower mp
+      INNER JOIN (
+        SELECT DRN, MAX(date_time) AS max_dt
+        FROM MeteringPower
+        GROUP BY DRN
+      ) latest ON mp.DRN = latest.DRN AND mp.date_time = latest.max_dt
+    `);
+    const powerMap = {};
+    latestPower.forEach(r => { powerMap[r.DRN] = r; });
+
+    // Latest net energy per DRN
+    const latestEnergy = await queryAll(`
+      SELECT mne.DRN, mne.import_energy_wh, mne.export_energy_wh
+      FROM MeterNetEnergy mne
+      INNER JOIN (
+        SELECT DRN, MAX(created_at) AS max_dt
+        FROM MeterNetEnergy
+        GROUP BY DRN
+      ) latest ON mne.DRN = latest.DRN AND mne.created_at = latest.max_dt
+    `);
+    const energyMap = {};
+    latestEnergy.forEach(r => { energyMap[r.DRN] = r; });
+
+    // Group by suburb
+    const districtMap = {};
+    for (const meter of meters) {
+      const district = meter.Suburb || 'Unknown';
+      if (!districtMap[district]) {
+        districtMap[district] = {
+          district,
+          meterCount: 0,
+          online: 0,
+          offline: 0,
+          totalLoad: 0,
+          totalExport: 0,
+          voltageSum: 0,
+          voltageCount: 0,
+          totalImport: 0,
+        };
+      }
+      const d = districtMap[district];
+      d.meterCount++;
+
+      const isOnline = String(meter.Status) === '1' || String(meter.Status).toLowerCase() === 'active';
+      if (isOnline) d.online++; else d.offline++;
+
+      const pw = powerMap[meter.DRN];
+      if (pw) {
+        const ap = parseFloat(pw.active_power) || 0;
+        if (ap >= 0) d.totalLoad += ap;
+        else d.totalExport += Math.abs(ap);
+        const v = parseFloat(pw.voltage) || 0;
+        if (v > 0) { d.voltageSum += v; d.voltageCount++; }
+      }
+
+      const en = energyMap[meter.DRN];
+      if (en) {
+        d.totalImport  += parseFloat(en.import_energy_wh) || 0;
+        d.totalExport  += parseFloat(en.export_energy_wh) || 0;
+      }
+    }
+
+    const result = Object.values(districtMap).map(d => ({
+      district:    d.district,
+      meterCount:  d.meterCount,
+      online:      d.online,
+      offline:     d.offline,
+      totalLoad:   +d.totalLoad.toFixed(2),
+      totalExport: +d.totalExport.toFixed(2),
+      netDemand:   +(d.totalLoad - d.totalExport).toFixed(2),
+      avgVoltage:  d.voltageCount ? +(d.voltageSum / d.voltageCount).toFixed(2) : 0,
+    }));
+
+    result.sort((a, b) => b.meterCount - a.meterCount);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── 9. Suburb Boundaries — static polygon data for map overlay ──────
+const WINDHOEK_SUBURBS = {
+  'Eros': [
+    { lat: -22.555, lng: 17.085 }, { lat: -22.555, lng: 17.105 },
+    { lat: -22.570, lng: 17.105 }, { lat: -22.570, lng: 17.085 },
+  ],
+  'Khomasdal': [
+    { lat: -22.540, lng: 17.048 }, { lat: -22.540, lng: 17.068 },
+    { lat: -22.558, lng: 17.068 }, { lat: -22.558, lng: 17.048 },
+  ],
+  'Katutura': [
+    { lat: -22.520, lng: 17.055 }, { lat: -22.520, lng: 17.078 },
+    { lat: -22.540, lng: 17.078 }, { lat: -22.540, lng: 17.055 },
+  ],
+  'Wanaheda': [
+    { lat: -22.520, lng: 17.040 }, { lat: -22.520, lng: 17.058 },
+    { lat: -22.535, lng: 17.058 }, { lat: -22.535, lng: 17.040 },
+  ],
+  'Dorado Park': [
+    { lat: -22.558, lng: 17.068 }, { lat: -22.558, lng: 17.085 },
+    { lat: -22.572, lng: 17.085 }, { lat: -22.572, lng: 17.068 },
+  ],
+  'Olympia': [
+    { lat: -22.558, lng: 17.060 }, { lat: -22.558, lng: 17.073 },
+    { lat: -22.570, lng: 17.073 }, { lat: -22.570, lng: 17.060 },
+  ],
+  'Southern Industrial': [
+    { lat: -22.580, lng: 17.065 }, { lat: -22.580, lng: 17.090 },
+    { lat: -22.600, lng: 17.090 }, { lat: -22.600, lng: 17.065 },
+  ],
+  'Northern Industrial': [
+    { lat: -22.535, lng: 17.075 }, { lat: -22.535, lng: 17.095 },
+    { lat: -22.550, lng: 17.095 }, { lat: -22.550, lng: 17.075 },
+  ],
+  'Pioneers Park': [
+    { lat: -22.585, lng: 17.055 }, { lat: -22.585, lng: 17.072 },
+    { lat: -22.600, lng: 17.072 }, { lat: -22.600, lng: 17.055 },
+  ],
+  'Academia': [
+    { lat: -22.600, lng: 17.070 }, { lat: -22.600, lng: 17.090 },
+    { lat: -22.615, lng: 17.090 }, { lat: -22.615, lng: 17.070 },
+  ],
+  'Ludwigsdorf': [
+    { lat: -22.550, lng: 17.095 }, { lat: -22.550, lng: 17.115 },
+    { lat: -22.565, lng: 17.115 }, { lat: -22.565, lng: 17.095 },
+  ],
+  'Klein Windhoek': [
+    { lat: -22.562, lng: 17.090 }, { lat: -22.562, lng: 17.110 },
+    { lat: -22.578, lng: 17.110 }, { lat: -22.578, lng: 17.090 },
+  ],
+  'Suiderhof': [
+    { lat: -22.575, lng: 17.055 }, { lat: -22.575, lng: 17.070 },
+    { lat: -22.590, lng: 17.070 }, { lat: -22.590, lng: 17.055 },
+  ],
+  'Rocky Crest': [
+    { lat: -22.565, lng: 17.040 }, { lat: -22.565, lng: 17.058 },
+    { lat: -22.580, lng: 17.058 }, { lat: -22.580, lng: 17.040 },
+  ],
+  'Otjomuise': [
+    { lat: -22.545, lng: 17.030 }, { lat: -22.545, lng: 17.048 },
+    { lat: -22.565, lng: 17.048 }, { lat: -22.565, lng: 17.030 },
+  ],
+  'Hochland Park': [
+    { lat: -22.570, lng: 17.073 }, { lat: -22.570, lng: 17.090 },
+    { lat: -22.585, lng: 17.090 }, { lat: -22.585, lng: 17.073 },
+  ],
+  'Prosperita': [
+    { lat: -22.545, lng: 17.095 }, { lat: -22.545, lng: 17.108 },
+    { lat: -22.555, lng: 17.108 }, { lat: -22.555, lng: 17.095 },
+  ],
+  'Avis': [
+    { lat: -22.555, lng: 17.105 }, { lat: -22.555, lng: 17.120 },
+    { lat: -22.570, lng: 17.120 }, { lat: -22.570, lng: 17.105 },
+  ],
+  'Auasblick': [
+    { lat: -22.590, lng: 17.090 }, { lat: -22.590, lng: 17.105 },
+    { lat: -22.605, lng: 17.105 }, { lat: -22.605, lng: 17.090 },
+  ],
+  'Windhoek CBD': [
+    { lat: -22.558, lng: 17.078 }, { lat: -22.558, lng: 17.092 },
+    { lat: -22.572, lng: 17.092 }, { lat: -22.572, lng: 17.078 },
+  ],
+};
+
+router.get('/suburb-boundaries', authenticateToken, (req, res) => {
+  res.json(WINDHOEK_SUBURBS);
+});
+
 module.exports = router;

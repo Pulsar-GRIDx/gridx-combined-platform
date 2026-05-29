@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, memo } from "react";
 import {
   Box,
   Typography,
@@ -30,6 +30,7 @@ import {
   Snackbar,
   Divider,
   Paper,
+  Collapse,
 } from "@mui/material";
 import {
   SearchOutlined,
@@ -57,6 +58,12 @@ import {
   BuildOutlined,
   VerifiedOutlined,
   SpeedOutlined,
+  LayersOutlined,
+  MapOutlined,
+  SignalCellularAltOutlined,
+  RouterOutlined,
+  InfoOutlined,
+  AccountTreeOutlined,
 } from "@mui/icons-material";
 import {
   GoogleMap,
@@ -70,6 +77,7 @@ import Header from "../components/Header";
 import { tokens } from "../theme";
 import { groupControlAPI, meterAPI, energyAnalyticsAPI } from "../services/api";
 import EnergyAnalytics, { getSubstationMarkers, getConnectionLines } from "../components/EnergyAnalytics";
+
 const GOOGLE_MAPS_KEY = "AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk";
 const LIBRARIES = ["drawing"];
 const MAP_CONTAINER = { width: "100%", height: "100%" };
@@ -114,37 +122,36 @@ function makeMarkerIcon(fillColor, borderColor, innerSymbol, size = 40) {
   };
 }
 
-// Mains ON + Geyser ON = fully powered (green)
 function iconMainsOnGeyserOn() {
   return makeMarkerIcon("#4cceac", "rgba(255,255,255,0.8)",
     `<path d="M17 12 L14 20 H18 L16 26 L24 18 H20 L22 12 Z" fill="white" opacity="0.95"/>`, 40);
 }
-// Mains ON + Geyser OFF = mains only (orange)
 function iconMainsOnGeyserOff() {
   return makeMarkerIcon("#f2b705", "rgba(255,255,255,0.8)",
     `<path d="M17 12 L14 20 H18 L16 26 L24 18 H20 L22 12 Z" fill="white" opacity="0.95"/>`, 40);
 }
-// Mains OFF = disconnected (red)
 function iconMainsOff() {
   return makeMarkerIcon("#db4f4a", "rgba(255,255,255,0.8)",
     `<line x1="14" y1="14" x2="26" y2="26" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
      <line x1="26" y1="14" x2="14" y2="26" stroke="white" stroke-width="2.5" stroke-linecap="round"/>`, 40);
 }
-// Offline / unknown (grey)
 function iconOffline() {
   return makeMarkerIcon("#4a5568", "rgba(255,255,255,0.5)",
     `<circle cx="20" cy="20" r="3" fill="white" opacity="0.6"/>`, 40);
 }
-// Selected / in group (purple with ring)
 function iconSelected() {
   return makeMarkerIcon("#6870fa", "rgba(255,255,255,0.9)",
     `<path d="M17 12 L14 20 H18 L16 26 L24 18 H20 L22 12 Z" fill="white"/>`, 44);
 }
+function iconHighlighted() {
+  return makeMarkerIcon("#06b6d4", "rgba(255,255,255,0.9)",
+    `<path d="M17 12 L14 20 H18 L16 26 L24 18 H20 L22 12 Z" fill="white"/>`, 44);
+}
 
-// Substation marker icons
-function iconSubstationPrimary() {
+function iconSubstationPrimary(highlighted = false) {
   const size = 52;
   const half = size / 2;
+  const fillColor = highlighted ? "#06b6d4" : "#3b82f6";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
     <defs>
       <filter id="glow-p" x="-50%" y="-50%" width="200%" height="200%">
@@ -152,7 +159,7 @@ function iconSubstationPrimary() {
         <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
     </defs>
-    <rect x="6" y="6" width="${size-12}" height="${size-12}" rx="8" fill="#3b82f6" filter="url(#glow-p)" opacity="0.9"/>
+    <rect x="6" y="6" width="${size-12}" height="${size-12}" rx="8" fill="${fillColor}" filter="url(#glow-p)" opacity="0.9"/>
     <rect x="6" y="6" width="${size-12}" height="${size-12}" rx="8" fill="none" stroke="white" stroke-width="2" opacity="0.8"/>
     <path d="M20 16 L17 24 H21 L19 30 L28 22 H24 L26 16 Z" fill="white" opacity="0.95"/>
     <path d="M30 16 L27 24 H31 L29 30 L38 22 H34 L36 16 Z" fill="white" opacity="0.7"/>
@@ -164,9 +171,10 @@ function iconSubstationPrimary() {
   };
 }
 
-function iconSubstationDist(color) {
+function iconSubstationDist(color, highlighted = false) {
   const size = 44;
   const half = size / 2;
+  const fillColor = highlighted ? "#06b6d4" : color;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
     <defs>
       <filter id="glow-d" x="-50%" y="-50%" width="200%" height="200%">
@@ -174,7 +182,7 @@ function iconSubstationDist(color) {
         <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
     </defs>
-    <polygon points="${half},4 ${size-4},${half} ${half},${size-4} 4,${half}" fill="${color}" filter="url(#glow-d)" opacity="0.85"/>
+    <polygon points="${half},4 ${size-4},${half} ${half},${size-4} 4,${half}" fill="${fillColor}" filter="url(#glow-d)" opacity="0.85"/>
     <polygon points="${half},4 ${size-4},${half} ${half},${size-4} 4,${half}" fill="none" stroke="white" stroke-width="1.5" opacity="0.7"/>
     <path d="M18 14 L15 22 H19 L17 28 L26 20 H22 L24 14 Z" fill="white" opacity="0.9"/>
   </svg>`;
@@ -184,6 +192,22 @@ function iconSubstationDist(color) {
     anchor: { x: half, y: half, equals: () => false },
   };
 }
+
+/* ---- Memoized Meter Marker ---- */
+const MeterMarker = memo(function MeterMarker({ meter, icon, onClick }) {
+  const lat = parseFloat(meter.Lat);
+  const lng = parseFloat(meter.Longitude);
+  if (isNaN(lat) || isNaN(lng)) return null;
+  return (
+    <Marker
+      key={meter.DRN}
+      position={{ lat, lng }}
+      icon={icon}
+      onClick={onClick}
+      title={`${meter.DRN} - ${meter.LocationName || ""}`}
+    />
+  );
+});
 
 /* ================================================================== */
 /* Group Control Page                                                  */
@@ -210,7 +234,7 @@ export default function GroupControl() {
 
   // Meter selection on map
   const [selectedMeters, setSelectedMeters] = useState(new Set());
-  const [selectionMode, setSelectionMode] = useState(false); // click-to-select mode
+  const [selectionMode, setSelectionMode] = useState(false);
 
   // Randomize
   const [showRandomDialog, setShowRandomDialog] = useState(false);
@@ -233,8 +257,35 @@ export default function GroupControl() {
   const [substationConfig, setSubstationConfig] = useState([]);
   const [powerFlowData, setPowerFlowData] = useState([]);
   const [analyticsRegions, setAnalyticsRegions] = useState([]);
-  const [showFlowLines, setShowFlowLines] = useState(true);
+
+  // Substation popup
   const [hoveredSubstation, setHoveredSubstation] = useState(null);
+
+  // ---- Layer toggles ----
+  const [layerPanelOpen, setLayerPanelOpen] = useState(true);
+  const [layers, setLayers] = useState({
+    meterMarkers: true,
+    meterToSubLines: false,
+    substationToMainLines: true,
+    flowAnimation: true,
+    districtBoundaries: false,
+    substationMarkers: true,
+  });
+
+  // ---- District boundary data ----
+  const [suburbBoundaries, setSuburbBoundaries] = useState({});
+  const [districtStats, setDistrictStats] = useState([]);
+  const [clickedDistrict, setClickedDistrict] = useState(null);
+
+  // ---- Meter detail popup ----
+  const [clickedMeter, setClickedMeter] = useState(null);
+  const [meterDetail, setMeterDetail] = useState(null);
+  const [meterDetailLoading, setMeterDetailLoading] = useState(false);
+
+  // ---- Topology highlight ----
+  const [highlightedSubstations, setHighlightedSubstations] = useState(new Set());
+  const [highlightedMeters, setHighlightedMeters] = useState(new Set());
+  const [tracePathDrn, setTracePathDrn] = useState(null);
 
   const { isLoaded } = useJsApiLoader({
     googleMapsApiKey: GOOGLE_MAPS_KEY,
@@ -282,6 +333,25 @@ export default function GroupControl() {
     loadAnalytics();
     const interval = setInterval(loadAnalytics, 15000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Fetch suburb boundaries and district stats on mount
+  useEffect(() => {
+    async function loadBoundaries() {
+      try {
+        const [boundRes, statsRes] = await Promise.allSettled([
+          energyAnalyticsAPI.getSuburbBoundaries(),
+          energyAnalyticsAPI.getDistrictStats(),
+        ]);
+        if (boundRes.status === "fulfilled" && boundRes.value) {
+          setSuburbBoundaries(boundRes.value);
+        }
+        if (statsRes.status === "fulfilled" && Array.isArray(statsRes.value)) {
+          setDistrictStats(statsRes.value);
+        }
+      } catch {}
+    }
+    loadBoundaries();
   }, []);
 
   /* ---- Load group members when group selected ---- */
@@ -342,12 +412,36 @@ export default function GroupControl() {
     getSubstationMarkers(substationConfig, analyticsRegions),
   [substationConfig, analyticsRegions]);
 
-  const connectionLines = useMemo(() =>
-    showFlowLines ? getConnectionLines(substationConfig, powerFlowData) : [],
-  [substationConfig, powerFlowData, showFlowLines]);
+  // All connection lines (substation-to-main)
+  const allConnectionLines = useMemo(() =>
+    getConnectionLines(substationConfig, powerFlowData),
+  [substationConfig, powerFlowData]);
+
+  // Filtered connection lines by layer visibility
+  const connectionLines = useMemo(() => {
+    if (!layers.substationToMainLines && !layers.meterToSubLines) return [];
+    return allConnectionLines.filter(line => {
+      if (line.type === "substation") return layers.substationToMainLines;
+      if (line.type === "meter") return layers.meterToSubLines;
+      return false;
+    });
+  }, [allConnectionLines, layers.substationToMainLines, layers.meterToSubLines]);
+
+  /* ---- Polygon fill color based on district stats ---- */
+  const getDistrictPolygonColor = useCallback((suburbName) => {
+    const stat = districtStats.find(d =>
+      d.district?.toLowerCase() === suburbName?.toLowerCase() ||
+      d.suburb?.toLowerCase() === suburbName?.toLowerCase()
+    );
+    if (!stat) return { fill: "rgba(100,100,120,0.15)", stroke: "rgba(150,150,170,0.4)" };
+    if (stat.net_direction === "exporting") return { fill: "rgba(34,197,94,0.12)", stroke: "rgba(34,197,94,0.5)" };
+    if (stat.net_direction === "importing") return { fill: "rgba(245,158,11,0.12)", stroke: "rgba(245,158,11,0.5)" };
+    return { fill: "rgba(100,100,120,0.10)", stroke: "rgba(150,150,170,0.35)" };
+  }, [districtStats]);
 
   /* ---- Get marker icon based on state ---- */
   const getMarkerIcon = useCallback((meter) => {
+    if (highlightedMeters.has(meter.DRN)) return iconHighlighted();
     if (selectedMeters.has(meter.DRN)) return iconSelected();
     const isOnline = meter.Status === "1" || meter.Status === 1 || meter.Status === "Active";
     if (!isOnline) return iconOffline();
@@ -356,21 +450,105 @@ export default function GroupControl() {
     if (!mainsOn) return iconMainsOff();
     if (mainsOn && !geyserOn) return iconMainsOnGeyserOff();
     return iconMainsOnGeyserOn();
-  }, [selectedMeters]);
+  }, [selectedMeters, highlightedMeters]);
 
-  /* ---- Map click to select meter ---- */
+  /* ---- Map click: select meter OR show detail ---- */
   const handleMeterClick = useCallback((meter) => {
-    if (!selectionMode) return;
-    setSelectedMeters(prev => {
-      const next = new Set(prev);
-      if (next.has(meter.DRN)) {
-        next.delete(meter.DRN);
-      } else {
-        next.add(meter.DRN);
-      }
-      return next;
-    });
+    if (selectionMode) {
+      setSelectedMeters(prev => {
+        const next = new Set(prev);
+        if (next.has(meter.DRN)) {
+          next.delete(meter.DRN);
+        } else {
+          next.add(meter.DRN);
+        }
+        return next;
+      });
+      return;
+    }
+    // Show detail popup
+    setClickedMeter(meter);
+    setMeterDetail(null);
+    setTracePathDrn(null);
+    setMeterDetailLoading(true);
+    energyAnalyticsAPI.getMeterDetail(meter.DRN)
+      .then(data => {
+        setMeterDetail(data);
+      })
+      .catch(() => setMeterDetail(null))
+      .finally(() => setMeterDetailLoading(false));
   }, [selectionMode]);
+
+  /* ---- Substation click: topology highlight ---- */
+  const handleSubstationClick = useCallback((sub) => {
+    setHoveredSubstation(prev => prev?.id === sub.id ? null : sub);
+
+    if (sub.isPrimary) {
+      // Highlight all child distribution substations
+      const childIds = substationConfig
+        .filter(s => s.type === "distribution" && (
+          s.parent_id === sub.id ||
+          (s.parent_lat && Math.abs(s.parent_lat - sub.lat) < 0.001 && Math.abs(s.parent_lng - sub.lng) < 0.001)
+        ))
+        .map(s => s.id);
+      setHighlightedSubstations(new Set(childIds.length ? childIds : []));
+      setHighlightedMeters(new Set());
+    } else {
+      // Distribution substation: highlight connected meters
+      const distSub = substationConfig.find(s => s.id === sub.id);
+      if (distSub) {
+        const connectedMeters = powerFlowData
+          .filter(m => m.lat && m.lng && Math.sqrt(
+            Math.pow(m.lat - distSub.lat, 2) + Math.pow(m.lng - distSub.lng, 2)
+          ) < 0.05)
+          .map(m => m.drn);
+        setHighlightedMeters(new Set(connectedMeters));
+      }
+      setHighlightedSubstations(new Set([sub.id]));
+    }
+  }, [substationConfig, powerFlowData]);
+
+  /* ---- Trace path for open meter popup ---- */
+  const handleTracePath = useCallback((drn) => {
+    const meter = meters.find(m => m.DRN === drn);
+    if (!meter) return;
+    const lat = parseFloat(meter.Lat);
+    const lng = parseFloat(meter.Longitude);
+    if (isNaN(lat) || isNaN(lng)) return;
+
+    const distSubs = substationConfig.filter(s => s.type === "distribution");
+    let nearest = null;
+    let minDist = Infinity;
+    distSubs.forEach(sub => {
+      const d = Math.sqrt(Math.pow(lat - sub.lat, 2) + Math.pow(lng - sub.lng, 2));
+      if (d < minDist) { minDist = d; nearest = sub; }
+    });
+    if (nearest) {
+      setHighlightedSubstations(new Set([nearest.id]));
+      setHighlightedMeters(new Set([drn]));
+      setTracePathDrn(drn);
+    }
+  }, [meters, substationConfig]);
+
+  /* ---- View connected meters from substation popup ---- */
+  const handleViewConnectedMeters = useCallback((sub) => {
+    const distSub = substationConfig.find(s => s.id === sub.id);
+    if (!distSub) return;
+    const connectedMeters = powerFlowData
+      .filter(m => m.lat && m.lng && Math.sqrt(
+        Math.pow(m.lat - distSub.lat, 2) + Math.pow(m.lng - distSub.lng, 2)
+      ) < 0.05)
+      .map(m => m.drn);
+    setHighlightedMeters(new Set(connectedMeters));
+    setSnackbar({ open: true, message: `Highlighting ${connectedMeters.length} connected meter(s)`, severity: "info" });
+  }, [substationConfig, powerFlowData]);
+
+  /* ---- Clear topology highlights ---- */
+  const clearHighlights = useCallback(() => {
+    setHighlightedSubstations(new Set());
+    setHighlightedMeters(new Set());
+    setTracePathDrn(null);
+  }, []);
 
   /* ---- Select all meters in an area ---- */
   const selectArea = useCallback((areaName) => {
@@ -400,7 +578,6 @@ export default function GroupControl() {
       setNewGroupName("");
       setNewGroupDesc("");
       setNewGroupType("geyser");
-      // If meters are selected, add them to the new group
       if (selectedMeters.size > 0 && res?.id) {
         await groupControlAPI.addMeters(res.id, Array.from(selectedMeters));
       }
@@ -438,7 +615,6 @@ export default function GroupControl() {
   const handleSaveToGroup = async () => {
     if (!selectedGroup) return;
     try {
-      // Remove all existing members first, then add selected
       if (groupMembers.length > 0) {
         await groupControlAPI.removeMeters(selectedGroup.id, groupMembers.map(m => m.DRN));
       }
@@ -488,7 +664,6 @@ export default function GroupControl() {
         message: `${res?.message || "Command sent"} (${res?.succeeded || 0}/${res?.total || 0})`,
         severity: "success",
       });
-      // Refresh data after short delay
       setTimeout(() => fetchData(), 2000);
     } catch (err) {
       setSnackbar({ open: true, message: err.message, severity: "error" });
@@ -506,6 +681,21 @@ export default function GroupControl() {
       setSnackbar({ open: true, message: err.message, severity: "error" });
     }
   };
+
+  /* ---- Trigger reverse geocode ---- */
+  const handleTriggerReverseGeocode = async () => {
+    try {
+      await energyAnalyticsAPI.triggerReverseGeocode();
+      setSnackbar({ open: true, message: "Reverse geocoding triggered for unassigned meters", severity: "success" });
+    } catch (err) {
+      setSnackbar({ open: true, message: err?.message || "Failed to trigger reverse geocoding", severity: "error" });
+    }
+  };
+
+  /* ---- Toggle a single layer ---- */
+  const toggleLayer = useCallback((key) => {
+    setLayers(prev => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   /* ---- Render ---- */
   if (loading || !isLoaded) {
@@ -606,13 +796,7 @@ export default function GroupControl() {
           </Box>
 
           {/* Groups list */}
-          <Box
-            sx={{
-              bgcolor: colors.primary[400],
-              borderRadius: "8px",
-              p: "8px",
-            }}
-          >
+          <Box sx={{ bgcolor: colors.primary[400], borderRadius: "8px", p: "8px" }}>
             <Typography variant="subtitle2" color={colors.grey[300]} mb="6px" display="flex" alignItems="center" gap="4px">
               <GroupWorkOutlined sx={{ fontSize: 16 }} /> Control Groups ({groups.length})
             </Typography>
@@ -682,13 +866,7 @@ export default function GroupControl() {
 
           {/* Selected meters info + save */}
           {totalSelected > 0 && (
-            <Box
-              sx={{
-                bgcolor: colors.primary[400],
-                borderRadius: "8px",
-                p: "8px",
-              }}
-            >
+            <Box sx={{ bgcolor: colors.primary[400], borderRadius: "8px", p: "8px" }}>
               <Typography variant="subtitle2" color={colors.grey[300]} mb="4px">
                 Selected: {totalSelected} meters
               </Typography>
@@ -752,18 +930,21 @@ export default function GroupControl() {
           )}
 
           {/* Areas list */}
-          <Box
-            sx={{
-              bgcolor: colors.primary[400],
-              borderRadius: "8px",
-              p: "8px",
-              flex: 1,
-              overflowY: "auto",
-            }}
-          >
-            <Typography variant="subtitle2" color={colors.grey[300]} mb="6px">
-              Areas ({areaSummary.length})
-            </Typography>
+          <Box sx={{ bgcolor: colors.primary[400], borderRadius: "8px", p: "8px", flex: 1, overflowY: "auto" }}>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb="6px">
+              <Typography variant="subtitle2" color={colors.grey[300]}>
+                Areas ({areaSummary.length})
+              </Typography>
+              <Tooltip title="Trigger reverse geocoding for meters without suburb assignment">
+                <IconButton
+                  size="small"
+                  onClick={handleTriggerReverseGeocode}
+                  sx={{ color: "#6870fa", p: "2px" }}
+                >
+                  <RouterOutlined sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
             {areaSummary.map(a => {
               const allAreaSelected = meters
                 .filter(m => m.LocationName === a.area)
@@ -791,15 +972,9 @@ export default function GroupControl() {
                     </Typography>
                   </Box>
                   <Box display="flex" gap="8px" mt="1px">
-                    <Typography variant="caption" color="#4cceac" fontSize="9px">
-                      {a.online} online
-                    </Typography>
-                    <Typography variant="caption" color="#db4f4a" fontSize="9px">
-                      {a.mainsOff} mains off
-                    </Typography>
-                    <Typography variant="caption" color="#f2b705" fontSize="9px">
-                      {a.geyserOff} geyser off
-                    </Typography>
+                    <Typography variant="caption" color="#4cceac" fontSize="9px">{a.online} online</Typography>
+                    <Typography variant="caption" color="#db4f4a" fontSize="9px">{a.mainsOff} mains off</Typography>
+                    <Typography variant="caption" color="#f2b705" fontSize="9px">{a.geyserOff} geyser off</Typography>
                   </Box>
                 </Box>
               );
@@ -833,11 +1008,7 @@ export default function GroupControl() {
                 ),
               }}
             />
-            <IconButton
-              size="small"
-              onClick={fetchData}
-              sx={{ color: colors.grey[400] }}
-            >
+            <IconButton size="small" onClick={fetchData} sx={{ color: colors.grey[400] }}>
               <RefreshOutlined sx={{ fontSize: 18 }} />
             </IconButton>
             <Box flex={1} />
@@ -853,10 +1024,21 @@ export default function GroupControl() {
                 sx={{ height: 22, fontSize: 11 }}
               />
             )}
+            {(highlightedSubstations.size > 0 || highlightedMeters.size > 0) && (
+              <Button
+                size="small"
+                onClick={clearHighlights}
+                startIcon={<CancelOutlined />}
+                sx={{ textTransform: "none", fontSize: "11px", color: "#06b6d4", borderColor: "#06b6d4" }}
+                variant="outlined"
+              >
+                Clear Highlights
+              </Button>
+            )}
           </Box>
 
           {/* Map */}
-          <Box flex={1} borderRadius="10px" overflow="hidden" border={`1px solid ${colors.primary[400]}`}>
+          <Box flex={1} borderRadius="10px" overflow="hidden" border={`1px solid ${colors.primary[400]}`} position="relative">
             <GoogleMap
               mapContainerStyle={MAP_CONTAINER}
               center={DEFAULT_CENTER}
@@ -867,32 +1049,61 @@ export default function GroupControl() {
               }}
               onLoad={setMapRef}
             >
-              {filteredMeters.map(meter => {
+              {/* District boundary polygons */}
+              {layers.districtBoundaries && Object.entries(suburbBoundaries).map(([suburbName, coords]) => {
+                if (!Array.isArray(coords) || coords.length < 3) return null;
+                const { fill, stroke } = getDistrictPolygonColor(suburbName);
+                return (
+                  <Polygon
+                    key={`district-${suburbName}`}
+                    paths={coords}
+                    options={{
+                      fillColor: fill,
+                      fillOpacity: 1,
+                      strokeColor: stroke,
+                      strokeOpacity: 1,
+                      strokeWeight: 1.5,
+                    }}
+                    onClick={() => {
+                      const stat = districtStats.find(d =>
+                        d.district?.toLowerCase() === suburbName?.toLowerCase() ||
+                        d.suburb?.toLowerCase() === suburbName?.toLowerCase()
+                      );
+                      setClickedDistrict({ name: suburbName, stat, coords });
+                    }}
+                  />
+                );
+              })}
+
+              {/* Meter markers */}
+              {layers.meterMarkers && filteredMeters.map(meter => {
                 const lat = parseFloat(meter.Lat);
                 const lng = parseFloat(meter.Longitude);
                 if (isNaN(lat) || isNaN(lng)) return null;
                 return (
-                  <Marker
+                  <MeterMarker
                     key={meter.DRN}
-                    position={{ lat, lng }}
+                    meter={meter}
                     icon={getMarkerIcon(meter)}
                     onClick={() => handleMeterClick(meter)}
-                    title={`${meter.DRN} - ${meter.LocationName || ""}`}
-                    animation={selectedMeters.has(meter.DRN) ? 1 : undefined}
                   />
                 );
               })}
 
               {/* Substation markers */}
-              {substationMarkers.map(sub => {
+              {layers.substationMarkers && substationMarkers.map(sub => {
                 if (!sub.lat || !sub.lng) return null;
+                const isHighlighted = highlightedSubstations.has(sub.id);
                 return (
                   <Marker
                     key={`sub-${sub.id}`}
                     position={{ lat: sub.lat, lng: sub.lng }}
-                    icon={sub.isPrimary ? iconSubstationPrimary() : iconSubstationDist(sub.markerColor)}
+                    icon={sub.isPrimary
+                      ? iconSubstationPrimary(isHighlighted)
+                      : iconSubstationDist(sub.markerColor, isHighlighted)
+                    }
                     title={sub.name}
-                    onClick={() => setHoveredSubstation(hoveredSubstation?.id === sub.id ? null : sub)}
+                    onClick={() => handleSubstationClick(sub)}
                     zIndex={sub.isPrimary ? 1000 : 900}
                   />
                 );
@@ -902,45 +1113,359 @@ export default function GroupControl() {
               {hoveredSubstation && (
                 <InfoWindow
                   position={{ lat: hoveredSubstation.lat, lng: hoveredSubstation.lng }}
-                  onCloseClick={() => setHoveredSubstation(null)}
+                  onCloseClick={() => { setHoveredSubstation(null); clearHighlights(); }}
                   options={{ pixelOffset: { width: 0, height: -24, equals: () => false } }}
                 >
-                  <Box sx={{ p: "4px", minWidth: 180, color: "#1a1a2e" }}>
-                    <Typography variant="subtitle2" fontWeight={700} fontSize="12px" gutterBottom>
+                  <Box sx={{ p: "6px", minWidth: 220, color: "#1a1a2e" }}>
+                    <Typography variant="subtitle2" fontWeight={700} fontSize="13px" gutterBottom>
                       {hoveredSubstation.name}
                     </Typography>
-                    <Typography variant="caption" fontSize="10px" display="block" color="#666">
+                    <Typography variant="caption" fontSize="10px" display="block" color="#555" mb="2px">
                       {hoveredSubstation.isPrimary ? "Primary Substation" : "Distribution Substation"}
                     </Typography>
-                    <Typography variant="caption" fontSize="10px" display="block" color="#666">
-                      District: {hoveredSubstation.district}
+                    <Typography variant="caption" fontSize="10px" display="block" color="#555" mb="4px">
+                      District: {hoveredSubstation.district || "—"}
                     </Typography>
                     {hoveredSubstation.regionData && (
-                      <Box mt="4px" pt="4px" borderTop="1px solid #eee">
-                        <Typography variant="caption" fontSize="10px" display="block">
-                          <strong>Total Power:</strong> {Math.abs(hoveredSubstation.regionData.power.total_active_power).toFixed(1)} W
-                          {hoveredSubstation.regionData.energy.direction === "net_exporting" ? " (exporting)" : " (consuming)"}
-                        </Typography>
-                        <Typography variant="caption" fontSize="10px" display="block">
-                          <strong>Import:</strong> {(hoveredSubstation.regionData.energy.total_import_wh / 1000).toFixed(2)} kWh
-                        </Typography>
-                        <Typography variant="caption" fontSize="10px" display="block">
-                          <strong>Export:</strong> {(hoveredSubstation.regionData.energy.total_export_wh / 1000).toFixed(2)} kWh
-                        </Typography>
-                        <Typography variant="caption" fontSize="10px" display="block">
-                          <strong>Meters:</strong> {hoveredSubstation.regionData.meterCount} ({hoveredSubstation.regionData.online} online)
-                        </Typography>
-                        <Typography variant="caption" fontSize="10px" display="block">
-                          <strong>Avg Voltage:</strong> {hoveredSubstation.regionData.power.avg_voltage.toFixed(1)} V
-                        </Typography>
-                        <Typography variant="caption" fontSize="10px" display="block">
-                          <strong>Avg PF:</strong> {hoveredSubstation.regionData.power.avg_power_factor.toFixed(3)}
-                        </Typography>
+                      <Box mt="4px" pt="4px" borderTop="1px solid #ddd">
+                        <Box display="grid" gridTemplateColumns="1fr 1fr" gap="4px">
+                          <Box>
+                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Total Power</Typography>
+                            <Typography variant="caption" fontSize="11px" fontWeight={700} color={hoveredSubstation.regionData.energy.direction === "net_exporting" ? "#16a34a" : "#d97706"}>
+                              {Math.abs(hoveredSubstation.regionData.power.total_active_power).toFixed(1)} W
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Direction</Typography>
+                            <Typography variant="caption" fontSize="11px" fontWeight={600} color={hoveredSubstation.regionData.energy.direction === "net_exporting" ? "#16a34a" : "#d97706"}>
+                              {hoveredSubstation.regionData.energy.direction === "net_exporting" ? "Exporting" : "Importing"}
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Import</Typography>
+                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
+                              {(hoveredSubstation.regionData.energy.total_import_wh / 1000).toFixed(2)} kWh
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Export</Typography>
+                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
+                              {(hoveredSubstation.regionData.energy.total_export_wh / 1000).toFixed(2)} kWh
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Meters</Typography>
+                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
+                              {hoveredSubstation.regionData.meterCount} ({hoveredSubstation.regionData.online} online)
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Avg Voltage</Typography>
+                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
+                              {hoveredSubstation.regionData.power.avg_voltage.toFixed(1)} V
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Avg PF</Typography>
+                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
+                              {hoveredSubstation.regionData.power.avg_power_factor.toFixed(3)}
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" fontSize="9px" color="#888" display="block">Net Demand</Typography>
+                            <Typography variant="caption" fontSize="11px" fontWeight={600} color="#333">
+                              {((hoveredSubstation.regionData.energy.total_import_wh - hoveredSubstation.regionData.energy.total_export_wh) / 1000).toFixed(2)} kWh
+                            </Typography>
+                          </Box>
+                        </Box>
+                        {!hoveredSubstation.isPrimary && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handleViewConnectedMeters(hoveredSubstation)}
+                            sx={{
+                              mt: "6px",
+                              width: "100%",
+                              fontSize: "10px",
+                              textTransform: "none",
+                              borderColor: "#3b82f6",
+                              color: "#3b82f6",
+                              py: "2px",
+                            }}
+                          >
+                            View Connected Meters
+                          </Button>
+                        )}
                       </Box>
                     )}
                   </Box>
                 </InfoWindow>
               )}
+
+              {/* Meter detail info window */}
+              {clickedMeter && (() => {
+                const lat = parseFloat(clickedMeter.Lat);
+                const lng = parseFloat(clickedMeter.Longitude);
+                if (isNaN(lat) || isNaN(lng)) return null;
+                return (
+                  <InfoWindow
+                    position={{ lat, lng }}
+                    onCloseClick={() => { setClickedMeter(null); setMeterDetail(null); setTracePathDrn(null); clearHighlights(); }}
+                    options={{ pixelOffset: { width: 0, height: -24, equals: () => false }, maxWidth: 340 }}
+                  >
+                    <Box sx={{ p: "4px", minWidth: 300, maxWidth: 320, color: "#1a1a2e" }}>
+                      {meterDetailLoading ? (
+                        <Box display="flex" justifyContent="center" alignItems="center" py="20px">
+                          <CircularProgress size={24} sx={{ color: "#3b82f6" }} />
+                        </Box>
+                      ) : (
+                        <>
+                          {/* Header */}
+                          <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb="8px">
+                            <Box>
+                              <Typography variant="subtitle2" fontWeight={700} fontSize="13px" color="#111">
+                                {meterDetail?.DRN || clickedMeter.DRN}
+                              </Typography>
+                              <Typography variant="caption" fontSize="10px" color="#666">
+                                {meterDetail?.customerName || clickedMeter.customerName || "—"}
+                              </Typography>
+                            </Box>
+                            <Box display="flex" gap="4px">
+                              <Box sx={{
+                                px: "6px", py: "2px", borderRadius: "4px", fontSize: "9px", fontWeight: 700,
+                                bgcolor: (clickedMeter.mains_state === "1" || clickedMeter.mains_state === 1) ? "#dcfce7" : "#fee2e2",
+                                color: (clickedMeter.mains_state === "1" || clickedMeter.mains_state === 1) ? "#16a34a" : "#dc2626",
+                              }}>
+                                MAINS {(clickedMeter.mains_state === "1" || clickedMeter.mains_state === 1) ? "ON" : "OFF"}
+                              </Box>
+                              <Box sx={{
+                                px: "6px", py: "2px", borderRadius: "4px", fontSize: "9px", fontWeight: 700,
+                                bgcolor: (clickedMeter.geyser_state === "1" || clickedMeter.geyser_state === 1) ? "#fef3c7" : "#f3f4f6",
+                                color: (clickedMeter.geyser_state === "1" || clickedMeter.geyser_state === 1) ? "#d97706" : "#6b7280",
+                              }}>
+                                GEYSER {(clickedMeter.geyser_state === "1" || clickedMeter.geyser_state === 1) ? "ON" : "OFF"}
+                              </Box>
+                            </Box>
+                          </Box>
+
+                          {/* Identification */}
+                          <Box mb="8px" p="6px" bgcolor="#f8fafc" borderRadius="6px">
+                            <Typography variant="caption" fontWeight={700} fontSize="10px" color="#374151" display="block" mb="4px">
+                              IDENTIFICATION
+                            </Typography>
+                            <Box display="grid" gridTemplateColumns="1fr 1fr" gap="3px">
+                              <Box>
+                                <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Address</Typography>
+                                <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
+                                  {meterDetail?.address || clickedMeter.LocationName || "—"}
+                                </Typography>
+                              </Box>
+                              <Box>
+                                <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Region/Suburb</Typography>
+                                <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
+                                  {meterDetail?.suburb || meterDetail?.region || "—"}
+                                </Typography>
+                              </Box>
+                              <Box>
+                                <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">GPS</Typography>
+                                <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
+                                  {parseFloat(clickedMeter.Lat).toFixed(5)}, {parseFloat(clickedMeter.Longitude).toFixed(5)}
+                                </Typography>
+                              </Box>
+                              <Box>
+                                <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Status</Typography>
+                                <Typography variant="caption" fontSize="10px" fontWeight={600}
+                                  color={(clickedMeter.Status === "1" || clickedMeter.Status === 1 || clickedMeter.Status === "Active") ? "#16a34a" : "#dc2626"}>
+                                  {(clickedMeter.Status === "1" || clickedMeter.Status === 1 || clickedMeter.Status === "Active") ? "Online" : "Offline"}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Box>
+
+                          {/* Live Measurements */}
+                          {meterDetail && (
+                            <Box mb="8px" p="6px" bgcolor="#f0f9ff" borderRadius="6px">
+                              <Typography variant="caption" fontWeight={700} fontSize="10px" color="#374151" display="block" mb="4px">
+                                LIVE MEASUREMENTS
+                              </Typography>
+                              <Box display="grid" gridTemplateColumns="1fr 1fr 1fr" gap="4px">
+                                {[
+                                  { label: "Voltage", value: meterDetail.voltage ? `${meterDetail.voltage.toFixed(1)} V` : "—" },
+                                  { label: "Current", value: meterDetail.current ? `${meterDetail.current.toFixed(2)} A` : "—" },
+                                  { label: "Active P", value: meterDetail.active_power ? `${meterDetail.active_power.toFixed(1)} W` : "—" },
+                                  { label: "React. P", value: meterDetail.reactive_power ? `${meterDetail.reactive_power.toFixed(1)} VAR` : "—" },
+                                  { label: "App. P", value: meterDetail.apparent_power ? `${meterDetail.apparent_power.toFixed(1)} VA` : "—" },
+                                  { label: "Freq.", value: meterDetail.frequency ? `${meterDetail.frequency.toFixed(2)} Hz` : "—" },
+                                  { label: "Power Factor", value: meterDetail.power_factor ? meterDetail.power_factor.toFixed(3) : "—" },
+                                  { label: "Import kWh", value: meterDetail.total_import_kwh ? `${meterDetail.total_import_kwh.toFixed(2)}` : "—" },
+                                  { label: "Export kWh", value: meterDetail.total_export_kwh ? `${meterDetail.total_export_kwh.toFixed(2)}` : "—" },
+                                ].map(item => (
+                                  <Box key={item.label}>
+                                    <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">{item.label}</Typography>
+                                    <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>{item.value}</Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          )}
+
+                          {/* Energy + Net Metering */}
+                          {meterDetail && (
+                            <Box mb="8px" p="6px" bgcolor="#f0fdf4" borderRadius="6px">
+                              <Typography variant="caption" fontWeight={700} fontSize="10px" color="#374151" display="block" mb="4px">
+                                ENERGY & NET METERING
+                              </Typography>
+                              <Box display="grid" gridTemplateColumns="1fr 1fr" gap="3px">
+                                <Box>
+                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Credit Balance</Typography>
+                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>
+                                    {meterDetail.credit_balance != null ? `N$ ${meterDetail.credit_balance.toFixed(2)}` : "—"}
+                                  </Typography>
+                                </Box>
+                                <Box>
+                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Remaining Units</Typography>
+                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>
+                                    {meterDetail.remaining_units != null ? `${meterDetail.remaining_units.toFixed(1)} kWh` : "—"}
+                                  </Typography>
+                                </Box>
+                                <Box>
+                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Active Tariff</Typography>
+                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>
+                                    {meterDetail.tariff || "—"}
+                                  </Typography>
+                                </Box>
+                                <Box>
+                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Direction</Typography>
+                                  <Typography variant="caption" fontSize="10px" fontWeight={700}
+                                    color={meterDetail.direction === "exporting" ? "#16a34a" : "#d97706"}>
+                                    {meterDetail.direction === "exporting" ? "Exporting" : "Importing"}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            </Box>
+                          )}
+
+                          {/* Communication */}
+                          {meterDetail && (
+                            <Box mb="8px" p="6px" bgcolor="#faf5ff" borderRadius="6px">
+                              <Typography variant="caption" fontWeight={700} fontSize="10px" color="#374151" display="block" mb="4px">
+                                COMMUNICATION
+                              </Typography>
+                              <Box display="grid" gridTemplateColumns="1fr 1fr" gap="3px">
+                                <Box>
+                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">MQTT Status</Typography>
+                                  <Typography variant="caption" fontSize="10px" color={meterDetail.mqtt_connected ? "#16a34a" : "#dc2626"} fontWeight={600}>
+                                    {meterDetail.mqtt_connected ? "Connected" : "Disconnected"}
+                                  </Typography>
+                                </Box>
+                                <Box>
+                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Signal</Typography>
+                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>
+                                    {meterDetail.signal_strength != null ? `${meterDetail.signal_strength} dBm` : "—"}
+                                  </Typography>
+                                </Box>
+                                <Box>
+                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Firmware</Typography>
+                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
+                                    {meterDetail.firmware_version || "—"}
+                                  </Typography>
+                                </Box>
+                                <Box>
+                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Network</Typography>
+                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
+                                    {meterDetail.network_operator || "—"}
+                                  </Typography>
+                                </Box>
+                                <Box>
+                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">Last Seen</Typography>
+                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
+                                    {meterDetail.last_seen ? new Date(meterDetail.last_seen).toLocaleString() : "—"}
+                                  </Typography>
+                                </Box>
+                                <Box>
+                                  <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">SIM</Typography>
+                                  <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={500}>
+                                    {meterDetail.sim_number || "—"}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            </Box>
+                          )}
+
+                          {/* Action buttons */}
+                          <Box display="flex" gap="4px" mt="4px">
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              onClick={() => handleTracePath(clickedMeter.DRN)}
+                              startIcon={<AccountTreeOutlined sx={{ fontSize: 12 }} />}
+                              sx={{ flex: 1, fontSize: "9px", textTransform: "none", borderColor: "#06b6d4", color: "#06b6d4", py: "2px" }}
+                            >
+                              Trace Path
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              onClick={() => {
+                                setSelectedMeters(prev => { const n = new Set(prev); n.add(clickedMeter.DRN); return n; });
+                                setClickedMeter(null);
+                              }}
+                              startIcon={<CheckCircleOutlined sx={{ fontSize: 12 }} />}
+                              sx={{ flex: 1, fontSize: "9px", textTransform: "none", borderColor: "#6870fa", color: "#6870fa", py: "2px" }}
+                            >
+                              Select
+                            </Button>
+                          </Box>
+                        </>
+                      )}
+                    </Box>
+                  </InfoWindow>
+                );
+              })()}
+
+              {/* District stats info window */}
+              {clickedDistrict && (() => {
+                const centroid = clickedDistrict.coords.length > 0
+                  ? {
+                      lat: clickedDistrict.coords.reduce((s, c) => s + c.lat, 0) / clickedDistrict.coords.length,
+                      lng: clickedDistrict.coords.reduce((s, c) => s + c.lng, 0) / clickedDistrict.coords.length,
+                    }
+                  : DEFAULT_CENTER;
+                return (
+                  <InfoWindow
+                    position={centroid}
+                    onCloseClick={() => setClickedDistrict(null)}
+                    options={{ pixelOffset: { width: 0, height: -10, equals: () => false } }}
+                  >
+                    <Box sx={{ p: "4px", minWidth: 200, color: "#1a1a2e" }}>
+                      <Typography variant="subtitle2" fontWeight={700} fontSize="12px" gutterBottom>
+                        {clickedDistrict.name}
+                      </Typography>
+                      {clickedDistrict.stat ? (
+                        <Box display="grid" gridTemplateColumns="1fr 1fr" gap="4px" mt="4px">
+                          {[
+                            { label: "Total Meters", value: clickedDistrict.stat.total_meters ?? "—" },
+                            { label: "Online", value: clickedDistrict.stat.online_meters ?? "—" },
+                            { label: "Offline", value: clickedDistrict.stat.offline_meters ?? "—" },
+                            { label: "Total Load", value: clickedDistrict.stat.total_load_w != null ? `${(clickedDistrict.stat.total_load_w / 1000).toFixed(2)} kW` : "—" },
+                            { label: "Total Export", value: clickedDistrict.stat.total_export_w != null ? `${(clickedDistrict.stat.total_export_w / 1000).toFixed(2)} kW` : "—" },
+                            { label: "Net Demand", value: clickedDistrict.stat.net_demand_w != null ? `${(clickedDistrict.stat.net_demand_w / 1000).toFixed(2)} kW` : "—" },
+                            { label: "Avg Voltage", value: clickedDistrict.stat.avg_voltage != null ? `${clickedDistrict.stat.avg_voltage.toFixed(1)} V` : "—" },
+                            { label: "Direction", value: clickedDistrict.stat.net_direction || "—" },
+                          ].map(item => (
+                            <Box key={item.label}>
+                              <Typography variant="caption" fontSize="9px" color="#9ca3af" display="block">{item.label}</Typography>
+                              <Typography variant="caption" fontSize="10px" color="#374151" fontWeight={600}>{item.value}</Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      ) : (
+                        <Typography variant="caption" fontSize="10px" color="#6b7280">No stats available</Typography>
+                      )}
+                    </Box>
+                  </InfoWindow>
+                );
+              })()}
 
               {/* Power flow connection lines */}
               {connectionLines.map(line => (
@@ -951,7 +1476,7 @@ export default function GroupControl() {
                     strokeColor: line.color,
                     strokeOpacity: 0.7,
                     strokeWeight: line.weight,
-                    icons: line.type === "meter" ? [{
+                    icons: layers.flowAnimation ? (line.type === "meter" ? [{
                       icon: {
                         path: 'M 0,-1 L 2,0 L 0,1',
                         scale: 3,
@@ -981,28 +1506,142 @@ export default function GroupControl() {
                         fillOpacity: 0.5,
                       },
                       offset: "70%",
-                    }],
+                    }]) : [],
                     geodesic: true,
                   }}
                 />
               ))}
+
+              {/* Trace path highlight polylines */}
+              {tracePathDrn && (() => {
+                const meter = meters.find(m => m.DRN === tracePathDrn);
+                if (!meter) return null;
+                const mLat = parseFloat(meter.Lat);
+                const mLng = parseFloat(meter.Longitude);
+                if (isNaN(mLat) || isNaN(mLng)) return null;
+                const distSubs = substationConfig.filter(s => s.type === "distribution");
+                let nearest = null;
+                let minDist = Infinity;
+                distSubs.forEach(sub => {
+                  const d = Math.sqrt(Math.pow(mLat - sub.lat, 2) + Math.pow(mLng - sub.lng, 2));
+                  if (d < minDist) { minDist = d; nearest = sub; }
+                });
+                if (!nearest) return null;
+                const lines = [
+                  <Polyline
+                    key="trace-meter-sub"
+                    path={[{ lat: mLat, lng: mLng }, { lat: nearest.lat, lng: nearest.lng }]}
+                    options={{ strokeColor: "#06b6d4", strokeOpacity: 0.9, strokeWeight: 3, geodesic: true }}
+                  />
+                ];
+                if (nearest.parent_lat && nearest.parent_lng) {
+                  lines.push(
+                    <Polyline
+                      key="trace-sub-primary"
+                      path={[{ lat: nearest.lat, lng: nearest.lng }, { lat: nearest.parent_lat, lng: nearest.parent_lng }]}
+                      options={{ strokeColor: "#06b6d4", strokeOpacity: 0.9, strokeWeight: 3, geodesic: true }}
+                    />
+                  );
+                }
+                return lines;
+              })()}
             </GoogleMap>
+
+            {/* ---- Floating Layer Controls Panel ---- */}
+            <Box
+              sx={{
+                position: "absolute",
+                top: "10px",
+                right: "50px",
+                zIndex: 10,
+                bgcolor: "rgba(10,22,40,0.92)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: "10px",
+                backdropFilter: "blur(8px)",
+                minWidth: 180,
+                overflow: "hidden",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+              }}
+            >
+              <Box
+                display="flex"
+                alignItems="center"
+                justifyContent="space-between"
+                px="12px"
+                py="8px"
+                sx={{
+                  borderBottom: layerPanelOpen ? "1px solid rgba(255,255,255,0.08)" : "none",
+                  cursor: "pointer",
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.04)" },
+                }}
+                onClick={() => setLayerPanelOpen(prev => !prev)}
+              >
+                <Box display="flex" alignItems="center" gap="6px">
+                  <LayersOutlined sx={{ fontSize: 15, color: "#94a3b8" }} />
+                  <Typography variant="caption" color="#e2e8f0" fontWeight={600} fontSize="11px" letterSpacing="0.5px">
+                    LAYERS
+                  </Typography>
+                </Box>
+                {layerPanelOpen ? (
+                  <ExpandLessOutlined sx={{ fontSize: 15, color: "#94a3b8" }} />
+                ) : (
+                  <ExpandMoreOutlined sx={{ fontSize: 15, color: "#94a3b8" }} />
+                )}
+              </Box>
+              <Collapse in={layerPanelOpen}>
+                <Box px="8px" py="6px">
+                  {[
+                    { key: "meterMarkers", label: "Meter Markers", color: "#4cceac" },
+                    { key: "substationMarkers", label: "Substation Markers", color: "#3b82f6" },
+                    { key: "substationToMainLines", label: "Substation Lines", color: "#3b82f6" },
+                    { key: "meterToSubLines", label: "Meter-to-Sub Lines", color: "#f59e0b" },
+                    { key: "flowAnimation", label: "Flow Animation", color: "#94a3b8" },
+                    { key: "districtBoundaries", label: "District Boundaries", color: "#8b5cf6" },
+                  ].map(item => (
+                    <Box
+                      key={item.key}
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="space-between"
+                      py="3px"
+                      sx={{ "&:hover": { bgcolor: "rgba(255,255,255,0.03)", borderRadius: "4px" } }}
+                    >
+                      <Box display="flex" alignItems="center" gap="6px">
+                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: layers[item.key] ? item.color : "rgba(255,255,255,0.2)" }} />
+                        <Typography variant="caption" color={layers[item.key] ? "#e2e8f0" : "#64748b"} fontSize="10px">
+                          {item.label}
+                        </Typography>
+                      </Box>
+                      <Switch
+                        size="small"
+                        checked={layers[item.key]}
+                        onChange={() => toggleLayer(item.key)}
+                        sx={{
+                          "& .MuiSwitch-switchBase.Mui-checked": { color: item.color },
+                          "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: item.color },
+                          transform: "scale(0.75)",
+                        }}
+                      />
+                    </Box>
+                  ))}
+                </Box>
+              </Collapse>
+            </Box>
           </Box>
 
           {/* Legend */}
-          <Box display="flex" gap="12px" justifyContent="center" alignItems="center" py="4px" flexWrap="wrap">
+          <Box display="flex" gap="10px" justifyContent="center" alignItems="center" py="4px" flexWrap="wrap">
             {[
               { color: "#4cceac", label: "Mains ON + Geyser ON" },
               { color: "#f2b705", label: "Mains ON + Geyser OFF" },
               { color: "#db4f4a", label: "Mains OFF" },
               { color: "#4a5568", label: "Offline" },
               { color: "#6870fa", label: "Selected" },
+              { color: "#06b6d4", label: "Highlighted" },
             ].map(item => (
               <Box key={item.label} display="flex" alignItems="center" gap="4px">
                 <FiberManualRecord sx={{ fontSize: 10, color: item.color }} />
-                <Typography variant="caption" color={colors.grey[400]} fontSize="10px">
-                  {item.label}
-                </Typography>
+                <Typography variant="caption" color={colors.grey[400]} fontSize="10px">{item.label}</Typography>
               </Box>
             ))}
             <Box sx={{ width: "1px", height: 12, bgcolor: "rgba(255,255,255,0.15)", mx: "4px" }} />
@@ -1017,26 +1656,9 @@ export default function GroupControl() {
                 ) : (
                   <Box sx={{ width: 8, height: 8, bgcolor: item.color, borderRadius: "2px" }} />
                 )}
-                <Typography variant="caption" color={colors.grey[400]} fontSize="10px">
-                  {item.label}
-                </Typography>
+                <Typography variant="caption" color={colors.grey[400]} fontSize="10px">{item.label}</Typography>
               </Box>
             ))}
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={showFlowLines}
-                  onChange={(e) => setShowFlowLines(e.target.checked)}
-                  size="small"
-                  sx={{
-                    "& .MuiSwitch-switchBase.Mui-checked": { color: "#3b82f6" },
-                    "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#3b82f6" },
-                  }}
-                />
-              }
-              label={<Typography variant="caption" color={colors.grey[400]} fontSize="10px">Flow Lines</Typography>}
-              sx={{ ml: "4px", mr: 0 }}
-            />
           </Box>
         </Box>
 
@@ -1046,12 +1668,7 @@ export default function GroupControl() {
           minWidth="260px"
           display="flex"
           flexDirection="column"
-          sx={{
-            bgcolor: colors.primary[400],
-            borderRadius: "8px",
-            p: "8px",
-            overflowY: "auto",
-          }}
+          sx={{ bgcolor: colors.primary[400], borderRadius: "8px", p: "8px", overflowY: "auto" }}
         >
           <Typography variant="subtitle2" color={colors.grey[300]} mb="6px" display="flex" alignItems="center" gap="4px">
             <ElectricMeterOutlined sx={{ fontSize: 16 }} />
@@ -1149,30 +1766,20 @@ export default function GroupControl() {
         <DialogTitle sx={{ color: colors.grey[100] }}>Create Control Group</DialogTitle>
         <DialogContent>
           <TextField
-            fullWidth
-            label="Group Name"
+            fullWidth label="Group Name"
             value={newGroupName}
             onChange={(e) => setNewGroupName(e.target.value)}
-            sx={{ mt: 1, mb: 2 }}
-            size="small"
+            sx={{ mt: 1, mb: 2 }} size="small"
           />
           <TextField
-            fullWidth
-            label="Description (optional)"
+            fullWidth label="Description (optional)"
             value={newGroupDesc}
             onChange={(e) => setNewGroupDesc(e.target.value)}
-            sx={{ mb: 2 }}
-            size="small"
-            multiline
-            rows={2}
+            sx={{ mb: 2 }} size="small" multiline rows={2}
           />
           <FormControl fullWidth size="small">
             <InputLabel>Control Type</InputLabel>
-            <Select
-              value={newGroupType}
-              label="Control Type"
-              onChange={(e) => setNewGroupType(e.target.value)}
-            >
+            <Select value={newGroupType} label="Control Type" onChange={(e) => setNewGroupType(e.target.value)}>
               <MenuItem value="geyser">Geyser Only</MenuItem>
               <MenuItem value="mains">Mains Only</MenuItem>
               <MenuItem value="both">Both (Mains + Geyser)</MenuItem>
@@ -1186,11 +1793,7 @@ export default function GroupControl() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowCreateDialog(false)} sx={{ color: colors.grey[400] }}>Cancel</Button>
-          <Button
-            onClick={handleCreateGroup}
-            variant="contained"
-            sx={{ bgcolor: "#6870fa", "&:hover": { bgcolor: "#5a62e8" } }}
-          >
+          <Button onClick={handleCreateGroup} variant="contained" sx={{ bgcolor: "#6870fa", "&:hover": { bgcolor: "#5a62e8" } }}>
             Create
           </Button>
         </DialogActions>
@@ -1220,11 +1823,7 @@ export default function GroupControl() {
           />
           <FormControl fullWidth size="small">
             <InputLabel>Area (optional)</InputLabel>
-            <Select
-              value={randomArea}
-              label="Area (optional)"
-              onChange={(e) => setRandomArea(e.target.value)}
-            >
+            <Select value={randomArea} label="Area (optional)" onChange={(e) => setRandomArea(e.target.value)}>
               <MenuItem value="">All Areas</MenuItem>
               {areaSummary.map(a => (
                 <MenuItem key={a.area} value={a.area}>{a.area} ({a.online} online)</MenuItem>
@@ -1234,11 +1833,8 @@ export default function GroupControl() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowRandomDialog(false)} sx={{ color: colors.grey[400] }}>Cancel</Button>
-          <Button
-            onClick={handleRandomize}
-            variant="contained"
-            sx={{ bgcolor: "#f2b705", color: "#000", "&:hover": { bgcolor: "#d4a005" } }}
-          >
+          <Button onClick={handleRandomize} variant="contained"
+            sx={{ bgcolor: "#f2b705", color: "#000", "&:hover": { bgcolor: "#d4a005" } }}>
             Randomize
           </Button>
         </DialogActions>
@@ -1260,11 +1856,7 @@ export default function GroupControl() {
 
           <FormControl fullWidth size="small" sx={{ mb: 2 }}>
             <InputLabel>Action</InputLabel>
-            <Select
-              value={controlAction}
-              label="Action"
-              onChange={(e) => setControlAction(e.target.value)}
-            >
+            <Select value={controlAction} label="Action" onChange={(e) => setControlAction(e.target.value)}>
               <MenuItem value="geyser_off">
                 <Box display="flex" alignItems="center" gap="8px">
                   <WaterDropOutlined sx={{ fontSize: 16, color: "#db4f4a" }} /> Turn OFF Geysers
@@ -1305,14 +1897,12 @@ export default function GroupControl() {
           </FormControl>
 
           <TextField
-            fullWidth
-            label="Reason (optional)"
+            fullWidth label="Reason (optional)"
             value={controlReason}
             onChange={(e) => setControlReason(e.target.value)}
             size="small"
             placeholder="e.g., Peak demand reduction"
-            multiline
-            rows={2}
+            multiline rows={2}
           />
 
           <Box mt={2} p="8px" bgcolor="rgba(0,0,0,0.2)" borderRadius="6px">
@@ -1359,13 +1949,9 @@ export default function GroupControl() {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ color: colors.grey[300], borderColor: colors.primary[300] }}>Time</TableCell>
-                  <TableCell sx={{ color: colors.grey[300], borderColor: colors.primary[300] }}>Group</TableCell>
-                  <TableCell sx={{ color: colors.grey[300], borderColor: colors.primary[300] }}>Action</TableCell>
-                  <TableCell sx={{ color: colors.grey[300], borderColor: colors.primary[300] }}>Meters</TableCell>
-                  <TableCell sx={{ color: colors.grey[300], borderColor: colors.primary[300] }}>Status</TableCell>
-                  <TableCell sx={{ color: colors.grey[300], borderColor: colors.primary[300] }}>By</TableCell>
-                  <TableCell sx={{ color: colors.grey[300], borderColor: colors.primary[300] }}>Reason</TableCell>
+                  {["Time", "Group", "Action", "Meters", "Status", "By", "Reason"].map(col => (
+                    <TableCell key={col} sx={{ color: colors.grey[300], borderColor: colors.primary[300] }}>{col}</TableCell>
+                  ))}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -1382,11 +1968,8 @@ export default function GroupControl() {
                         label={h.action_type?.replace("_", " ")}
                         size="small"
                         sx={{
-                          height: 20,
-                          fontSize: 10,
-                          bgcolor: h.action_type?.endsWith("_off")
-                            ? "rgba(219,79,74,0.15)"
-                            : "rgba(76,206,172,0.15)",
+                          height: 20, fontSize: 10,
+                          bgcolor: h.action_type?.endsWith("_off") ? "rgba(219,79,74,0.15)" : "rgba(76,206,172,0.15)",
                           color: h.action_type?.endsWith("_off") ? "#db4f4a" : "#4cceac",
                         }}
                       />
@@ -1399,8 +1982,7 @@ export default function GroupControl() {
                         label={h.status}
                         size="small"
                         sx={{
-                          height: 20,
-                          fontSize: 10,
+                          height: 20, fontSize: 10,
                           bgcolor: h.status === "completed" ? "rgba(76,206,172,0.15)" :
                                    h.status === "failed" ? "rgba(219,79,74,0.15)" : "rgba(242,183,5,0.15)",
                           color: h.status === "completed" ? "#4cceac" :
