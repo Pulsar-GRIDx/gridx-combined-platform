@@ -1900,10 +1900,13 @@ router.post('/tariffs/push/:drn', authenticateToken, function(req, res) {
           group: tariffGroupName
         };
       } else {
+        var blocks = rows.map(function(r) {
+          return { min: parseFloat(r.minKwh || 0), max: parseFloat(r.maxKwh || 999999), rate: parseFloat(r.rate) };
+        });
         command = {
           type: 'tou_config',
-          mode: 'flat',
-          rate: parseFloat(rows[0].rate),
+          mode: 'block',
+          blocks: blocks,
           group: tariffGroupName
         };
       }
@@ -1935,16 +1938,26 @@ router.post('/tariffs/push-all', authenticateToken, function(req, res) {
     meters.forEach(function(m) {
       // For each meter, call the push endpoint internally
       db.query(
-        'SELECT tg.type, tg.flatRate, tb.rate FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder LIMIT 1',
+        'SELECT tg.type, tg.flatRate, tb.rate, tb.minKwh, tb.maxKwh FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder',
         [tariffGroupName],
         function(err2, rows) {
           if (err2 || !rows || rows.length === 0) {
             errors.push(m.DRN);
             return;
           }
-          var rate = parseFloat(rows[0].flatRate || rows[0].rate);
+          var cmd;
+          if (rows[0].type === 'TOU') {
+            var rates = {};
+            rows.forEach(function(r) { if (r.period) rates[r.period] = parseFloat(r.rate); });
+            cmd = { type: 'tou_config', mode: 'tou', rates: rates, group: tariffGroupName };
+          } else if (rows[0].type === 'Block') {
+            var blocks = rows.map(function(r) { return { min: parseFloat(r.minKwh || 0), max: parseFloat(r.maxKwh || 999999), rate: parseFloat(r.rate) }; });
+            cmd = { type: 'tou_config', mode: 'block', blocks: blocks, group: tariffGroupName };
+          } else {
+            cmd = { type: 'tou_config', mode: 'flat', rate: parseFloat(rows[0].flatRate || rows[0].rate), group: tariffGroupName };
+          }
           try {
-            mqttHandler.publishCommand(m.DRN, { type: 'tou_config', mode: rows[0].type === 'TOU' ? 'tou' : 'flat', rate: rate, group: tariffGroupName }, 1);
+            mqttHandler.publishCommand(m.DRN, cmd, 1);
             pushed++;
           } catch(e) {
             errors.push(m.DRN);
@@ -2544,6 +2557,12 @@ router.post('/tariff-assign/:drn', authenticateToken, function(req, res) {
           db.query('UPDATE MeterProfileReal SET tariff_type = ? WHERE DRN = ?', [newTariff, drn]);
         }
 
+        // Sync customerCount on affected tariff groups
+        if (previousTariff && previousTariff !== 'Unassigned') {
+          db.query('UPDATE TariffGroups SET customerCount = (SELECT COUNT(*) FROM VendingCustomers WHERE tariffGroup = ?) WHERE name = ?', [previousTariff, previousTariff]);
+        }
+        db.query('UPDATE TariffGroups SET customerCount = (SELECT COUNT(*) FROM VendingCustomers WHERE tariffGroup = ?) WHERE name = ?', [newTariff, newTariff]);
+
         // Log history
         db.query(
           'INSERT INTO MeterTariffHistory (DRN, previousTariff, newTariff, changedBy, reason, mqttStatus) VALUES (?, ?, ?, ?, ?, ?)',
@@ -2554,7 +2573,7 @@ router.post('/tariff-assign/:drn', authenticateToken, function(req, res) {
         var mqttStatus = 'failed';
         if (mqttHandler) {
           db.query(
-            'SELECT tg.id, tg.type, tg.flatRate, tg.billingType, tb.rate, tb.period FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder',
+            'SELECT tg.id, tg.type, tg.flatRate, tg.billingType, tb.rate, tb.period, tb.minKwh, tb.maxKwh FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder',
             [newTariff],
             function(tgErr, tgRows) {
               if (tgErr || !tgRows || tgRows.length === 0) {
@@ -2571,6 +2590,10 @@ router.post('/tariff-assign/:drn', authenticateToken, function(req, res) {
                   if (!sErr && schedule && schedule.length > 0) command.schedule = schedule;
                   pushAndRespond(command);
                 });
+              } else if (groupType === 'Block') {
+                var blocks = tgRows.map(function(r) { return { min: parseFloat(r.minKwh || 0), max: parseFloat(r.maxKwh || 999999), rate: parseFloat(r.rate) }; });
+                command = { type: 'tou_config', mode: 'block', blocks: blocks, group: newTariff };
+                pushAndRespond(command);
               } else {
                 command = { type: 'tou_config', mode: 'flat', rate: parseFloat(tgRows[0].flatRate || tgRows[0].rate), group: newTariff };
                 pushAndRespond(command);
@@ -2617,12 +2640,21 @@ router.post('/tariff-assign-bulk', authenticateToken, function(req, res) {
     // Push to all meters via MQTT
     var pushed = 0;
     if (mqttHandler) {
-      db.query('SELECT tg.type, tg.flatRate, tb.rate FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder LIMIT 1', [newTariff], function(tgErr, tgRows) {
+      db.query('SELECT tg.type, tg.flatRate, tb.rate, tb.minKwh, tb.maxKwh FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder', [newTariff], function(tgErr, tgRows) {
         if (!tgErr && tgRows && tgRows.length > 0) {
-          var rate = parseFloat(tgRows[0].flatRate || tgRows[0].rate);
-          var mode = tgRows[0].type === 'TOU' ? 'tou' : 'flat';
+          var cmd;
+          if (tgRows[0].type === 'TOU') {
+            var rates = {};
+            tgRows.forEach(function(r) { if (r.period) rates[r.period] = parseFloat(r.rate); });
+            cmd = { type: 'tou_config', mode: 'tou', rates: rates, group: newTariff };
+          } else if (tgRows[0].type === 'Block') {
+            var blocks = tgRows.map(function(r) { return { min: parseFloat(r.minKwh || 0), max: parseFloat(r.maxKwh || 999999), rate: parseFloat(r.rate) }; });
+            cmd = { type: 'tou_config', mode: 'block', blocks: blocks, group: newTariff };
+          } else {
+            cmd = { type: 'tou_config', mode: 'flat', rate: parseFloat(tgRows[0].flatRate || tgRows[0].rate), group: newTariff };
+          }
           meters.forEach(function(m) {
-            try { mqttHandler.publishCommand(m.DRN, { type: 'tou_config', mode: mode, rate: rate, group: newTariff }, 0); pushed++; } catch(e) {}
+            try { mqttHandler.publishCommand(m.DRN, cmd, 0); pushed++; } catch(e) {}
           });
         }
         logAudit('Bulk tariff assignment: ' + newTariff + ' to ALL meters', 'UPDATE', 'Total: ' + updated + ', MQTT pushed: ' + pushed, getOperatorName(req), getOperatorId(req), req.ip);
