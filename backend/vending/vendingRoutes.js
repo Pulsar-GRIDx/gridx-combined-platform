@@ -14,6 +14,7 @@ var router = express.Router();
 var db = require('../config/db');
 var authMw = require('../admin/authMiddllware');
 var authenticateToken = authMw.authenticateToken;
+var hsmService = require('./hsmService');
 
 // Promise wrapper for the pool (mysql2 supports this)
 var promisePool = db.promise();
@@ -265,6 +266,30 @@ var TABLES = [
   "  INDEX idx_area (area)," +
   "  INDEX idx_status (status)," +
   "  INDEX idx_provider (utilityProvider)" +
+  ")",
+
+  // STS Meter Security Parameters — per-meter HSM key data for token generation
+  "CREATE TABLE IF NOT EXISTS MeterSecurityParams (" +
+  "  id INT AUTO_INCREMENT PRIMARY KEY," +
+  "  meterNumber VARCHAR(20) NOT NULL UNIQUE," +
+  "  sgc VARCHAR(6) NOT NULL DEFAULT '600675'," +
+  "  tariffIndex INT NOT NULL DEFAULT 1," +
+  "  keyRevisionNumber INT NOT NULL DEFAULT 1," +
+  "  keyType INT NOT NULL DEFAULT 3," +
+  "  keyExpiryNumber INT NOT NULL DEFAULT 255," +
+  "  tct VARCHAR(2) DEFAULT '01'," +
+  "  dkga VARCHAR(2) DEFAULT '02'," +
+  "  ea VARCHAR(2) DEFAULT '07'," +
+  "  bdt VARCHAR(2) DEFAULT '01'," +
+  "  supplyGroupCode VARCHAR(20)," +
+  "  decoderReferenceNumber VARCHAR(20)," +
+  "  meterPAN VARCHAR(20)," +
+  "  isActive TINYINT(1) DEFAULT 1," +
+  "  lastTokenTID BIGINT DEFAULT 0," +
+  "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+  "  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+  "  INDEX idx_meter (meterNumber)," +
+  "  INDEX idx_sgc (sgc)" +
   ")"
 ];
 
@@ -279,6 +304,7 @@ TABLES.forEach(function(sql) {
     if (migrated === TABLES.length) {
       console.log('[Vending] All tables migrated successfully');
       addIdempotencyColumn();
+      addVendorApiColumns();
       seedDefaults();
     }
   });
@@ -339,6 +365,33 @@ function addIdempotencyColumn() {
         });
       }
     });
+  });
+}
+
+function addVendorApiColumns() {
+  // Add apiPartnerId to Vendors table
+  db.query("SHOW COLUMNS FROM Vendors LIKE 'apiPartnerId'", function(err, rows) {
+    if (!err && (!rows || rows.length === 0)) {
+      db.query("ALTER TABLE Vendors ADD COLUMN apiPartnerId INT DEFAULT NULL", function(alterErr) {
+        if (!alterErr) console.log('[Vending] Added Vendors.apiPartnerId column');
+      });
+    }
+  });
+  // Add vendorId to ApiPartners table
+  db.query("SHOW COLUMNS FROM ApiPartners LIKE 'vendorId'", function(err, rows) {
+    if (!err && (!rows || rows.length === 0)) {
+      db.query("ALTER TABLE ApiPartners ADD COLUMN vendorId INT DEFAULT NULL", function(alterErr) {
+        if (!alterErr) console.log('[Vending] Added ApiPartners.vendorId column');
+      });
+    }
+  });
+  // Add channel column to VendingTransactions for API vs POS tracking
+  db.query("SHOW COLUMNS FROM VendingTransactions LIKE 'channel'", function(err, rows) {
+    if (!err && (!rows || rows.length === 0)) {
+      db.query("ALTER TABLE VendingTransactions ADD COLUMN channel VARCHAR(20) DEFAULT 'POS'", function(alterErr) {
+        if (!alterErr) console.log('[Vending] Added VendingTransactions.channel column');
+      });
+    }
   });
 }
 
@@ -434,6 +487,32 @@ function generateToken() {
   var token = '';
   for (var i = 0; i < 20; i++) token += Math.floor(Math.random() * 10);
   return token;
+}
+
+function generateSTSTokenForMeter(meterNo, energyKwh, callback) {
+  db.query('SELECT * FROM MeterSecurityParams WHERE meterNumber = ? AND isActive = 1', [meterNo], function(err, rows) {
+    if (err || !rows || rows.length === 0) {
+      // No security params — fall back to random token (non-HSM meters)
+      return callback(null, { token: generateToken(), stsGenerated: false, hsmMode: 'fallback' });
+    }
+    var secParams = rows[0];
+    hsmService.generateSTSToken(secParams, energyKwh, function(hsmErr, result) {
+      if (hsmErr) {
+        console.error('[HSM] Token generation failed for meter ' + meterNo + ':', hsmErr.message);
+        return callback(null, { token: generateToken(), stsGenerated: false, hsmMode: 'fallback', hsmError: hsmErr.message });
+      }
+      // Update last token identifier
+      db.query('UPDATE MeterSecurityParams SET lastTokenTID = ? WHERE meterNumber = ?', [result.tokenIdentifier, meterNo], function() {});
+      callback(null, {
+        token: result.token20Digit,
+        stsGenerated: true,
+        hsmMode: hsmService.hsmConfig.mode,
+        tokenIdentifier: result.tokenIdentifier,
+        encryptedToken: result.encryptedToken,
+        prnRecord: result.PRNRecord
+      });
+    });
+  });
 }
 
 function logAudit(event, type, detail, user, userId, ip) {
@@ -972,9 +1051,12 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
           var nefLevyAmount = round2(totalKwh * parseFloat(config.nefLevy || 0));
           var laSurchargeAmount = round2(totalKwh * parseFloat(config.laSurcharge || 0));
 
-          // Step 5: Generate token and ref
-          var token = generateToken();
+          // Step 5: Generate STS token via HSM and ref
           var refNo = generateRefNo();
+
+          generateSTSTokenForMeter(meterNo, totalKwh, function(tokenErr, tokenResult) {
+          var token = tokenResult ? tokenResult.token : generateToken();
+          var stsData = tokenResult || {};
 
           // Step 6: Get vendor info
           getVendorInfo(vendorId, function(vendor) {
@@ -1091,19 +1173,30 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
                       operatorName, operatorId, req.ip
                     );
 
-                    // Return success with full Windhoek-compliant breakdown
+                    // Return success with full STS-compliant response (Token_Delivery format)
                     res.json({
                       success: true,
                       data: {
                         transactionId: result.txnId,
                         refNo: refNo,
+                        meterNumber: meterNo,
                         token: token,
-                        meterNo: meterNo,
+                        tokenFormatted: hsmService.formatTokenForDisplay(token),
+                        amountPaid: totalAmount,
+                        energyUnits: totalKwh,
+                        currency: 'NAD',
+                        transactionRef: refNo,
+                        timestamp: new Date().toISOString(),
                         customerName: customer.name,
-                        amount: totalAmount,
                         kWh: totalKwh,
                         tariffType: groupType,
                         touPeriod: touPeriod || null,
+                        sts: {
+                          stsGenerated: stsData.stsGenerated || false,
+                          hsmMode: stsData.hsmMode || 'fallback',
+                          tokenIdentifier: stsData.tokenIdentifier || null,
+                          prnRecord: stsData.prnRecord || null
+                        },
                         breakdown: {
                           totalAmount: totalAmount,
                           vatAmount: vatAmount,
@@ -1143,6 +1236,7 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
 
             });
           });
+          }); // end generateSTSTokenForMeter callback
         } // end doCalc
 
         // Resolve TOU period if applicable, then calculate
@@ -1454,10 +1548,14 @@ router.post('/transactions/:id/reprint', authenticateToken, function(req, res) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.get('/vendors', authenticateToken, function(req, res) {
-  db.query('SELECT * FROM Vendors ORDER BY name', function(err, results) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true, data: results || [] });
-  });
+  db.query(
+    'SELECT v.*, ap.apiKey, ap.apiSecret, ap.partnerId as apiPartnerId_ext, ap.environment as apiEnvironment, ap.status as apiStatus ' +
+    'FROM Vendors v LEFT JOIN ApiPartners ap ON v.apiPartnerId = ap.id ORDER BY v.name',
+    function(err, results) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, data: results || [] });
+    }
+  );
 });
 
 router.get('/vendors/:id', authenticateToken, function(req, res) {
@@ -1513,6 +1611,157 @@ router.get('/vendors/:id/commission', authenticateToken, function(req, res) {
     var commission = vendor.totalVended * (vendor.commissionRate / 100);
     vendor.commission = round2(commission);
     res.json({ success: true, data: vendor });
+  });
+});
+
+
+// ─── VENDOR API KEY MANAGEMENT ─────────────────────────────────────────────
+
+var crypto = require('crypto');
+
+function generateApiKey() { return 'gx_' + crypto.randomBytes(24).toString('hex'); }
+function generateApiSecret() { return crypto.randomBytes(48).toString('hex'); }
+function generatePartnerId(name) {
+  var prefix = name.replace(/[^A-Za-z]/g, '').substring(0, 4).toUpperCase();
+  var rand = crypto.randomBytes(4).toString('hex').toUpperCase();
+  return 'PTR-' + prefix + '-' + rand;
+}
+
+router.post('/vendors/:id/generate-api-key', authenticateToken, function(req, res) {
+  db.query('SELECT * FROM Vendors WHERE id = ?', [req.params.id], function(err, rows) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Vendor not found' });
+
+    var vendor = rows[0];
+
+    // If vendor already has an API partner, regenerate keys instead
+    if (vendor.apiPartnerId) {
+      var newKey = generateApiKey();
+      var newSecret = generateApiSecret();
+      db.query('UPDATE ApiPartners SET apiKey = ?, apiSecret = ? WHERE id = ?',
+        [newKey, newSecret, vendor.apiPartnerId], function(updateErr) {
+          if (updateErr) return res.status(500).json({ error: updateErr.message });
+          logAudit('Vendor API keys regenerated: ' + vendor.name, 'UPDATE', 'Vendor ID: ' + vendor.id, getOperatorName(req), getOperatorId(req), req.ip);
+          res.json({ success: true, data: { apiKey: newKey, apiSecret: newSecret, regenerated: true } });
+        });
+      return;
+    }
+
+    // Create new ApiPartner linked to this vendor
+    var partnerId = generatePartnerId(vendor.name);
+    var apiKey = generateApiKey();
+    var apiSecret = generateApiSecret();
+
+    db.query(
+      'INSERT INTO ApiPartners (partnerId, name, type, contactName, contactPhone, apiKey, apiSecret, environment, status, permissions, vendorId) VALUES (?, ?, "RetailPOS", ?, ?, ?, ?, "Sandbox", "Active", "vend,balance,status", ?)',
+      [partnerId, vendor.name + ' POS', vendor.operatorName || vendor.name, vendor.operatorPhone || '', apiKey, apiSecret, vendor.id],
+      function(insertErr, result) {
+        if (insertErr) return res.status(500).json({ error: insertErr.message });
+
+        var apiPartnerDbId = result.insertId;
+        db.query('UPDATE Vendors SET apiPartnerId = ? WHERE id = ?', [apiPartnerDbId, vendor.id], function(linkErr) {
+          if (linkErr) return res.status(500).json({ error: linkErr.message });
+
+          logAudit('Vendor API key generated: ' + vendor.name, 'CREATE',
+            'Partner ID: ' + partnerId + ', Vendor ID: ' + vendor.id,
+            getOperatorName(req), getOperatorId(req), req.ip);
+
+          res.json({
+            success: true,
+            data: {
+              apiKey: apiKey,
+              apiSecret: apiSecret,
+              partnerId: partnerId,
+              environment: 'Sandbox',
+              status: 'Active'
+            }
+          });
+        });
+      }
+    );
+  });
+});
+
+router.post('/vendors/:id/activate-api', authenticateToken, function(req, res) {
+  var targetEnv = req.body.environment || 'Production';
+  db.query('SELECT apiPartnerId FROM Vendors WHERE id = ?', [req.params.id], function(err, rows) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Vendor not found' });
+    if (!rows[0].apiPartnerId) return res.status(400).json({ error: 'Vendor has no API key. Generate one first.' });
+
+    var updateSql = targetEnv === 'Production'
+      ? 'UPDATE ApiPartners SET environment = "Production", productionApprovedAt = NOW(), approvedBy = ? WHERE id = ?'
+      : 'UPDATE ApiPartners SET environment = "Sandbox", sandboxApprovedAt = NOW(), approvedBy = ? WHERE id = ?';
+
+    db.query(updateSql, [getOperatorName(req), rows[0].apiPartnerId], function(updateErr) {
+      if (updateErr) return res.status(500).json({ error: updateErr.message });
+      logAudit('Vendor API moved to ' + targetEnv, 'UPDATE', 'Vendor ID: ' + req.params.id, getOperatorName(req), getOperatorId(req), req.ip);
+      res.json({ success: true, environment: targetEnv });
+    });
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// METER SECURITY PARAMS (STS/HSM Configuration)
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get('/meter-security', authenticateToken, function(req, res) {
+  var sql = 'SELECT msp.*, vc.name as customerName, vc.area FROM MeterSecurityParams msp LEFT JOIN VendingCustomers vc ON msp.meterNumber = vc.meterNo ORDER BY msp.meterNumber';
+  db.query(sql, function(err, results) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, data: results || [] });
+  });
+});
+
+router.get('/meter-security/:meterNo', authenticateToken, function(req, res) {
+  db.query('SELECT * FROM MeterSecurityParams WHERE meterNumber = ?', [req.params.meterNo], function(err, rows) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'No security params for meter ' + req.params.meterNo });
+    res.json({ success: true, data: rows[0] });
+  });
+});
+
+router.post('/meter-security', authenticateToken, function(req, res) {
+  var b = req.body;
+  if (!b.meterNumber) return res.status(400).json({ error: 'meterNumber is required' });
+  if (!b.sgc) return res.status(400).json({ error: 'sgc (Supply Group Code) is required' });
+
+  var sql = 'INSERT INTO MeterSecurityParams (meterNumber, sgc, tariffIndex, keyRevisionNumber, keyType, keyExpiryNumber, tct, dkga, ea, bdt, supplyGroupCode, decoderReferenceNumber, meterPAN) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE sgc=VALUES(sgc), tariffIndex=VALUES(tariffIndex), keyRevisionNumber=VALUES(keyRevisionNumber), keyType=VALUES(keyType), keyExpiryNumber=VALUES(keyExpiryNumber), tct=VALUES(tct), dkga=VALUES(dkga), ea=VALUES(ea), bdt=VALUES(bdt), supplyGroupCode=VALUES(supplyGroupCode), decoderReferenceNumber=VALUES(decoderReferenceNumber), meterPAN=VALUES(meterPAN)';
+  var params = [
+    b.meterNumber, b.sgc || '600675', b.tariffIndex || 1, b.keyRevisionNumber || 1,
+    b.keyType || 3, b.keyExpiryNumber || 255, b.tct || '01', b.dkga || '02',
+    b.ea || '07', b.bdt || '01', b.supplyGroupCode || '', b.decoderReferenceNumber || '', b.meterPAN || ''
+  ];
+  db.query(sql, params, function(err, result) {
+    if (err) return res.status(500).json({ error: err.message });
+    logAudit('Meter security params set: ' + b.meterNumber, 'CREATE', 'SGC: ' + b.sgc + ', KRN: ' + (b.keyRevisionNumber || 1), getOperatorName(req), getOperatorId(req), req.ip);
+    res.json({ success: true, id: result.insertId || result.affectedRows });
+  });
+});
+
+router.delete('/meter-security/:meterNo', authenticateToken, function(req, res) {
+  db.query('DELETE FROM MeterSecurityParams WHERE meterNumber = ?', [req.params.meterNo], function(err, result) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Not found' });
+    logAudit('Meter security params deleted: ' + req.params.meterNo, 'DELETE', '', getOperatorName(req), getOperatorId(req), req.ip);
+    res.json({ success: true });
+  });
+});
+
+router.get('/hsm/status', authenticateToken, function(req, res) {
+  db.query('SELECT COUNT(*) as totalMeters FROM MeterSecurityParams WHERE isActive = 1', function(err, rows) {
+    var count = (!err && rows && rows[0]) ? rows[0].totalMeters : 0;
+    res.json({
+      success: true,
+      data: {
+        mode: hsmService.hsmConfig.mode,
+        host: hsmService.hsmConfig.host,
+        port: hsmService.hsmConfig.port,
+        metersConfigured: count,
+        masterKeyId: hsmService.hsmConfig.masterKeyId
+      }
+    });
   });
 });
 
@@ -2505,6 +2754,84 @@ db.query(`CREATE TABLE IF NOT EXISTS MeterTariffHistory (
   INDEX idx_created (created_at)
 )`, function() {});
 
+// Get ALL meters with their tariff assignments
+router.get('/tariffs/all-meters', authenticateToken, function(req, res) {
+  db.query(
+    `SELECT m.DRN, m.Name, m.Surname, m.City, m.tariff_type,
+            COALESCE(vc.tariffGroup, 'Unassigned') as assignedTariff,
+            ls.last_seen,
+            CASE WHEN ls.last_seen > DATE_SUB(NOW(), INTERVAL 10 MINUTE) THEN 'Online' ELSE 'Offline' END as status
+     FROM MeterProfileReal m
+     LEFT JOIN VendingCustomers vc ON vc.meterNo = m.DRN
+     LEFT JOIN MeterLastSeen ls ON ls.DRN = m.DRN
+     ORDER BY assignedTariff, m.DRN`,
+    function(err, meters) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, data: meters || [] });
+    }
+  );
+});
+
+// Assign tariff to multiple selected meters + push via MQTT
+router.post('/tariff-assign-selected', authenticateToken, function(req, res) {
+  var drns = req.body.drns;
+  var tariffGroup = req.body.tariffGroup;
+  if (!drns || !Array.isArray(drns) || drns.length === 0) return res.status(400).json({ error: 'drns array is required' });
+  if (!tariffGroup) return res.status(400).json({ error: 'tariffGroup is required' });
+
+  var assigned = 0, pushed = 0, errors = [];
+
+  // Get tariff config for MQTT push
+  db.query(
+    'SELECT tg.id, tg.type, tg.flatRate, tb.rate, tb.minKwh, tb.maxKwh, tb.period FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder',
+    [tariffGroup],
+    function(tgErr, tgRows) {
+      if (tgErr || !tgRows || tgRows.length === 0) return res.status(404).json({ error: 'Tariff group not found' });
+
+      // Build MQTT command
+      var cmd;
+      if (tgRows[0].type === 'TOU') {
+        var rates = {};
+        tgRows.forEach(function(r) { if (r.period) rates[r.period] = parseFloat(r.rate); });
+        cmd = { type: 'tou_config', mode: 'tou', rates: rates, group: tariffGroup };
+      } else if (tgRows[0].type === 'Block') {
+        var blocks = tgRows.map(function(r) { return { min: parseFloat(r.minKwh || 0), max: parseFloat(r.maxKwh || 999999), rate: parseFloat(r.rate) }; });
+        cmd = { type: 'tou_config', mode: 'block', blocks: blocks, group: tariffGroup };
+      } else {
+        cmd = { type: 'tou_config', mode: 'flat', rate: parseFloat(tgRows[0].flatRate || tgRows[0].rate), group: tariffGroup };
+      }
+
+      // Process each meter
+      drns.forEach(function(drn) {
+        // Upsert VendingCustomers
+        db.query(
+          'INSERT INTO VendingCustomers (meterNo, tariffGroup, accountNo, name) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE tariffGroup = ?',
+          [drn, tariffGroup, 'GX-' + drn.slice(-6), drn, tariffGroup]
+        );
+        // Update MeterProfileReal
+        db.query('UPDATE MeterProfileReal SET tariff_type = ? WHERE DRN = ?', [tariffGroup, drn]);
+        assigned++;
+        // Log history
+        db.query(
+          'INSERT INTO MeterTariffHistory (DRN, previousTariff, newTariff, changedBy, reason, mqttStatus) VALUES (?, ?, ?, ?, ?, ?)',
+          [drn, 'Unknown', tariffGroup, getOperatorName(req) || 'Admin', 'Batch assignment from tariff page', 'pending']
+        );
+        // Push MQTT
+        if (mqttHandler) {
+          try { mqttHandler.publishCommand(drn, cmd, 0); pushed++; } catch(e) { errors.push(drn); }
+        }
+      });
+
+      // Update customerCount
+      db.query('UPDATE TariffGroups SET customerCount = (SELECT COUNT(*) FROM VendingCustomers WHERE tariffGroup = ?) WHERE name = ?', [tariffGroup, tariffGroup]);
+
+      setTimeout(function() {
+        res.json({ success: true, assigned: assigned, pushed: pushed, errors: errors });
+      }, 500);
+    }
+  );
+});
+
 // Get meters assigned to a tariff group
 router.get('/tariffs/groups/:id/meters', authenticateToken, function(req, res) {
   var groupId = req.params.id;
@@ -2514,18 +2841,14 @@ router.get('/tariffs/groups/:id/meters', authenticateToken, function(req, res) {
     var groupName = gRows[0].name;
 
     db.query(
-      `SELECT m.DRN, m.Name, m.Surname, m.City, m.tariff_type, m.account_type,
+      `SELECT m.DRN, m.Name, m.Surname, m.City, m.tariff_type,
               COALESCE(vc.tariffGroup, m.tariff_type) as assignedTariff,
               COALESCE(vc.arrears, 0) as arrears,
-              ls.last_seen, ls.credit_remaining,
+              ls.last_seen,
               CASE WHEN ls.last_seen > DATE_SUB(NOW(), INTERVAL 10 MINUTE) THEN 'Online' ELSE 'Offline' END as status
        FROM MeterProfileReal m
        LEFT JOIN VendingCustomers vc ON vc.meterNo = m.DRN
-       LEFT JOIN (
-         SELECT DRN, MAX(created_at) as last_seen, credit_remaining
-         FROM MeterEnergy
-         GROUP BY DRN
-       ) ls ON ls.DRN = m.DRN
+       LEFT JOIN MeterLastSeen ls ON ls.DRN = m.DRN
        WHERE COALESCE(vc.tariffGroup, m.tariff_type) = ?
        ORDER BY m.DRN`,
       [groupName],

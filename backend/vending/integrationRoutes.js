@@ -16,6 +16,7 @@ var crypto = require('crypto');
 var db = require('../config/db');
 var authMw = require('../admin/authMiddllware');
 var authenticateToken = authMw.authenticateToken;
+var hsmService = require('./hsmService');
 
 // ─── AUTO-MIGRATE: Integration tables ──────────────────────────────────────
 
@@ -650,83 +651,116 @@ function doExternalVend(meterNo, totalAmount, partner, idempotencyKey, req, res)
         }
         var kWh = round2(energyCost / rate);
 
-        // Generate token and ref
-        var token = '';
-        for (var i = 0; i < 20; i++) token += Math.floor(Math.random() * 10);
+        // Generate STS token via HSM
         var ts = Date.now().toString(36).toUpperCase();
         var rand = Math.random().toString(36).substring(2, 6).toUpperCase();
         var refNo = 'TXN-' + ts + '-' + rand;
 
-        // Insert transaction
-        var txnSql = 'INSERT INTO VendingTransactions (refNo, idempotencyKey, meterNo, customerName, amount, vatAmount, fixedCharge, relLevy, arrearsDeducted, energyAmount, kWh, token, vendorName, operator, status, channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "Completed", "API")';
-        var txnParams = [refNo, idempotencyKey, meterNo, customer.name,
-          totalAmount, vat, fixedCharge, relLevy, arrearsDeducted, energyCost, kWh,
-          token, partner.name, 'API:' + partner.name];
+        // Look up meter security params for HSM token generation
+        db.query('SELECT * FROM MeterSecurityParams WHERE meterNumber = ? AND isActive = 1', [meterNo], function(secErr, secRows) {
+          var secParams = (!secErr && secRows && secRows.length > 0) ? secRows[0] : null;
 
-        db.query(txnSql, txnParams, function(txnErr, txnResult) {
-          if (txnErr) {
-            var errResp5 = { error: 'Transaction failed', code: 'TRANSACTION_FAILED' };
-            logApiResponse(req, res, 500, errResp5);
-            return res.status(500).json(errResp5);
-          }
+          function completeVend(token, stsData) {
+            // Insert transaction
+            var txnSql = 'INSERT INTO VendingTransactions (refNo, idempotencyKey, meterNo, customerName, amount, vatAmount, fixedCharge, relLevy, arrearsDeducted, energyAmount, kWh, token, vendorName, operator, status, channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "Completed", "API")';
+            var txnParams = [refNo, idempotencyKey, meterNo, customer.name,
+              totalAmount, vat, fixedCharge, relLevy, arrearsDeducted, energyCost, kWh,
+              token, partner.name, 'API:' + partner.name];
 
-          var txnId = txnResult.insertId;
-
-          // Insert line items
-          var lineItems = [
-            [txnId, refNo, 'VAT', vat, '15% VAT', 1],
-            [txnId, refNo, 'FIXED_CHARGE', fixedCharge, 'Fixed service charge', 2],
-            [txnId, refNo, 'REL_LEVY', relLevy, 'Regulatory levy', 3],
-            [txnId, refNo, 'ENERGY', energyCost, kWh + ' kWh at N$' + rate + '/kWh', 5],
-          ];
-          if (arrearsDeducted > 0) {
-            lineItems.push([txnId, refNo, 'ARREARS', arrearsDeducted, 'Arrears deduction', 4]);
-          }
-          lineItems.forEach(function(li) {
-            db.query('INSERT INTO TransactionLineItems (transactionId, transactionRef, type, amount, description, sortOrder) VALUES (?, ?, ?, ?, ?, ?)', li);
-          });
-
-          // Update customer
-          db.query('UPDATE VendingCustomers SET lastPurchaseDate = NOW(), lastPurchaseAmount = ?, arrears = GREATEST(0, arrears - ?) WHERE meterNo = ?',
-            [totalAmount, arrearsDeducted, meterNo]);
-
-          // Update partner stats
-          db.query('UPDATE ApiPartners SET totalTransactions = totalTransactions + 1, totalRevenue = totalRevenue + ?, lastActivityAt = NOW() WHERE partnerId = ?',
-            [totalAmount, partner.partnerId]);
-
-          // Audit
-          logAudit('API vend: ' + refNo, 'API_VEND',
-            'Partner: ' + partner.name + ' (' + partner.partnerId + '), Meter: ' + meterNo + ', Amount: N$' + totalAmount,
-            'API:' + partner.name, null, req.ip);
-
-          var successResp = {
-            success: true,
-            data: {
-              transactionId: txnId,
-              refNo: refNo,
-              token: token,
-              meterNo: meterNo,
-              customerName: customer.name,
-              amount: totalAmount,
-              currency: 'NAD',
-              kWh: kWh,
-              rate: rate,
-              tariffGroup: customer.tariffGroup || 'Residential',
-              timestamp: new Date().toISOString(),
-              partner: partner.partnerId,
-              environment: partner.environment,
-              breakdown: {
-                vat: vat,
-                fixedCharge: fixedCharge,
-                relLevy: relLevy,
-                arrearsDeducted: arrearsDeducted,
-                energyCost: energyCost
+            db.query(txnSql, txnParams, function(txnErr, txnResult) {
+              if (txnErr) {
+                var errResp5 = { error: 'Transaction failed', code: 'TRANSACTION_FAILED' };
+                logApiResponse(req, res, 500, errResp5);
+                return res.status(500).json(errResp5);
               }
-            }
-          };
 
-          logApiResponse(req, res, 200, successResp);
-          res.json(successResp);
+              var txnId = txnResult.insertId;
+
+              // Insert line items
+              var lineItems = [
+                [txnId, refNo, 'VAT', vat, '15% VAT', 1],
+                [txnId, refNo, 'FIXED_CHARGE', fixedCharge, 'Fixed service charge', 2],
+                [txnId, refNo, 'REL_LEVY', relLevy, 'Regulatory levy', 3],
+                [txnId, refNo, 'ENERGY', energyCost, kWh + ' kWh at N$' + rate + '/kWh', 5],
+              ];
+              if (arrearsDeducted > 0) {
+                lineItems.push([txnId, refNo, 'ARREARS', arrearsDeducted, 'Arrears deduction', 4]);
+              }
+              lineItems.forEach(function(li) {
+                db.query('INSERT INTO TransactionLineItems (transactionId, transactionRef, type, amount, description, sortOrder) VALUES (?, ?, ?, ?, ?, ?)', li);
+              });
+
+              // Update customer
+              db.query('UPDATE VendingCustomers SET lastPurchaseDate = NOW(), lastPurchaseAmount = ?, arrears = GREATEST(0, arrears - ?) WHERE meterNo = ?',
+                [totalAmount, arrearsDeducted, meterNo]);
+
+              // Update partner stats
+              db.query('UPDATE ApiPartners SET totalTransactions = totalTransactions + 1, totalRevenue = totalRevenue + ?, lastActivityAt = NOW() WHERE partnerId = ?',
+                [totalAmount, partner.partnerId]);
+
+              // Audit
+              logAudit('API vend: ' + refNo, 'API_VEND',
+                'Partner: ' + partner.name + ' (' + partner.partnerId + '), Meter: ' + meterNo + ', Amount: N$' + totalAmount + ', HSM: ' + (stsData.hsmMode || 'fallback'),
+                'API:' + partner.name, null, req.ip);
+
+              // Token_Delivery response (IEC 62055-41 aligned)
+              var successResp = {
+                success: true,
+                data: {
+                  transactionId: txnId,
+                  refNo: refNo,
+                  meterNumber: meterNo,
+                  token: token,
+                  tokenFormatted: hsmService.formatTokenForDisplay(token),
+                  amountPaid: totalAmount,
+                  energyUnits: kWh,
+                  currency: 'NAD',
+                  transactionRef: refNo,
+                  timestamp: new Date().toISOString(),
+                  customerName: customer.name,
+                  rate: rate,
+                  tariffGroup: customer.tariffGroup || 'Residential',
+                  partner: partner.partnerId,
+                  environment: partner.environment,
+                  sts: {
+                    stsGenerated: stsData.stsGenerated || false,
+                    hsmMode: stsData.hsmMode || 'fallback',
+                    tokenIdentifier: stsData.tokenIdentifier || null,
+                    prnRecord: stsData.prnRecord || null
+                  },
+                  breakdown: {
+                    vat: vat,
+                    fixedCharge: fixedCharge,
+                    relLevy: relLevy,
+                    arrearsDeducted: arrearsDeducted,
+                    energyCost: energyCost
+                  }
+                }
+              };
+
+              logApiResponse(req, res, 200, successResp);
+              res.json(successResp);
+            });
+          }
+
+          // Generate token via HSM if security params exist, otherwise fallback
+          if (secParams) {
+            hsmService.generateSTSToken(secParams, kWh, function(hsmErr, result) {
+              if (hsmErr) {
+                console.error('[HSM] External vend token generation failed:', hsmErr.message);
+                var fallbackToken = '';
+                for (var ft = 0; ft < 20; ft++) fallbackToken += Math.floor(Math.random() * 10);
+                completeVend(fallbackToken, { stsGenerated: false, hsmMode: 'fallback', hsmError: hsmErr.message });
+              } else {
+                db.query('UPDATE MeterSecurityParams SET lastTokenTID = ? WHERE meterNumber = ?', [result.tokenIdentifier, meterNo], function() {});
+                completeVend(result.token20Digit, { stsGenerated: true, hsmMode: hsmService.hsmConfig.mode, tokenIdentifier: result.tokenIdentifier, prnRecord: result.PRNRecord });
+              }
+            });
+          } else {
+            var randomToken = '';
+            for (var rt = 0; rt < 20; rt++) randomToken += Math.floor(Math.random() * 10);
+            completeVend(randomToken, { stsGenerated: false, hsmMode: 'fallback' });
+          }
         });
       });
     });
@@ -1216,28 +1250,45 @@ var openApiSpec = {
       },
       VendResponse: {
         type: 'object',
+        description: 'Token_Delivery response (IEC 62055-41 aligned)',
         properties: {
           success: { type: 'boolean', example: true },
-          sandbox: { type: 'boolean', description: 'True if sandbox mode', example: true },
+          sandbox: { type: 'boolean', description: 'True if sandbox mode' },
           data: {
             type: 'object',
             properties: {
-              transactionId: { type: 'string', example: 'SBX-M1KFGHJ2' },
-              refNo: { type: 'string', example: 'SBX-REF-7L2H82' },
+              transactionId: { type: 'integer', example: 1234 },
+              refNo: { type: 'string', example: 'TXN-M1KFGHJ2-7L2H' },
+              meterNumber: { type: 'string', description: '11-13 digit meter number', example: '04040512001' },
               token: { type: 'string', description: '20-digit STS token', example: '56016784135544646378' },
-              meterNo: { type: 'string', example: '04040512001' },
-              amount: { type: 'number', example: 500 },
-              kWh: { type: 'number', example: 297.62 },
+              tokenFormatted: { type: 'string', description: 'Token formatted for display (XXXX-XXXX-XXXX-XXXX-XXXX)', example: '5601-6784-1355-4464-6378' },
+              amountPaid: { type: 'number', description: 'Total amount paid in NAD', example: 500 },
+              energyUnits: { type: 'number', description: 'kWh purchased', example: 297.62 },
               currency: { type: 'string', example: 'NAD' },
+              transactionRef: { type: 'string', example: 'TXN-M1KFGHJ2-7L2H' },
               timestamp: { type: 'string', format: 'date-time' },
+              customerName: { type: 'string', example: 'Johannes Hamutenya' },
+              rate: { type: 'number', description: 'Tariff rate per kWh', example: 1.68 },
+              tariffGroup: { type: 'string', example: 'Residential' },
               partner: { type: 'string', example: 'PTR-TEST-ABC123' },
               environment: { type: 'string', enum: ['Sandbox', 'Production'] },
+              sts: {
+                type: 'object',
+                description: 'STS/HSM token generation details',
+                properties: {
+                  stsGenerated: { type: 'boolean', description: 'True if token was generated via HSM', example: true },
+                  hsmMode: { type: 'string', description: 'HSM mode used', enum: ['simulated', 'tcp', 'http', 'fallback'], example: 'simulated' },
+                  tokenIdentifier: { type: 'integer', description: 'Token ID (minutes since STS base date 1993-01-01)', example: 17043360 },
+                  prnRecord: { type: 'string', description: 'Printable receipt record', example: 'METER: 04040512001 | TOKEN: 5601-6784-1355-4464-6378' }
+                }
+              },
               breakdown: {
                 type: 'object',
                 properties: {
                   vat: { type: 'number', example: 65.22 },
                   fixedCharge: { type: 'number', example: 8.50 },
                   relLevy: { type: 'number', example: 2.40 },
+                  arrearsDeducted: { type: 'number', example: 0 },
                   energyCost: { type: 'number', example: 423.88 }
                 }
               }
