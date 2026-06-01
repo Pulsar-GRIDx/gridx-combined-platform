@@ -119,7 +119,7 @@ async function computeRevenueForRange(startDate, endDate) {
     var dailyRows = await query(
       'SELECT DATE(date_time) as day, ' +
       '(MAX(CAST(active_energy AS DECIMAL(20,4))) - MIN(CAST(active_energy AS DECIMAL(20,4)))) / 1000 as kwh ' +
-      'FROM MeterCumulativeEnergyUsage WHERE DRN = ? AND date_time BETWEEN ? AND ? ' +
+      'FROM MeterCumulativeEnergyUsage WHERE DRN = ? AND date_time >= ? AND date_time < DATE_ADD(?, INTERVAL 1 DAY) ' +
       'GROUP BY DATE(date_time)',
       [meter.DRN, startDate, endDate]
     );
