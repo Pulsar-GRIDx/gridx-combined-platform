@@ -285,11 +285,13 @@ export default function Billing() {
 
   return (
     <Box m="20px">
-      <Box display="flex" justifyContent="space-between" alignItems="center">
+      <Box sx={{ position: "relative" }}>
         <Header title="BILLING" subtitle="Prepaid and Postpaid Billing Management" />
-        <IconButton onClick={loadData} sx={{ color: colors.grey[300] }}>
-          <RefreshOutlined />
-        </IconButton>
+        <Box sx={{ position: "absolute", right: 0, top: "44px" }}>
+          <IconButton onClick={loadData} sx={{ color: colors.grey[300] }}>
+            <RefreshOutlined />
+          </IconButton>
+        </Box>
       </Box>
 
       <Box

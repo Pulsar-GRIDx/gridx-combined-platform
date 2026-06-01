@@ -200,9 +200,9 @@ export default function Vendors() {
 
   return (
     <Box m="20px">
-      <Box display="flex" justifyContent="space-between" alignItems="center">
+      <Box sx={{ position: "relative" }}>
         <Header title="VENDORS" subtitle="Vending Point Operators & Commission Management" />
-        <Box display="flex" gap="8px">
+        <Box sx={{ position: "absolute", right: 0, top: "44px", display: "flex", gap: "8px", alignItems: "center" }}>
           <IconButton onClick={loadVendors} sx={{ color: colors.grey[300] }}>
             <RefreshOutlined />
           </IconButton>

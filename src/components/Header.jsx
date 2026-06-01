@@ -1,4 +1,4 @@
-import { Typography, Box, useTheme, Divider } from "@mui/material";
+import { Typography, Box, useTheme } from "@mui/material";
 import { tokens } from "../theme";
 
 const Header = ({ title, subtitle }) => {
@@ -17,7 +17,12 @@ const Header = ({ title, subtitle }) => {
       <Typography variant="h5" color={colors.greenAccent[400]}>
         {subtitle}
       </Typography>
-      <Divider sx={{ mt: "12px", backgroundColor: colors.greenAccent[300], opacity: 0.4 }} />
+      <hr style={{
+        border: "none",
+        borderTop: `1px solid ${colors.greenAccent[300]}`,
+        opacity: 0.5,
+        margin: "12px -20px 0 -20px",
+      }} />
     </Box>
   );
 };

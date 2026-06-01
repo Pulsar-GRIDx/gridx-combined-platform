@@ -461,9 +461,9 @@ export default function Dashboard() {
 
   return (
     <Box m="20px">
-      <Box display="flex" justifyContent="space-between" alignItems="center">
+      <Box sx={{ position: "relative" }}>
         <Header title="DASHBOARD" subtitle="Meters Network Summary — Live Data" />
-        <Box display="flex" gap={0.5} alignItems="center">
+        <Box sx={{ position: "absolute", right: 0, top: "44px", display: "flex", gap: 0.5, alignItems: "center" }}>
           <DataBadge live />
           {lastUpdate && (
             <Typography variant="caption" sx={{ color: colors.grey[400], fontSize: "0.65rem" }}>

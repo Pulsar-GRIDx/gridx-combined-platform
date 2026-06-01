@@ -313,13 +313,13 @@ export default function Customers() {
 
   return (
     <Box m="20px">
-      <Box display="flex" justifyContent="space-between" alignItems="center">
+      <Box sx={{ position: "relative" }}>
         <Header
           title="CUSTOMER REGISTRY"
           subtitle={tab === 0 ? "GridX Meters Across All Areas" : "Non-GridX / Third-Party Meters"}
         />
         {tab === 1 && (
-          <Box display="flex" gap="8px">
+          <Box sx={{ position: "absolute", right: 0, top: "44px", display: "flex", gap: "8px" }}>
             <Button
               variant="contained"
               size="small"

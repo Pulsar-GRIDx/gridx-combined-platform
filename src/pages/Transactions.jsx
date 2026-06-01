@@ -27,8 +27,6 @@ import {
   Snackbar,
   Alert,
   useTheme,
-  Tabs,
-  Tab,
   LinearProgress,
   Stepper,
   Step,
@@ -352,37 +350,36 @@ export default function Transactions() {
       <Header title="TRANSACTIONS" subtitle="Vending & Credit Transfer History" />
 
       {/* Tab navigation */}
-      <Tabs
-        value={activeTab}
-        onChange={(_, v) => setActiveTab(v)}
-        sx={{
-          mb: 2,
-          "& .MuiTabs-indicator": { backgroundColor: colors.greenAccent[500] },
-        }}
-      >
-        <Tab
-          icon={<ReceiptLongOutlined />}
-          iconPosition="start"
-          label="Vending History"
-          sx={{
-            color: activeTab === 0 ? colors.greenAccent[500] : colors.grey[400],
-            fontWeight: activeTab === 0 ? 700 : 400,
-            textTransform: "none",
-            fontSize: "0.9rem",
-          }}
-        />
-        <Tab
-          icon={<SwapHorizOutlined />}
-          iconPosition="start"
-          label="Credit Transfers"
-          sx={{
-            color: activeTab === 1 ? colors.greenAccent[500] : colors.grey[400],
-            fontWeight: activeTab === 1 ? 700 : 400,
-            textTransform: "none",
-            fontSize: "0.9rem",
-          }}
-        />
-      </Tabs>
+      <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+        {[
+          { label: "Vending History", icon: <ReceiptLongOutlined sx={{ fontSize: 18 }} />, idx: 0 },
+          { label: "Credit Transfers", icon: <SwapHorizOutlined sx={{ fontSize: 18 }} />, idx: 1 },
+        ].map((tab) => (
+          <Button
+            key={tab.idx}
+            startIcon={tab.icon}
+            onClick={() => setActiveTab(tab.idx)}
+            sx={{
+              px: 2.5,
+              py: 1,
+              borderRadius: "10px",
+              textTransform: "none",
+              fontSize: "0.85rem",
+              fontWeight: activeTab === tab.idx ? 600 : 400,
+              color: activeTab === tab.idx ? "#fff" : colors.grey[400],
+              backgroundColor: activeTab === tab.idx ? colors.greenAccent[600] : colors.primary[400],
+              border: `1px solid ${activeTab === tab.idx ? colors.greenAccent[600] : colors.grey[700]}`,
+              "&:hover": {
+                backgroundColor: activeTab === tab.idx ? colors.greenAccent[500] : colors.primary[300],
+                borderColor: activeTab === tab.idx ? colors.greenAccent[500] : colors.grey[600],
+              },
+              transition: "all 0.2s ease",
+            }}
+          >
+            {tab.label}
+          </Button>
+        ))}
+      </Box>
 
       {/* ============ TAB 0: VENDING HISTORY ============ */}
       {activeTab === 0 && (
