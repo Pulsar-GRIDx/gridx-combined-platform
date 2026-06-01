@@ -6,6 +6,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Divider, Switch, FormControlLabel,
 } from "@mui/material";
 import { tokens } from "../theme";
+import Header from "../components/Header";
 import UsbIcon from "@mui/icons-material/Usb";
 import UsbOffIcon from "@mui/icons-material/UsbOff";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
@@ -543,13 +544,7 @@ export default function VsmTesting() {
 
   return (
     <Box sx={{ p: 3, maxWidth: 1400, mx: "auto" }}>
-      {/* Header */}
-      <Typography variant="h2" sx={{ fontWeight: "bold", color: colors.grey[100], mb: "4px" }}>
-        HARDWARE SECURITY MODULE
-      </Typography>
-      <Typography variant="h5" sx={{ color: activeAccent, fontWeight: 500, mb: 2 }}>
-        STS Vending Security Module — Token Generation & Validation
-      </Typography>
+      <Header title="HARDWARE SECURITY MODULE" subtitle="STS Vending Security Module — Token Generation & Validation" />
 
       {/* ═══ HSM MODE TOGGLE: Real vs Virtual ═══ */}
       <Box sx={{ display: "flex", gap: 1, mb: 3 }}>
