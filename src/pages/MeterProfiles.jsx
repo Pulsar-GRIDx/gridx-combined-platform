@@ -23,17 +23,15 @@ import {
   PersonOutlined,
   AccessTime,
   SecurityOutlined,
-  CheckCircleOutlined,
   CancelOutlined,
   AppRegistrationOutlined,
   PhoneAndroidOutlined,
   HowToRegOutlined,
   AssignmentTurnedInOutlined,
+  RefreshOutlined,
 } from "@mui/icons-material";
 import { Link, useNavigate } from "react-router-dom";
 import Header from "../components/Header";
-import StatBox from "../components/StatBox";
-import ProgressCircle from "../components/ProgressCircle";
 import { meterConfigAPI } from "../services/api";
 
 export default function MeterProfiles() {
@@ -403,96 +401,92 @@ export default function MeterProfiles() {
     },
   ];
 
+  const fetchMetersRefresh = async () => {
+    setLoading(true);
+    try {
+      const res = await meterConfigAPI.getMeterProfiles();
+      if (res?.data) setMeters(res.data);
+    } catch (err) {
+      setError("Failed to load meter profiles: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Box m="20px">
-      <Header title="Meter Profiles" subtitle="Registered meters overview and status monitoring" />
+      <Box sx={{ position: "relative" }}>
+        <Header title="METER PROFILES" subtitle="Registered meters overview and status monitoring" />
+        <Box sx={{ position: "absolute", right: 0, top: "44px" }}>
+          <IconButton onClick={fetchMetersRefresh} sx={{ color: colors.grey[300] }}>
+            <RefreshOutlined />
+          </IconButton>
+        </Box>
+      </Box>
 
       {/* KPI Cards */}
       {!loading && !error && (
-        <Box
-          display="grid"
-          gridTemplateColumns="repeat(12, 1fr)"
-          gridAutoRows="140px"
-          gap="5px"
-          mb="5px"
-        >
-          <Box
-            gridColumn="span 3"
-            backgroundColor={colors.primary[400]}
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-          >
-            <StatBox
-              title={fmt(stats.total)}
-              subtitle="Total Meters"
-              progress={String(stats.total > 0 ? 1 : 0)}
-              increase={`${stats.online} active`}
-              icon={
-                <ElectricMeterOutlined
-                  sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
-                />
-              }
-            />
+        <>
+        <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="5px" mb="12px">
+          <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center" borderRadius="4px">
+            <Box textAlign="center">
+              <ElectricMeterOutlined sx={{ color: colors.greenAccent[500], fontSize: 28, mb: 0.5 }} />
+              <Typography variant="body2" color={colors.greenAccent[500]} fontWeight="600">Total Meters</Typography>
+              <Typography variant="h4" color={colors.grey[100]} fontWeight="bold">{fmt(stats.total)}</Typography>
+              <Typography variant="caption" color={colors.grey[400]} display="block" mt="2px">{stats.online} online</Typography>
+            </Box>
           </Box>
-          <Box
-            gridColumn="span 3"
-            backgroundColor={colors.primary[400]}
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-          >
-            <StatBox
-              title={fmt(stats.online)}
-              subtitle="Online"
-              progress={String(stats.total > 0 ? stats.online / stats.total : 0)}
-              increase={stats.total > 0 ? `${((stats.online / stats.total) * 100).toFixed(0)}%` : "0%"}
-              icon={
-                <SignalCellularAlt
-                  sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
-                />
-              }
-            />
+          <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center" borderRadius="4px">
+            <Box textAlign="center">
+              <SignalCellularAlt sx={{ color: colors.blueAccent[500], fontSize: 28, mb: 0.5 }} />
+              <Typography variant="body2" color={colors.greenAccent[500]} fontWeight="600">Online</Typography>
+              <Typography variant="h4" color={colors.grey[100]} fontWeight="bold">{fmt(stats.online)}</Typography>
+              <Typography variant="caption" color={colors.grey[400]} display="block" mt="2px">
+                {stats.total > 0 ? `${((stats.online / stats.total) * 100).toFixed(0)}%` : "0%"} of fleet
+              </Typography>
+            </Box>
           </Box>
-          <Box
-            gridColumn="span 3"
-            backgroundColor={colors.primary[400]}
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-          >
-            <StatBox
-              title={fmt(stats.secure)}
-              subtitle="Secure"
-              progress={String(stats.total > 0 ? stats.secure / stats.total : 0)}
-              increase={stats.tampered > 0 ? `${stats.tampered} tampered` : "All clear"}
-              icon={
-                <SecurityOutlined
-                  sx={{ color: stats.tampered > 0 ? colors.redAccent[400] : colors.greenAccent[500], fontSize: "26px" }}
-                />
-              }
-            />
+          <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center" borderRadius="4px">
+            <Box textAlign="center">
+              <SecurityOutlined sx={{ color: stats.tampered > 0 ? colors.redAccent[400] : colors.greenAccent[500], fontSize: 28, mb: 0.5 }} />
+              <Typography variant="body2" color={colors.greenAccent[500]} fontWeight="600">Security</Typography>
+              <Typography variant="h4" color={colors.grey[100]} fontWeight="bold">{fmt(stats.secure)}</Typography>
+              <Typography variant="caption" color={stats.tampered > 0 ? colors.redAccent[400] : colors.grey[400]} display="block" mt="2px">
+                {stats.tampered > 0 ? `${stats.tampered} tampered` : "All clear"}
+              </Typography>
+            </Box>
           </Box>
-          <Box
-            gridColumn="span 3"
-            backgroundColor={colors.primary[400]}
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-          >
-            <StatBox
-              title={`${fmt(stats.totalKwh)}`}
-              subtitle="Total kWh"
-              progress="0.80"
-              increase="Cumulative"
-              icon={
-                <BoltOutlined
-                  sx={{ color: colors.greenAccent[500], fontSize: "26px" }}
-                />
-              }
-            />
+          <Box gridColumn="span 3" backgroundColor={colors.primary[400]} display="flex" alignItems="center" justifyContent="center" borderRadius="4px">
+            <Box textAlign="center">
+              <BoltOutlined sx={{ color: colors.greenAccent[500], fontSize: 28, mb: 0.5 }} />
+              <Typography variant="body2" color={colors.greenAccent[500]} fontWeight="600">Total Energy</Typography>
+              <Typography variant="h4" color={colors.grey[100]} fontWeight="bold">{fmt(stats.totalKwh)}</Typography>
+              <Typography variant="caption" color={colors.grey[400]} display="block" mt="2px">Cumulative kWh</Typography>
+            </Box>
           </Box>
         </Box>
+
+        <Box display="grid" gridTemplateColumns="repeat(4, 1fr)" gap="12px" mb="20px">
+          {[
+            { label: "Commissioned", value: fmt(stats.commissioned), sub: `of ${fmt(stats.total)} meters`, color: colors.greenAccent[500] },
+            { label: "Self-Registered", value: fmt(meters.filter(m => (m.registrationStatus || "").toLowerCase() === "active").length), sub: "Active registrations", color: colors.blueAccent[500] },
+            { label: "App Users", value: fmt(stats.appUsers), sub: "Mobile app linked", color: colors.yellowAccent[500] },
+            { label: "Offline", value: fmt(stats.offline), sub: stats.total > 0 ? `${((stats.offline / stats.total) * 100).toFixed(0)}% of fleet` : "0%", color: stats.offline > 0 ? colors.redAccent[400] : colors.grey[500] },
+          ].map((c) => (
+            <Box
+              key={c.label}
+              backgroundColor={colors.primary[400]}
+              borderRadius="8px"
+              p="16px"
+              sx={{ borderLeft: `4px solid ${c.color}` }}
+            >
+              <Typography variant="body2" color={colors.grey[400]} fontSize="0.75rem">{c.label}</Typography>
+              <Typography variant="h5" color={colors.grey[100]} fontWeight="bold">{c.value}</Typography>
+              <Typography variant="caption" color={colors.grey[500]}>{c.sub}</Typography>
+            </Box>
+          ))}
+        </Box>
+        </>
       )}
 
       {/* Data Table */}
