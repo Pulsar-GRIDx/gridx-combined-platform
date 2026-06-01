@@ -240,7 +240,7 @@ router.get('/summary', authenticateToken, async (req, res) => {
     var postpaidCount = Number(postpaidOnly.cnt);
     var prepaidCount = Number(totalMeters.cnt) - postpaidCount;
 
-    // Current month totals from MeterDailyRevenue (accurate per-tariff calculation)
+    // Current month totals from MeterDailyRevenue — fall back to previous month if current is empty
     var [monthTotals] = await query(
       'SELECT ' +
       'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN consumption_kwh ELSE 0 END) as prepaidKwh, ' +
@@ -249,6 +249,44 @@ router.get('/summary', authenticateToken, async (req, res) => {
       'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN revenue ELSE 0 END) as postpaidRevenue ' +
       'FROM MeterDailyRevenue WHERE MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())'
     ).catch(function() { return [{ prepaidKwh: 0, postpaidKwh: 0, prepaidRevenue: 0, postpaidRevenue: 0 }]; });
+
+    var summaryMonth = 'current';
+    if (!Number(monthTotals.prepaidRevenue) && !Number(monthTotals.postpaidRevenue)) {
+      var [prevMonth] = await query(
+        'SELECT ' +
+        'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN consumption_kwh ELSE 0 END) as prepaidKwh, ' +
+        'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN consumption_kwh ELSE 0 END) as postpaidKwh, ' +
+        'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN revenue ELSE 0 END) as prepaidRevenue, ' +
+        'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN revenue ELSE 0 END) as postpaidRevenue ' +
+        'FROM MeterDailyRevenue WHERE MONTH(date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) ' +
+        'AND YEAR(date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))'
+      ).catch(function() { return [{ prepaidKwh: 0, postpaidKwh: 0, prepaidRevenue: 0, postpaidRevenue: 0 }]; });
+      if (Number(prevMonth.prepaidRevenue) || Number(prevMonth.postpaidRevenue)) {
+        monthTotals = prevMonth;
+        summaryMonth = 'previous';
+      }
+    }
+
+    // Prepaid system balance: total purchased vs total consumed vs remaining
+    var [prepaidBalance] = await query(
+      'SELECT COALESCE(SUM(kWh), 0) as totalPurchasedKwh, COALESCE(SUM(amount), 0) as totalPurchasedAmount, COUNT(*) as tokenCount ' +
+      'FROM VendingTransactions WHERE status = \'Completed\''
+    ).catch(function() { return [{ totalPurchasedKwh: 0, totalPurchasedAmount: 0, tokenCount: 0 }]; });
+
+    var [totalConsumed] = await query(
+      'SELECT COALESCE(SUM(consumption_kwh), 0) as totalConsumedKwh ' +
+      'FROM MeterDailyRevenue WHERE billing_mode = \'Prepaid\''
+    ).catch(function() { return [{ totalConsumedKwh: 0 }]; });
+
+    var creditRows = await query(
+      'SELECT t1.DRN, CAST(t1.units AS DECIMAL(20,4)) as units FROM MeterCumulativeEnergyUsage t1 ' +
+      'INNER JOIN (SELECT DRN, MAX(date_time) as maxdt FROM MeterCumulativeEnergyUsage GROUP BY DRN) t2 ' +
+      'ON t1.DRN = t2.DRN AND t1.date_time = t2.maxdt'
+    ).catch(function() { return []; });
+    var totalRemainingKwh = 0;
+    for (var ci = 0; ci < creditRows.length; ci++) {
+      totalRemainingKwh += Number(creditRows[ci].units || 0);
+    }
 
     // Daily data for last 14 days (weekly charts)
     var dailyData = await query(
@@ -331,6 +369,7 @@ router.get('/summary', authenticateToken, async (req, res) => {
       totalRevenue: prepaidRev + postpaidRev,
       prepaidRevenue: prepaidRev,
       postpaidRevenue: postpaidRev,
+      summaryMonth: summaryMonth,
       outstanding: Number(outstanding.total),
       prepaidMeterCount: prepaidCount,
       postpaidMeterCount: postpaidCount,
@@ -338,6 +377,13 @@ router.get('/summary', authenticateToken, async (req, res) => {
       postpaidConsumptionKwh: Number(monthTotals.postpaidKwh || 0),
       tokensPurchased: Number(tokenStats.tokenCount),
       tokenRevenue: Number(tokenStats.tokenRevenue),
+      prepaidSystemBalance: {
+        totalPurchasedKwh: Number(prepaidBalance.totalPurchasedKwh),
+        totalPurchasedAmount: Number(prepaidBalance.totalPurchasedAmount),
+        totalConsumedKwh: Number(totalConsumed.totalConsumedKwh),
+        remainingKwh: totalRemainingKwh,
+        tokenCount: Number(prepaidBalance.tokenCount),
+      },
       dailyData,
       monthlyData,
       yearlyData,

@@ -419,12 +419,15 @@ export default function Billing() {
           </Box>
         );
 
+        const monthLabel = s.summaryMonth === 'previous' ? 'Last Month' : 'This Month';
+        const bal = s.prepaidSystemBalance || {};
+
         return (
         <Box>
           <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="5px" mb="20px">
             <StatCard
               icon={<AttachMoneyOutlined sx={{ color: colors.greenAccent[500], fontSize: 28, mb: 0.5 }} />}
-              label="Total Revenue (Month)"
+              label={`Total Revenue (${monthLabel})`}
               value={fmtCurrency(s.totalRevenue || 0)}
               subLabel={`${(Number(s.prepaidConsumptionKwh || 0) + Number(s.postpaidConsumptionKwh || 0)).toFixed(0)} kWh consumed`}
               colors={colors}
@@ -450,6 +453,33 @@ export default function Billing() {
               color={colors.redAccent[500]}
               colors={colors}
             />
+          </Box>
+
+          {/* Prepaid System Balance */}
+          <Box
+            display="grid"
+            gridTemplateColumns="repeat(4, 1fr)"
+            gap="12px"
+            mb="20px"
+          >
+            {[
+              { label: "Total Purchased", value: `${fmt(Math.round(bal.totalPurchasedKwh || 0))} kWh`, sub: `${bal.tokenCount || 0} tokens | ${fmtCurrency(bal.totalPurchasedAmount || 0)}`, color: colors.greenAccent[500] },
+              { label: "Total Consumed", value: `${fmt(Math.round(bal.totalConsumedKwh || 0))} kWh`, sub: "All prepaid meters", color: colors.blueAccent[500] },
+              { label: "Remaining Credit", value: `${fmt(Math.round(bal.remainingKwh || 0))} kWh`, sub: "Live meter balances", color: colors.yellowAccent[500] },
+              { label: "Usage Rate", value: bal.totalPurchasedKwh > 0 ? `${((bal.totalConsumedKwh / bal.totalPurchasedKwh) * 100).toFixed(1)}%` : "0%", sub: "Consumed / Purchased", color: colors.redAccent[400] },
+            ].map((c) => (
+              <Box
+                key={c.label}
+                backgroundColor={colors.primary[400]}
+                borderRadius="8px"
+                p="16px"
+                sx={{ borderLeft: `4px solid ${c.color}` }}
+              >
+                <Typography variant="body2" color={colors.grey[400]} fontSize="0.75rem">{c.label}</Typography>
+                <Typography variant="h5" color={colors.grey[100]} fontWeight="bold">{c.value}</Typography>
+                <Typography variant="caption" color={colors.grey[500]}>{c.sub}</Typography>
+              </Box>
+            ))}
           </Box>
 
           <Box
