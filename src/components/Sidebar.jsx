@@ -429,13 +429,7 @@ const Sidebar = () => {
           isCollapsed={isCollapsed}
           accentColor={colors.yellowAccent[500]}
         />
-        <NavItem
-          title="Integrations"
-          to="/integrations"
-          icon={<HubIcon />}
-          isCollapsed={isCollapsed}
-          accentColor={colors.yellowAccent[500]}
-        />
+        {/* Integrations removed — POS connects via API (background) */}
         <NavItem
           title="HSM / VSM"
           to="/vsm-testing"

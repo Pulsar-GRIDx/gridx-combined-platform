@@ -36,12 +36,13 @@ import {
   RefreshOutlined,
 } from "@mui/icons-material";
 import {
-  AreaChart,
-  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
 } from "recharts";
 import { tokens } from "../theme";
@@ -55,19 +56,80 @@ const fmtCurrency = (n) =>
     maximumFractionDigits: 0,
   })}`;
 
-const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function formatChartData(rows) {
-  if (!rows || rows.length === 0) {
-    return dayNames.map((d) => ({ day: d, revenue: 0 }));
-  }
-  return rows.map((r) => ({
-    day: dayNames[new Date(r.day).getDay()] || r.day,
-    revenue: Number(r.revenue),
-  }));
+function getWeekRange(offset) {
+  const now = new Date();
+  const dayOfWeek = now.getDay() || 7;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - dayOfWeek + 1 - offset * 7);
+  monday.setHours(0, 0, 0, 0);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { start: monday, end: sunday };
 }
 
-function ChartTooltip({ active, payload, label, colors }) {
+function buildWeeklyOverlay(dailyData) {
+  if (!dailyData || !dailyData.length) return WEEKDAYS.map((d) => ({ day: d }));
+  const tw = getWeekRange(0);
+  const lw = getWeekRange(1);
+  return WEEKDAYS.map((dayName, i) => {
+    const twDate = new Date(tw.start); twDate.setDate(tw.start.getDate() + i);
+    const lwDate = new Date(lw.start); lwDate.setDate(lw.start.getDate() + i);
+    const twStr = twDate.toISOString().split("T")[0];
+    const lwStr = lwDate.toISOString().split("T")[0];
+    const twRow = dailyData.find((r) => new Date(r.day).toISOString().split("T")[0] === twStr) || {};
+    const lwRow = dailyData.find((r) => new Date(r.day).toISOString().split("T")[0] === lwStr) || {};
+    return {
+      day: dayName,
+      twPrepaidRev: Number(twRow.prepaidRevenue || 0), lwPrepaidRev: Number(lwRow.prepaidRevenue || 0),
+      twPostpaidRev: Number(twRow.postpaidRevenue || 0), lwPostpaidRev: Number(lwRow.postpaidRevenue || 0),
+      twPrepaidKwh: Number(twRow.prepaidKwh || 0), lwPrepaidKwh: Number(lwRow.prepaidKwh || 0),
+      twPostpaidKwh: Number(twRow.postpaidKwh || 0), lwPostpaidKwh: Number(lwRow.postpaidKwh || 0),
+    };
+  });
+}
+
+function buildMonthlyOverlay(monthlyData) {
+  const now = new Date();
+  const thisMonth = now.getMonth() + 1;
+  const thisYear = now.getFullYear();
+  const prevDate = new Date(thisYear, now.getMonth() - 1, 1);
+  const prevMonth = prevDate.getMonth() + 1;
+  const prevYear = prevDate.getFullYear();
+  const daysInThisMonth = new Date(thisYear, now.getMonth() + 1, 0).getDate();
+  const daysInPrevMonth = new Date(prevYear, prevDate.getMonth() + 1, 0).getDate();
+  const maxDays = Math.max(daysInThisMonth, daysInPrevMonth);
+  const rows = monthlyData || [];
+  return Array.from({ length: maxDays }, (_, i) => {
+    const dayNum = i + 1;
+    const tmRow = rows.find((r) => Number(r.dayNum) === dayNum && Number(r.month) === thisMonth && Number(r.year) === thisYear) || {};
+    const pmRow = rows.find((r) => Number(r.dayNum) === dayNum && Number(r.month) === prevMonth && Number(r.year) === prevYear) || {};
+    return {
+      day: String(dayNum),
+      tmPrepaidRev: Number(tmRow.prepaidRevenue || 0), pmPrepaidRev: Number(pmRow.prepaidRevenue || 0),
+      tmPostpaidRev: Number(tmRow.postpaidRevenue || 0), pmPostpaidRev: Number(pmRow.postpaidRevenue || 0),
+      tmPrepaidKwh: Number(tmRow.prepaidKwh || 0), pmPrepaidKwh: Number(pmRow.prepaidKwh || 0),
+      tmPostpaidKwh: Number(tmRow.postpaidKwh || 0), pmPostpaidKwh: Number(pmRow.postpaidKwh || 0),
+    };
+  });
+}
+
+function buildYearlyData(yearlyData) {
+  const rows = yearlyData || [];
+  return MONTHS.map((name, i) => {
+    const r = rows.find((d) => Number(d.month) === i + 1) || {};
+    return {
+      month: name,
+      prepaidRevenue: Number(r.prepaidRevenue || 0), postpaidRevenue: Number(r.postpaidRevenue || 0),
+      prepaidKwh: Number(r.prepaidKwh || 0), postpaidKwh: Number(r.postpaidKwh || 0),
+      totalRevenue: Number(r.totalRevenue || 0), totalKwh: Number(r.totalKwh || 0),
+    };
+  });
+}
+
+function ChartTooltip({ active, payload, label, colors, unit }) {
   if (!active || !payload?.length) return null;
   return (
     <Box
@@ -84,7 +146,7 @@ function ChartTooltip({ active, payload, label, colors }) {
       </Typography>
       {payload.map((p, i) => (
         <Typography key={i} variant="caption" sx={{ display: "block", color: p.color }}>
-          Revenue: N$ {Number(p.value).toLocaleString()}
+          {p.name}: {unit === "kWh" ? `${Number(p.value).toFixed(2)} kWh` : `N$ ${Number(p.value).toFixed(2)}`}
         </Typography>
       ))}
     </Box>
@@ -129,6 +191,7 @@ export default function Billing() {
   const [postpaidMeters, setPostpaidMeters] = useState([]);
   const [postpaidBills, setPostpaidBills] = useState([]);
   const [allMeters, setAllMeters] = useState([]);
+  const [chartPeriod, setChartPeriod] = useState("weekly");
   const [switchDialog, setSwitchDialog] = useState({ open: false, drn: "", mode: "", reason: "" });
   const [switchResult, setSwitchResult] = useState(null);
   const [billDialog, setBillDialog] = useState({ open: false, drn: "" });
@@ -229,90 +292,332 @@ export default function Billing() {
         </IconButton>
       </Box>
 
-      <Tabs
-        value={tab}
-        onChange={(_, v) => setTab(v)}
+      <Box
         sx={{
-          mb: 2,
-          "& .MuiTab-root": { color: colors.grey[300], fontWeight: 600 },
-          "& .Mui-selected": { color: colors.greenAccent[500] },
-          "& .MuiTabs-indicator": { backgroundColor: colors.greenAccent[500] },
+          mb: 3,
+          backgroundColor: colors.primary[400],
+          borderRadius: "8px",
+          p: "4px",
+          display: "inline-flex",
+          gap: "4px",
         }}
       >
-        <Tab label="Summary" />
-        <Tab label={`Prepaid Meters (${prepaidMeters.length})`} />
-        <Tab label={`Postpaid Meters (${postpaidMeters.length})`} />
-        <Tab label="Postpaid Bills" />
-        <Tab label="Switch Mode" />
-      </Tabs>
+        {[
+          { label: "Summary", icon: <AttachMoneyOutlined sx={{ fontSize: 18 }} /> },
+          { label: `Prepaid (${prepaidMeters.length})`, icon: <ElectricMeterOutlined sx={{ fontSize: 18 }} /> },
+          { label: `Postpaid (${postpaidMeters.length})`, icon: <PointOfSaleOutlined sx={{ fontSize: 18 }} /> },
+          { label: "Bills", icon: <ReceiptOutlined sx={{ fontSize: 18 }} /> },
+          { label: "Switch Mode", icon: <SwapHorizOutlined sx={{ fontSize: 18 }} /> },
+        ].map((t, i) => (
+          <Button
+            key={i}
+            size="small"
+            startIcon={t.icon}
+            onClick={() => setTab(i)}
+            sx={{
+              px: 2,
+              py: 1,
+              borderRadius: "6px",
+              fontWeight: 600,
+              fontSize: "0.8rem",
+              textTransform: "none",
+              minWidth: "auto",
+              color: tab === i ? "#000" : colors.grey[300],
+              backgroundColor: tab === i ? colors.greenAccent[500] : "transparent",
+              "&:hover": {
+                backgroundColor: tab === i ? colors.greenAccent[600] : `${colors.grey[700]}44`,
+              },
+            }}
+          >
+            {t.label}
+          </Button>
+        ))}
+      </Box>
 
       {/* ═══════════ TAB 0: SUMMARY ═══════════ */}
-      {tab === 0 && (
-        <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="5px">
-          <StatCard
-            icon={<AttachMoneyOutlined sx={{ color: colors.greenAccent[500], fontSize: 28, mb: 0.5 }} />}
-            label="Total Revenue (Month)"
-            value={fmtCurrency(s.totalRevenue || 0)}
-            colors={colors}
-          />
-          <StatCard
-            icon={<ElectricMeterOutlined sx={{ color: colors.blueAccent[500], fontSize: 28, mb: 0.5 }} />}
-            label={`Prepaid Revenue (${s.prepaidMeterCount || 0} meters)`}
-            value={fmtCurrency(s.prepaidRevenue || 0)}
-            subLabel={`${fmt(s.prepaidTokenCount || 0)} tokens | ${Number(s.prepaidCumulativeKwh || 0).toFixed(1)} kWh total`}
-            colors={colors}
-          />
-          <StatCard
-            icon={<PointOfSaleOutlined sx={{ color: colors.yellowAccent[500], fontSize: 28, mb: 0.5 }} />}
-            label={`Postpaid Revenue (${s.postpaidMeterCount || 0} meters)`}
-            value={fmtCurrency(s.postpaidRevenue || 0)}
-            subLabel={`${Number(s.postpaidConsumptionKwh || 0).toFixed(1)} kWh consumed | N$ ${fmt(s.postpaidBilledAmount || 0)} billed`}
-            colors={colors}
-          />
-          <StatCard
-            icon={<AccountBalanceOutlined sx={{ color: colors.redAccent[500], fontSize: 28, mb: 0.5 }} />}
-            label="Outstanding"
-            value={fmtCurrency(s.outstanding || 0)}
-            color={colors.redAccent[500]}
-            colors={colors}
-          />
+      {tab === 0 && (() => {
+        const weeklyChart = buildWeeklyOverlay(s.dailyData);
+        const monthlyChart = buildMonthlyOverlay(s.monthlyData);
+        const yearlyChart = buildYearlyData(s.yearlyData);
 
-          {/* Charts */}
-          <Box gridColumn="span 6" gridRow="span 3" backgroundColor={colors.primary[400]} borderRadius="4px" p="20px">
-            <Typography variant="h5" color={colors.grey[100]} fontWeight="bold" mb="15px">
-              Prepaid Daily Revenue
+        const xKey = chartPeriod === "yearly" ? "month" : "day";
+        const revFmt = (v) => v >= 1000 ? `N$${(v / 1000).toFixed(1)}k` : `N$${Number(v).toFixed(0)}`;
+        const kwhFmt = (v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Number(v).toFixed(0)}`;
+
+        let chartData, chartDefs;
+        if (chartPeriod === "weekly") {
+          chartData = weeklyChart;
+          chartDefs = {
+            prepaidRev: [
+              { key: "twPrepaidRev", name: "This Week", fill: colors.greenAccent[500] },
+              { key: "lwPrepaidRev", name: "Last Week", fill: `${colors.greenAccent[500]}66` },
+            ],
+            postpaidRev: [
+              { key: "twPostpaidRev", name: "This Week", fill: colors.blueAccent[500] },
+              { key: "lwPostpaidRev", name: "Last Week", fill: `${colors.blueAccent[500]}66` },
+            ],
+            prepaidKwh: [
+              { key: "twPrepaidKwh", name: "This Week", fill: colors.yellowAccent[500] },
+              { key: "lwPrepaidKwh", name: "Last Week", fill: `${colors.yellowAccent[500]}66` },
+            ],
+            postpaidKwh: [
+              { key: "twPostpaidKwh", name: "This Week", fill: colors.redAccent[400] },
+              { key: "lwPostpaidKwh", name: "Last Week", fill: `${colors.redAccent[400]}66` },
+            ],
+          };
+        } else if (chartPeriod === "monthly") {
+          chartData = monthlyChart;
+          chartDefs = {
+            prepaidRev: [
+              { key: "tmPrepaidRev", name: "This Month", fill: colors.greenAccent[500] },
+              { key: "pmPrepaidRev", name: "Prev Month", fill: `${colors.greenAccent[500]}66` },
+            ],
+            postpaidRev: [
+              { key: "tmPostpaidRev", name: "This Month", fill: colors.blueAccent[500] },
+              { key: "pmPostpaidRev", name: "Prev Month", fill: `${colors.blueAccent[500]}66` },
+            ],
+            prepaidKwh: [
+              { key: "tmPrepaidKwh", name: "This Month", fill: colors.yellowAccent[500] },
+              { key: "pmPrepaidKwh", name: "Prev Month", fill: `${colors.yellowAccent[500]}66` },
+            ],
+            postpaidKwh: [
+              { key: "tmPostpaidKwh", name: "This Month", fill: colors.redAccent[400] },
+              { key: "pmPostpaidKwh", name: "Prev Month", fill: `${colors.redAccent[400]}66` },
+            ],
+          };
+        } else {
+          chartData = yearlyChart;
+          chartDefs = {
+            prepaidRev: [{ key: "prepaidRevenue", name: "Prepaid Revenue", fill: colors.greenAccent[500] }],
+            postpaidRev: [{ key: "postpaidRevenue", name: "Postpaid Revenue", fill: colors.blueAccent[500] }],
+            prepaidKwh: [{ key: "prepaidKwh", name: "Prepaid kWh", fill: colors.yellowAccent[500] }],
+            postpaidKwh: [{ key: "postpaidKwh", name: "Postpaid kWh", fill: colors.redAccent[400] }],
+          };
+        }
+
+        const renderChart = (title, bars, formatter) => (
+          <Box backgroundColor={colors.primary[400]} borderRadius="8px" p="20px" height="300px">
+            <Typography variant="subtitle1" color={colors.grey[100]} fontWeight="bold" mb="10px">
+              {title}
             </Typography>
-            <Box height="calc(100% - 40px)">
+            <Box height="calc(100% - 35px)">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={formatChartData(s.prepaidDaily)} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
+                <BarChart data={chartData} margin={{ top: 5, right: 15, left: 5, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[800]} />
-                  <XAxis dataKey="day" tick={{ fill: colors.grey[300], fontSize: 12 }} axisLine={{ stroke: colors.grey[700] }} tickLine={false} />
-                  <YAxis tick={{ fill: colors.grey[300], fontSize: 12 }} axisLine={{ stroke: colors.grey[700] }} tickLine={false} tickFormatter={(v) => `N$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip content={<ChartTooltip colors={colors} />} />
-                  <Area type="monotone" dataKey="revenue" stroke={colors.greenAccent[500]} fill={`${colors.greenAccent[500]}33`} strokeWidth={2} />
-                </AreaChart>
+                  <XAxis dataKey={xKey} tick={{ fill: colors.grey[300], fontSize: 11 }} axisLine={{ stroke: colors.grey[700] }} tickLine={false} />
+                  <YAxis tick={{ fill: colors.grey[300], fontSize: 11 }} axisLine={{ stroke: colors.grey[700] }} tickLine={false} tickFormatter={formatter} />
+                  <Tooltip content={<ChartTooltip colors={colors} unit={formatter === kwhFmt ? "kWh" : undefined} />} />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+                  {bars.map((b) => (
+                    <Bar key={b.key} dataKey={b.key} name={b.name} fill={b.fill} radius={[3, 3, 0, 0]} />
+                  ))}
+                </BarChart>
               </ResponsiveContainer>
             </Box>
           </Box>
+        );
 
-          <Box gridColumn="span 6" gridRow="span 3" backgroundColor={colors.primary[400]} borderRadius="4px" p="20px">
-            <Typography variant="h5" color={colors.grey[100]} fontWeight="bold" mb="15px">
-              Postpaid Daily Revenue
-            </Typography>
-            <Box height="calc(100% - 40px)">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={formatChartData(s.postpaidDaily)} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[800]} />
-                  <XAxis dataKey="day" tick={{ fill: colors.grey[300], fontSize: 12 }} axisLine={{ stroke: colors.grey[700] }} tickLine={false} />
-                  <YAxis tick={{ fill: colors.grey[300], fontSize: 12 }} axisLine={{ stroke: colors.grey[700] }} tickLine={false} tickFormatter={(v) => `N$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip content={<ChartTooltip colors={colors} />} />
-                  <Area type="monotone" dataKey="revenue" stroke={colors.blueAccent[500]} fill={`${colors.blueAccent[500]}33`} strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </Box>
+        return (
+        <Box>
+          <Box display="grid" gridTemplateColumns="repeat(12, 1fr)" gridAutoRows="140px" gap="5px" mb="20px">
+            <StatCard
+              icon={<AttachMoneyOutlined sx={{ color: colors.greenAccent[500], fontSize: 28, mb: 0.5 }} />}
+              label="Total Revenue (Month)"
+              value={fmtCurrency(s.totalRevenue || 0)}
+              subLabel={`${(Number(s.prepaidConsumptionKwh || 0) + Number(s.postpaidConsumptionKwh || 0)).toFixed(0)} kWh consumed`}
+              colors={colors}
+            />
+            <StatCard
+              icon={<ElectricMeterOutlined sx={{ color: colors.blueAccent[500], fontSize: 28, mb: 0.5 }} />}
+              label={`Prepaid (${s.prepaidMeterCount || 0} meters)`}
+              value={fmtCurrency(s.prepaidRevenue || 0)}
+              subLabel={`${Number(s.prepaidConsumptionKwh || 0).toFixed(1)} kWh | ${s.tokensPurchased || 0} tokens`}
+              colors={colors}
+            />
+            <StatCard
+              icon={<PointOfSaleOutlined sx={{ color: colors.yellowAccent[500], fontSize: 28, mb: 0.5 }} />}
+              label={`Postpaid (${s.postpaidMeterCount || 0} meters)`}
+              value={fmtCurrency(s.postpaidRevenue || 0)}
+              subLabel={`${Number(s.postpaidConsumptionKwh || 0).toFixed(1)} kWh consumed`}
+              colors={colors}
+            />
+            <StatCard
+              icon={<AccountBalanceOutlined sx={{ color: colors.redAccent[500], fontSize: 28, mb: 0.5 }} />}
+              label="Outstanding"
+              value={fmtCurrency(s.outstanding || 0)}
+              color={colors.redAccent[500]}
+              colors={colors}
+            />
           </Box>
+
+          <Box
+            display="flex"
+            gap="4px"
+            mb="20px"
+            sx={{
+              backgroundColor: colors.primary[400],
+              borderRadius: "8px",
+              p: "4px",
+              display: "inline-flex",
+            }}
+          >
+            {[
+              { key: "weekly", label: "Weekly" },
+              { key: "monthly", label: "Monthly" },
+              { key: "yearly", label: "Yearly" },
+            ].map((p) => (
+              <Button
+                key={p.key}
+                size="small"
+                onClick={() => setChartPeriod(p.key)}
+                sx={{
+                  px: 2.5,
+                  py: 0.8,
+                  borderRadius: "6px",
+                  fontWeight: 600,
+                  fontSize: "0.8rem",
+                  textTransform: "none",
+                  color: chartPeriod === p.key ? "#000" : colors.grey[300],
+                  backgroundColor: chartPeriod === p.key ? colors.greenAccent[500] : "transparent",
+                  "&:hover": {
+                    backgroundColor: chartPeriod === p.key ? colors.greenAccent[600] : `${colors.grey[700]}44`,
+                  },
+                }}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </Box>
+
+          <Box display="grid" gridTemplateColumns="1fr 1fr" gap="15px">
+            {renderChart("Prepaid Revenue", chartDefs.prepaidRev, revFmt)}
+            {renderChart("Postpaid Revenue", chartDefs.postpaidRev, revFmt)}
+            {renderChart("Prepaid Consumption (kWh)", chartDefs.prepaidKwh, kwhFmt)}
+            {renderChart("Postpaid Consumption (kWh)", chartDefs.postpaidKwh, kwhFmt)}
+          </Box>
+
+          {(() => {
+            const meterRows = chartPeriod === "weekly" ? (s.meterWeekly || []) : chartPeriod === "monthly" ? (s.meterMonthly || []) : (s.meterYearly || []);
+            const col1Label = chartPeriod === "weekly" ? "This Week" : chartPeriod === "monthly" ? "This Month" : "Year Total";
+            const col2Label = chartPeriod === "weekly" ? "Last Week" : chartPeriod === "monthly" ? "Prev Month" : null;
+            const getKwh1 = (m) => Number(chartPeriod === "weekly" ? m.twKwh : chartPeriod === "monthly" ? m.tmKwh : m.totalKwh) || 0;
+            const getRev1 = (m) => Number(chartPeriod === "weekly" ? m.twRevenue : chartPeriod === "monthly" ? m.tmRevenue : m.totalRevenue) || 0;
+            const getKwh2 = (m) => Number(chartPeriod === "weekly" ? m.lwKwh : m.pmKwh) || 0;
+            const getRev2 = (m) => Number(chartPeriod === "weekly" ? m.lwRevenue : m.pmRevenue) || 0;
+            const totKwh1 = meterRows.reduce((a, m) => a + getKwh1(m), 0);
+            const totRev1 = meterRows.reduce((a, m) => a + getRev1(m), 0);
+            const totKwh2 = col2Label ? meterRows.reduce((a, m) => a + getKwh2(m), 0) : 0;
+            const totRev2 = col2Label ? meterRows.reduce((a, m) => a + getRev2(m), 0) : 0;
+            return (
+            <Box backgroundColor={colors.primary[400]} borderRadius="8px" mt="20px" overflow="auto">
+              <Box p="20px" pb="0">
+                <Typography variant="h6" color={colors.grey[100]} fontWeight="bold">
+                  Meter Revenue Breakdown
+                </Typography>
+                <Typography variant="caption" color={colors.grey[400]}>
+                  {chartPeriod === "weekly" ? "This week vs last week" : chartPeriod === "monthly" ? "This month vs previous month" : "Year-to-date totals"} per meter
+                </Typography>
+              </Box>
+              <TableContainer sx={{ px: "20px", pb: "20px", mt: "10px" }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      {[
+                        "DRN", "Customer", "Mode", "Tariff", "Type", "Rate (N$/kWh)",
+                        `${col1Label} kWh`, `${col1Label} Revenue`,
+                        ...(col2Label ? [`${col2Label} kWh`, `${col2Label} Revenue`] : []),
+                      ].map((h) => (
+                        <TableCell key={h} sx={{ color: colors.grey[100], fontWeight: 700, borderBottom: `1px solid ${colors.grey[700]}`, whiteSpace: "nowrap",
+                          ...(h.includes("kWh") || h.includes("Revenue") || h.includes("Rate") ? { textAlign: "right" } : {}) }}>
+                          {h}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {meterRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={col2Label ? 10 : 8} sx={{ textAlign: "center", color: colors.grey[500], py: 4 }}>
+                          No revenue data for this period
+                        </TableCell>
+                      </TableRow>
+                    ) : meterRows.map((m) => (
+                      <TableRow key={m.DRN} hover>
+                        <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem", color: colors.grey[200], borderBottom: `1px solid ${colors.grey[800]}` }}>
+                          {m.DRN}
+                        </TableCell>
+                        <TableCell sx={{ color: colors.grey[100], fontWeight: 600, borderBottom: `1px solid ${colors.grey[800]}` }}>
+                          {m.customer || "-"}
+                        </TableCell>
+                        <TableCell sx={{ borderBottom: `1px solid ${colors.grey[800]}` }}>
+                          <Chip label={m.billing_mode} size="small" sx={{
+                            backgroundColor: m.billing_mode === "Postpaid" ? `${colors.blueAccent[500]}22` : `${colors.greenAccent[500]}22`,
+                            color: m.billing_mode === "Postpaid" ? colors.blueAccent[500] : colors.greenAccent[500],
+                            fontWeight: 600, fontSize: "0.72rem",
+                          }} />
+                        </TableCell>
+                        <TableCell sx={{ borderBottom: `1px solid ${colors.grey[800]}` }}>
+                          <Chip label={m.tariff_group || "Default"} size="small" sx={{
+                            backgroundColor: `${colors.greenAccent[500]}22`, color: colors.greenAccent[500],
+                            fontWeight: 600, fontSize: "0.72rem",
+                          }} />
+                        </TableCell>
+                        <TableCell sx={{ color: colors.grey[300], fontSize: "0.8rem", borderBottom: `1px solid ${colors.grey[800]}` }}>
+                          {m.tariff_type || "-"}
+                        </TableCell>
+                        <TableCell align="right" sx={{ color: colors.grey[200], fontFamily: "monospace", borderBottom: `1px solid ${colors.grey[800]}` }}>
+                          {Number(m.rate_applied || 0).toFixed(2)}
+                        </TableCell>
+                        <TableCell align="right" sx={{ color: colors.grey[200], fontFamily: "monospace", borderBottom: `1px solid ${colors.grey[800]}` }}>
+                          {getKwh1(m).toFixed(2)}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600, color: colors.greenAccent[400], fontFamily: "monospace", borderBottom: `1px solid ${colors.grey[800]}` }}>
+                          {fmtCurrency(getRev1(m))}
+                        </TableCell>
+                        {col2Label && (
+                          <>
+                            <TableCell align="right" sx={{ color: colors.grey[400], fontFamily: "monospace", borderBottom: `1px solid ${colors.grey[800]}` }}>
+                              {getKwh2(m).toFixed(2)}
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: colors.grey[400], fontFamily: "monospace", borderBottom: `1px solid ${colors.grey[800]}` }}>
+                              {fmtCurrency(getRev2(m))}
+                            </TableCell>
+                          </>
+                        )}
+                      </TableRow>
+                    ))}
+                    {meterRows.length > 0 && (
+                      <TableRow sx={{ backgroundColor: `${colors.primary[500]}88` }}>
+                        <TableCell colSpan={6} sx={{ fontWeight: 700, color: colors.grey[100], borderBottom: "none" }}>
+                          TOTAL
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, color: colors.grey[100], fontFamily: "monospace", borderBottom: "none" }}>
+                          {totKwh1.toFixed(2)}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, color: colors.greenAccent[400], fontFamily: "monospace", borderBottom: "none" }}>
+                          {fmtCurrency(totRev1)}
+                        </TableCell>
+                        {col2Label && (
+                          <>
+                            <TableCell align="right" sx={{ fontWeight: 700, color: colors.grey[300], fontFamily: "monospace", borderBottom: "none" }}>
+                              {totKwh2.toFixed(2)}
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700, color: colors.grey[300], fontFamily: "monospace", borderBottom: "none" }}>
+                              {fmtCurrency(totRev2)}
+                            </TableCell>
+                          </>
+                        )}
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+            );
+          })()}
         </Box>
-      )}
+        );
+      })()}
 
       {/* ═══════════ TAB 1: PREPAID METERS ═══════════ */}
       {tab === 1 && (
@@ -326,7 +631,7 @@ export default function Billing() {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  {["DRN", "Customer", "City", "Tier", "Account No", "Last Purchase", "Amount", "Status"].map((h) => (
+                  {["DRN", "Customer", "City", "Tariff", "Credit (kWh)", "Last Purchase", "Amount", "Last kWh", "Net Metering", "Status"].map((h) => (
                     <TableCell key={h} sx={{ color: colors.grey[100], fontWeight: 700, borderBottom: `1px solid ${colors.grey[700]}` }}>
                       {h}
                     </TableCell>
@@ -336,8 +641,8 @@ export default function Billing() {
               <TableBody>
                 {prepaidMeters.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} sx={{ textAlign: "center", color: colors.grey[500], py: 4 }}>
-                      No prepaid meters configured
+                    <TableCell colSpan={10} sx={{ textAlign: "center", color: colors.grey[500], py: 4 }}>
+                      No prepaid meters found
                     </TableCell>
                   </TableRow>
                 ) : prepaidMeters.map((m) => (
@@ -351,17 +656,39 @@ export default function Billing() {
                     <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[800]}` }}>
                       {m.City || "-"}
                     </TableCell>
-                    <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[800]}` }}>
-                      {m.meter_tier || "-"}
+                    <TableCell sx={{ borderBottom: `1px solid ${colors.grey[800]}` }}>
+                      <Chip
+                        label={m.tariffGroup || "Unassigned"}
+                        size="small"
+                        sx={{
+                          backgroundColor: m.tariffGroup && m.tariffGroup !== "Unassigned" ? `${colors.greenAccent[500]}22` : `${colors.redAccent[500]}22`,
+                          color: m.tariffGroup && m.tariffGroup !== "Unassigned" ? colors.greenAccent[500] : colors.redAccent[500],
+                          fontWeight: 600, fontSize: "0.72rem"
+                        }}
+                      />
                     </TableCell>
-                    <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem", color: colors.grey[200], borderBottom: `1px solid ${colors.grey[800]}` }}>
-                      {m.accountNo || "-"}
+                    <TableCell sx={{ fontWeight: 600, color: colors.greenAccent[400], fontFamily: "monospace", borderBottom: `1px solid ${colors.grey[800]}` }}>
+                      {m.creditKwh != null ? `${Number(m.creditKwh).toFixed(1)} kWh` : "-"}
                     </TableCell>
                     <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[800]}` }}>
                       {m.lastPurchaseDate ? new Date(m.lastPurchaseDate).toLocaleDateString("en-ZA") : "-"}
                     </TableCell>
                     <TableCell sx={{ fontWeight: 600, color: colors.grey[100], borderBottom: `1px solid ${colors.grey[800]}` }}>
                       {m.lastPurchaseAmount ? fmtCurrency(m.lastPurchaseAmount) : "-"}
+                    </TableCell>
+                    <TableCell sx={{ color: colors.grey[300], fontFamily: "monospace", borderBottom: `1px solid ${colors.grey[800]}` }}>
+                      {m.lastPurchasedKwh != null ? `${Number(m.lastPurchasedKwh).toFixed(1)} kWh` : "-"}
+                    </TableCell>
+                    <TableCell sx={{ borderBottom: `1px solid ${colors.grey[800]}` }}>
+                      {m.netMeteringMode != null && m.netMeteringMode > 0 ? (
+                        <Chip
+                          label={["", "Net Billing", "Feed-in", "TOU"][m.netMeteringMode] || "Active"}
+                          size="small"
+                          sx={{ backgroundColor: `${colors.blueAccent[500]}22`, color: colors.blueAccent[500], fontWeight: 600, fontSize: "0.72rem" }}
+                        />
+                      ) : (
+                        <Typography variant="caption" color={colors.grey[500]}>-</Typography>
+                      )}
                     </TableCell>
                     <TableCell sx={{ borderBottom: `1px solid ${colors.grey[800]}` }}>
                       <Chip label={m.customerStatus || "Active"} size="small" sx={{ backgroundColor: `${getStatusColor(m.customerStatus || "Active")}22`, color: getStatusColor(m.customerStatus || "Active"), fontWeight: 600, fontSize: "0.72rem" }} />
@@ -386,7 +713,7 @@ export default function Billing() {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  {["DRN", "Customer", "City", "Tier", "Billing Period", "Credit Days", "Latest Bill", "Bill Status", "Actions"].map((h) => (
+                  {["DRN", "Customer", "City", "Tariff", "Net Metering", "Credit Days", "Latest Bill", "Bill Status", "Actions"].map((h) => (
                     <TableCell key={h} sx={{ color: colors.grey[100], fontWeight: 700, borderBottom: `1px solid ${colors.grey[700]}` }}>
                       {h}
                     </TableCell>
@@ -411,11 +738,25 @@ export default function Billing() {
                     <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[800]}` }}>
                       {m.City || "-"}
                     </TableCell>
-                    <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[800]}` }}>
-                      {m.meter_tier || "-"}
+                    <TableCell sx={{ borderBottom: `1px solid ${colors.grey[800]}` }}>
+                      <Chip
+                        label={m.tariffGroup || "Unassigned"}
+                        size="small"
+                        sx={{
+                          backgroundColor: m.tariffGroup && m.tariffGroup !== "Unassigned" ? `${colors.greenAccent[500]}22` : `${colors.redAccent[500]}22`,
+                          color: m.tariffGroup && m.tariffGroup !== "Unassigned" ? colors.greenAccent[500] : colors.redAccent[500],
+                          fontWeight: 600, fontSize: "0.72rem"
+                        }}
+                      />
                     </TableCell>
-                    <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[800]}` }}>
-                      {m.billing_period || "-"}
+                    <TableCell sx={{ borderBottom: `1px solid ${colors.grey[800]}` }}>
+                      {m.netMeteringMode != null && m.netMeteringMode > 0 ? (
+                        <Chip
+                          label={`${["", "Net Billing", "Feed-in", "TOU"][m.netMeteringMode]}${m.feedInRate ? ` N$${m.feedInRate}` : ""}`}
+                          size="small"
+                          sx={{ backgroundColor: `${colors.blueAccent[500]}22`, color: colors.blueAccent[500], fontWeight: 600, fontSize: "0.72rem" }}
+                        />
+                      ) : "-"}
                     </TableCell>
                     <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[800]}` }}>
                       {m.billing_credit_days || "-"}
@@ -576,7 +917,7 @@ export default function Billing() {
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    {["DRN", "Customer", "City", "Current Mode", "Tier", "Email", "Phone", "Action"].map((h) => (
+                    {["DRN", "Customer", "City", "Current Mode", "Tariff", "Email", "Phone", "Action"].map((h) => (
                       <TableCell key={h} sx={{ color: colors.grey[100], fontWeight: 700, borderBottom: `1px solid ${colors.grey[700]}` }}>
                         {h}
                       </TableCell>
@@ -613,8 +954,16 @@ export default function Billing() {
                           }}
                         />
                       </TableCell>
-                      <TableCell sx={{ color: colors.grey[300], borderBottom: `1px solid ${colors.grey[800]}` }}>
-                        {m.meter_tier || "-"}
+                      <TableCell sx={{ borderBottom: `1px solid ${colors.grey[800]}` }}>
+                        <Chip
+                          label={m.tariffGroup || "Unassigned"}
+                          size="small"
+                          sx={{
+                            backgroundColor: m.tariffGroup && m.tariffGroup !== "Unassigned" ? `${colors.greenAccent[500]}22` : `${colors.redAccent[500]}22`,
+                            color: m.tariffGroup && m.tariffGroup !== "Unassigned" ? colors.greenAccent[500] : colors.redAccent[500],
+                            fontWeight: 600, fontSize: "0.72rem"
+                          }}
+                        />
                       </TableCell>
                       <TableCell sx={{ color: colors.grey[300], fontSize: "0.8rem", borderBottom: `1px solid ${colors.grey[800]}` }}>
                         {m.email || "-"}

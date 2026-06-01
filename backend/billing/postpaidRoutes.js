@@ -24,7 +24,7 @@ function query(sql, params) {
   });
 }
 
-// ─── Ensure PostpaidBills table exists ───
+// ─── Ensure tables exist ───
 async function ensureTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS PostpaidBills (
@@ -64,115 +64,286 @@ async function ensureTables() {
       INDEX idx_date (created_at)
     )
   `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS MeterDailyRevenue (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      DRN VARCHAR(50) NOT NULL,
+      date DATE NOT NULL,
+      consumption_kwh DECIMAL(12,4) NOT NULL DEFAULT 0,
+      revenue DECIMAL(12,4) NOT NULL DEFAULT 0,
+      tariff_group VARCHAR(50) DEFAULT 'Default',
+      tariff_type VARCHAR(20) DEFAULT 'Flat',
+      rate_applied DECIMAL(8,4) DEFAULT 0,
+      billing_mode VARCHAR(20) DEFAULT 'Prepaid',
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY idx_drn_date (DRN, date),
+      INDEX idx_date (date),
+      INDEX idx_mode (billing_mode)
+    )
+  `);
 }
 
 // Run on module load
 ensureTables().catch(err => logger.error('Table creation error:', err));
 
-// ─── GET /summary — Real billing summary stats ───
+// ─── Accurate Revenue Calculation Engine ───
+async function computeRevenueForRange(startDate, endDate) {
+  const groups = await query('SELECT * FROM TariffGroups');
+  const allBlocks = await query('SELECT * FROM TariffBlocks ORDER BY tariffGroupId, sortOrder');
+
+  const meters = await query(`
+    SELECT mp.DRN, COALESCE(vc.tariffGroup, 'Default') as tariffGroup,
+           COALESCE(bc.billing_mode, 'Prepaid') as billing_mode
+    FROM MeterProfileReal mp
+    LEFT JOIN VendingCustomers vc ON mp.DRN = vc.meterNo
+    LEFT JOIN MeterBillingConfiguration bc ON mp.DRN = bc.DRN
+  `);
+
+  var groupMap = {};
+  groups.forEach(function(g) { groupMap[g.name] = g; });
+
+  var blockMap = {};
+  allBlocks.forEach(function(b) {
+    if (!blockMap[b.tariffGroupId]) blockMap[b.tariffGroupId] = [];
+    blockMap[b.tariffGroupId].push(b);
+  });
+
+  var totalUpdated = 0;
+
+  for (var mi = 0; mi < meters.length; mi++) {
+    var meter = meters[mi];
+    var tg = groupMap[meter.tariffGroup];
+    var blocks = tg ? (blockMap[tg.id] || []) : [];
+
+    var dailyRows = await query(
+      'SELECT DATE(date_time) as day, ' +
+      '(MAX(CAST(active_energy AS DECIMAL(20,4))) - MIN(CAST(active_energy AS DECIMAL(20,4)))) / 1000 as kwh ' +
+      'FROM MeterCumulativeEnergyUsage WHERE DRN = ? AND date_time BETWEEN ? AND ? ' +
+      'GROUP BY DATE(date_time)',
+      [meter.DRN, startDate, endDate]
+    );
+
+    for (var di = 0; di < dailyRows.length; di++) {
+      var day = dailyRows[di];
+      var kwh = Number(day.kwh);
+      if (kwh <= 0) continue;
+      var revenue = 0;
+      var rateApplied = 0;
+
+      if (!tg || blocks.length === 0) {
+        rateApplied = 2.45;
+        revenue = kwh * 2.45;
+      } else if (tg.type === 'Flat') {
+        rateApplied = Number(blocks[0].rate);
+        revenue = kwh * rateApplied;
+      } else if (tg.type === 'Block') {
+        // Monthly cumulative consumption before this day
+        var cumRows = await query(
+          'SELECT (MAX(CAST(active_energy AS DECIMAL(20,4))) - MIN(CAST(active_energy AS DECIMAL(20,4)))) / 1000 as cumKwh ' +
+          'FROM MeterCumulativeEnergyUsage WHERE DRN = ? AND date_time >= DATE_FORMAT(?, \'%Y-%m-01\') AND date_time < ?',
+          [meter.DRN, day.day, day.day]
+        ).catch(function() { return [{ cumKwh: 0 }]; });
+        var prevCum = Number((cumRows[0] || {}).cumKwh || 0);
+
+        var remaining = kwh;
+        var position = prevCum;
+        for (var bi = 0; bi < blocks.length; bi++) {
+          if (remaining <= 0) break;
+          var bMin = Number(blocks[bi].minKwh);
+          var bMax = Number(blocks[bi].maxKwh);
+          var bRate = Number(blocks[bi].rate);
+          if (position >= bMax) continue;
+          var start = Math.max(bMin, position);
+          var end = Math.min(bMax, position + remaining);
+          if (end > start) {
+            var blockKwh = end - start;
+            revenue += blockKwh * bRate;
+            remaining -= blockKwh;
+            position += blockKwh;
+          }
+        }
+        rateApplied = kwh > 0 ? revenue / kwh : 0;
+      } else if (tg.type === 'TOU') {
+        // Hourly consumption with time-of-use rates
+        var hourlyData = await query(
+          'SELECT HOUR(date_time) as hr, ' +
+          '(MAX(CAST(active_energy AS DECIMAL(20,4))) - MIN(CAST(active_energy AS DECIMAL(20,4)))) / 1000 as kwh ' +
+          'FROM MeterCumulativeEnergyUsage WHERE DRN = ? AND DATE(date_time) = ? ' +
+          'GROUP BY HOUR(date_time)',
+          [meter.DRN, day.day]
+        );
+        for (var hi = 0; hi < hourlyData.length; hi++) {
+          var hour = Number(hourlyData[hi].hr);
+          var hKwh = Number(hourlyData[hi].kwh);
+          var period = 'standard';
+          if (hour >= 22 || hour < 6) period = 'off-peak';
+          else if ((hour >= 8 && hour < 11) || (hour >= 18 && hour < 22)) period = 'peak';
+          var rateBlock = blocks.find(function(b) { return b.period === period; });
+          var hRate = rateBlock ? Number(rateBlock.rate) : 2.45;
+          revenue += hKwh * hRate;
+        }
+        rateApplied = kwh > 0 ? revenue / kwh : 0;
+      }
+
+      await query(
+        'INSERT INTO MeterDailyRevenue (DRN, date, consumption_kwh, revenue, tariff_group, tariff_type, rate_applied, billing_mode) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?) ' +
+        'ON DUPLICATE KEY UPDATE consumption_kwh=VALUES(consumption_kwh), revenue=VALUES(revenue), ' +
+        'tariff_group=VALUES(tariff_group), tariff_type=VALUES(tariff_type), rate_applied=VALUES(rate_applied), billing_mode=VALUES(billing_mode)',
+        [meter.DRN, day.day, kwh, revenue.toFixed(4),
+         meter.tariffGroup, tg ? tg.type : 'Flat', rateApplied.toFixed(4), meter.billing_mode]
+      );
+      totalUpdated++;
+    }
+  }
+  return totalUpdated;
+}
+
+// Run initial revenue backfill on startup (last 60 days)
+setTimeout(function() {
+  var start = new Date(); start.setDate(start.getDate() - 60);
+  computeRevenueForRange(start.toISOString().split('T')[0], new Date().toISOString().split('T')[0])
+    .then(function(n) { logger.info('[Revenue] Backfill complete: ' + n + ' daily records'); })
+    .catch(function(err) { logger.error('[Revenue] Backfill error:', err); });
+}, 5000);
+
+// Hourly refresh of today's revenue
+setInterval(function() {
+  var today = new Date().toISOString().split('T')[0];
+  computeRevenueForRange(today, today).catch(function() {});
+}, 3600000);
+
+// ─── POST /recalculate — Trigger revenue recalculation ───
+router.post('/recalculate', authenticateToken, async (req, res) => {
+  try {
+    var days = Number(req.body.days) || 60;
+    var start = new Date(); start.setDate(start.getDate() - days);
+    var n = await computeRevenueForRange(start.toISOString().split('T')[0], new Date().toISOString().split('T')[0]);
+    res.json({ success: true, message: 'Recalculated ' + n + ' daily records' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /summary — Billing summary from MeterDailyRevenue ───
 router.get('/summary', authenticateToken, async (req, res) => {
   try {
-    // Prepaid revenue (from VendingTransactions)
-    const [prepaidRev] = await query(`
-      SELECT COALESCE(SUM(amount), 0) as total
-      FROM VendingTransactions
-      WHERE status = 'Completed'
-        AND MONTH(dateTime) = MONTH(CURDATE())
-        AND YEAR(dateTime) = YEAR(CURDATE())
-    `);
+    var [outstanding] = await query(
+      'SELECT COALESCE(SUM(total_amount - paid_amount), 0) as total FROM PostpaidBills WHERE status IN (\'Generated\',\'Sent\',\'Partial\',\'Overdue\')'
+    ).catch(function() { return [{ total: 0 }]; });
 
-    // Postpaid revenue (from PostpaidBills)
-    const [postpaidRev] = await query(`
-      SELECT COALESCE(SUM(paid_amount), 0) as total
-      FROM PostpaidBills
-      WHERE MONTH(bill_period_end) = MONTH(CURDATE())
-        AND YEAR(bill_period_end) = YEAR(CURDATE())
-    `).catch(() => [{ total: 0 }]);
+    var [totalMeters] = await query('SELECT COUNT(*) as cnt FROM MeterProfileReal').catch(function() { return [{ cnt: 0 }]; });
+    var [postpaidOnly] = await query(
+      'SELECT COUNT(*) as cnt FROM MeterBillingConfiguration WHERE billing_mode = \'Postpaid\''
+    ).catch(function() { return [{ cnt: 0 }]; });
+    var postpaidCount = Number(postpaidOnly.cnt);
+    var prepaidCount = Number(totalMeters.cnt) - postpaidCount;
 
-    // Outstanding (postpaid unpaid)
-    const [outstanding] = await query(`
-      SELECT COALESCE(SUM(total_amount - paid_amount), 0) as total
-      FROM PostpaidBills
-      WHERE status IN ('Generated','Sent','Partial','Overdue')
-    `).catch(() => [{ total: 0 }]);
+    // Current month totals from MeterDailyRevenue (accurate per-tariff calculation)
+    var [monthTotals] = await query(
+      'SELECT ' +
+      'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN consumption_kwh ELSE 0 END) as prepaidKwh, ' +
+      'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN consumption_kwh ELSE 0 END) as postpaidKwh, ' +
+      'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN revenue ELSE 0 END) as prepaidRevenue, ' +
+      'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN revenue ELSE 0 END) as postpaidRevenue ' +
+      'FROM MeterDailyRevenue WHERE MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())'
+    ).catch(function() { return [{ prepaidKwh: 0, postpaidKwh: 0, prepaidRevenue: 0, postpaidRevenue: 0 }]; });
 
-    // Meter counts
-    const meterCounts = await query(`
-      SELECT
-        billing_mode,
-        COUNT(*) as count
-      FROM MeterBillingConfiguration
-      WHERE billing_mode IS NOT NULL
-      GROUP BY billing_mode
-    `).catch(() => []);
+    // Daily data for last 14 days (weekly charts)
+    var dailyData = await query(
+      'SELECT date as day, DAYNAME(date) as dayName, ' +
+      'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN consumption_kwh ELSE 0 END) as prepaidKwh, ' +
+      'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN consumption_kwh ELSE 0 END) as postpaidKwh, ' +
+      'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN revenue ELSE 0 END) as prepaidRevenue, ' +
+      'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN revenue ELSE 0 END) as postpaidRevenue ' +
+      'FROM MeterDailyRevenue WHERE date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) ' +
+      'GROUP BY date ORDER BY date'
+    ).catch(function() { return []; });
 
-    let prepaidCount = 0, postpaidCount = 0;
-    meterCounts.forEach(r => {
-      if (r.billing_mode === 'Prepaid') prepaidCount = r.count;
-      if (r.billing_mode === 'Postpaid') postpaidCount = r.count;
-    });
+    // Monthly data: daily breakdown for this month and previous month
+    var monthlyData = await query(
+      'SELECT date as day, DAY(date) as dayNum, MONTH(date) as month, YEAR(date) as year, ' +
+      'SUM(consumption_kwh) as totalKwh, SUM(revenue) as totalRevenue, ' +
+      'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN consumption_kwh ELSE 0 END) as prepaidKwh, ' +
+      'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN consumption_kwh ELSE 0 END) as postpaidKwh, ' +
+      'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN revenue ELSE 0 END) as prepaidRevenue, ' +
+      'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN revenue ELSE 0 END) as postpaidRevenue ' +
+      'FROM MeterDailyRevenue WHERE date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), \'%Y-%m-01\') ' +
+      'GROUP BY date ORDER BY date'
+    ).catch(function() { return []; });
 
-    // Daily revenue for charts (last 7 days)
-    const prepaidDaily = await query(`
-      SELECT
-        DATE(dateTime) as day,
-        COALESCE(SUM(amount), 0) as revenue
-      FROM VendingTransactions
-      WHERE status = 'Completed'
-        AND dateTime >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-      GROUP BY DATE(dateTime)
-      ORDER BY day
-    `).catch(() => []);
+    // Yearly data: monthly totals for current year (Jan-Dec)
+    var yearlyData = await query(
+      'SELECT MONTH(date) as month, MONTHNAME(date) as monthName, ' +
+      'SUM(consumption_kwh) as totalKwh, SUM(revenue) as totalRevenue, ' +
+      'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN consumption_kwh ELSE 0 END) as prepaidKwh, ' +
+      'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN consumption_kwh ELSE 0 END) as postpaidKwh, ' +
+      'SUM(CASE WHEN billing_mode=\'Prepaid\' THEN revenue ELSE 0 END) as prepaidRevenue, ' +
+      'SUM(CASE WHEN billing_mode=\'Postpaid\' THEN revenue ELSE 0 END) as postpaidRevenue ' +
+      'FROM MeterDailyRevenue WHERE YEAR(date) = YEAR(CURDATE()) ' +
+      'GROUP BY MONTH(date) ORDER BY MONTH(date)'
+    ).catch(function() { return []; });
 
-    const postpaidDaily = await query(`
-      SELECT
-        DATE(paid_at) as day,
-        COALESCE(SUM(paid_amount), 0) as revenue
-      FROM PostpaidBills
-      WHERE paid_at IS NOT NULL
-        AND paid_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-      GROUP BY DATE(paid_at)
-      ORDER BY day
-    `).catch(() => []);
+    var [tokenStats] = await query(
+      'SELECT COUNT(*) as tokenCount, COALESCE(SUM(amount), 0) as tokenRevenue ' +
+      'FROM VendingTransactions WHERE status = \'Completed\' ' +
+      'AND MONTH(dateTime) = MONTH(CURDATE()) AND YEAR(dateTime) = YEAR(CURDATE())'
+    ).catch(function() { return [{ tokenCount: 0, tokenRevenue: 0 }]; });
 
-    // Cumulative prepaid tokens purchased (all time)
-    const [prepaidCumulative] = await query(`
-      SELECT COALESCE(SUM(amount), 0) as total, COALESCE(SUM(kwhAmount), 0) as totalKwh,
-             COUNT(*) as tokenCount
-      FROM VendingTransactions
-      WHERE status = 'Completed'
-    `).catch(() => [{ total: 0, totalKwh: 0, tokenCount: 0 }]);
+    // Per-meter breakdown: weekly (this week + last week)
+    var meterWeekly = await query(
+      'SELECT mdr.DRN, CONCAT(mp.Name, \' \', mp.Surname) as customer, mdr.billing_mode, mdr.tariff_group, mdr.tariff_type, mdr.rate_applied, ' +
+      'SUM(CASE WHEN YEARWEEK(mdr.date, 1) = YEARWEEK(CURDATE(), 1) THEN mdr.consumption_kwh ELSE 0 END) as twKwh, ' +
+      'SUM(CASE WHEN YEARWEEK(mdr.date, 1) = YEARWEEK(CURDATE(), 1) THEN mdr.revenue ELSE 0 END) as twRevenue, ' +
+      'SUM(CASE WHEN YEARWEEK(mdr.date, 1) = YEARWEEK(DATE_SUB(CURDATE(), INTERVAL 7 DAY), 1) THEN mdr.consumption_kwh ELSE 0 END) as lwKwh, ' +
+      'SUM(CASE WHEN YEARWEEK(mdr.date, 1) = YEARWEEK(DATE_SUB(CURDATE(), INTERVAL 7 DAY), 1) THEN mdr.revenue ELSE 0 END) as lwRevenue ' +
+      'FROM MeterDailyRevenue mdr LEFT JOIN MeterProfileReal mp ON mdr.DRN = mp.DRN ' +
+      'WHERE mdr.date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) ' +
+      'GROUP BY mdr.DRN ORDER BY twRevenue DESC'
+    ).catch(function() { return []; });
 
-    // Cumulative postpaid consumption this month (from MeterCumulativeEnergyUsage)
-    const [postpaidConsumption] = await query(`
-      SELECT COALESCE(SUM(e.total_kwh), 0) as totalKwh
-      FROM MeterCumulativeEnergyUsage e
-      INNER JOIN MeterBillingConfiguration bc ON e.DRN = bc.DRN
-      WHERE bc.billing_mode = 'Postpaid'
-    `).catch(() => [{ totalKwh: 0 }]);
+    // Per-meter breakdown: monthly (this month + prev month)
+    var meterMonthly = await query(
+      'SELECT mdr.DRN, CONCAT(mp.Name, \' \', mp.Surname) as customer, mdr.billing_mode, mdr.tariff_group, mdr.tariff_type, mdr.rate_applied, ' +
+      'SUM(CASE WHEN MONTH(mdr.date) = MONTH(CURDATE()) AND YEAR(mdr.date) = YEAR(CURDATE()) THEN mdr.consumption_kwh ELSE 0 END) as tmKwh, ' +
+      'SUM(CASE WHEN MONTH(mdr.date) = MONTH(CURDATE()) AND YEAR(mdr.date) = YEAR(CURDATE()) THEN mdr.revenue ELSE 0 END) as tmRevenue, ' +
+      'SUM(CASE WHEN MONTH(mdr.date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(mdr.date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) THEN mdr.consumption_kwh ELSE 0 END) as pmKwh, ' +
+      'SUM(CASE WHEN MONTH(mdr.date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(mdr.date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) THEN mdr.revenue ELSE 0 END) as pmRevenue ' +
+      'FROM MeterDailyRevenue mdr LEFT JOIN MeterProfileReal mp ON mdr.DRN = mp.DRN ' +
+      'WHERE mdr.date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), \'%Y-%m-01\') ' +
+      'GROUP BY mdr.DRN ORDER BY tmRevenue DESC'
+    ).catch(function() { return []; });
 
-    // Postpaid total billed this month
-    const [postpaidBilled] = await query(`
-      SELECT COALESCE(SUM(total_amount), 0) as totalBilled
-      FROM PostpaidBills
-      WHERE MONTH(bill_period_end) = MONTH(CURDATE())
-        AND YEAR(bill_period_end) = YEAR(CURDATE())
-    `).catch(() => [{ totalBilled: 0 }]);
+    // Per-meter breakdown: yearly (current year)
+    var meterYearly = await query(
+      'SELECT mdr.DRN, CONCAT(mp.Name, \' \', mp.Surname) as customer, mdr.billing_mode, mdr.tariff_group, mdr.tariff_type, mdr.rate_applied, ' +
+      'SUM(mdr.consumption_kwh) as totalKwh, SUM(mdr.revenue) as totalRevenue ' +
+      'FROM MeterDailyRevenue mdr LEFT JOIN MeterProfileReal mp ON mdr.DRN = mp.DRN ' +
+      'WHERE YEAR(mdr.date) = YEAR(CURDATE()) ' +
+      'GROUP BY mdr.DRN ORDER BY totalRevenue DESC'
+    ).catch(function() { return []; });
+
+    var prepaidRev = Number(monthTotals.prepaidRevenue || 0);
+    var postpaidRev = Number(monthTotals.postpaidRevenue || 0);
 
     res.json({
-      totalRevenue: Number(prepaidRev.total) + Number(postpaidRev.total),
-      prepaidRevenue: Number(prepaidRev.total),
-      postpaidRevenue: Number(postpaidRev.total),
+      totalRevenue: prepaidRev + postpaidRev,
+      prepaidRevenue: prepaidRev,
+      postpaidRevenue: postpaidRev,
       outstanding: Number(outstanding.total),
       prepaidMeterCount: prepaidCount,
       postpaidMeterCount: postpaidCount,
-      prepaidCumulativeRevenue: Number(prepaidCumulative.total),
-      prepaidCumulativeKwh: Number(prepaidCumulative.totalKwh),
-      prepaidTokenCount: Number(prepaidCumulative.tokenCount),
-      postpaidConsumptionKwh: Number(postpaidConsumption.totalKwh),
-      postpaidBilledAmount: Number(postpaidBilled.totalBilled),
-      prepaidDaily,
-      postpaidDaily,
+      prepaidConsumptionKwh: Number(monthTotals.prepaidKwh || 0),
+      postpaidConsumptionKwh: Number(monthTotals.postpaidKwh || 0),
+      tokensPurchased: Number(tokenStats.tokenCount),
+      tokenRevenue: Number(tokenStats.tokenRevenue),
+      dailyData,
+      monthlyData,
+      yearlyData,
+      meterWeekly,
+      meterMonthly,
+      meterYearly,
     });
   } catch (err) {
     logger.error('Billing summary error:', err);
@@ -188,18 +359,41 @@ router.get('/prepaid-meters', authenticateToken, async (req, res) => {
         mp.DRN,
         CONCAT(mp.Name, ' ', mp.Surname) as customer,
         mp.City,
-        bc.meter_tier,
-        bc.notification_frequency,
+        COALESCE(vc.tariffGroup, 'Unassigned') as tariffGroup,
         vc.accountNo,
         vc.lastPurchaseDate,
         vc.lastPurchaseAmount,
-        vc.status as customerStatus
-      FROM MeterBillingConfiguration bc
-      JOIN MeterProfileReal mp ON bc.DRN = mp.DRN
+        vc.status as customerStatus,
+        nmc.nm_mode as netMeteringMode,
+        nmc.feed_in_rate as feedInRate
+      FROM MeterProfileReal mp
+      LEFT JOIN MeterBillingConfiguration bc ON mp.DRN = bc.DRN
       LEFT JOIN VendingCustomers vc ON mp.DRN = vc.meterNo
-      WHERE bc.billing_mode = 'Prepaid'
+      LEFT JOIN MeterNetMeteringConfig nmc ON mp.DRN = nmc.DRN
+      WHERE COALESCE(bc.billing_mode, 'Prepaid') = 'Prepaid'
       ORDER BY mp.DRN
     `);
+
+    // Get latest credit (units) and last purchased kWh for each meter
+    for (const m of meters) {
+      const [latest] = await query(`
+        SELECT units FROM MeterCumulativeEnergyUsage
+        WHERE DRN = ? ORDER BY date_time DESC LIMIT 1
+      `, [m.DRN]).catch(() => [null]);
+      m.creditKwh = latest ? parseFloat(latest.units) : null;
+
+      const [lastTx] = await query(`
+        SELECT kWh, amount, dateTime FROM VendingTransactions
+        WHERE meterNo = ? AND status = 'Completed'
+        ORDER BY dateTime DESC LIMIT 1
+      `, [m.DRN]).catch(() => [null]);
+      m.lastPurchasedKwh = lastTx ? parseFloat(lastTx.kWh) : null;
+      if (!m.lastPurchaseDate && lastTx) {
+        m.lastPurchaseDate = lastTx.dateTime;
+        m.lastPurchaseAmount = parseFloat(lastTx.amount);
+      }
+    }
+
     res.json({ meters });
   } catch (err) {
     logger.error('Prepaid meters error:', err);
@@ -215,14 +409,18 @@ router.get('/postpaid-meters', authenticateToken, async (req, res) => {
         mp.DRN,
         CONCAT(mp.Name, ' ', mp.Surname) as customer,
         mp.City,
-        bc.meter_tier,
+        COALESCE(vc.tariffGroup, 'Unassigned') as tariffGroup,
         bc.billing_period,
         bc.custom_billing_day,
         bc.billing_credit_days,
         bc.turn_off_max_amount,
-        bc.turn_on_max_amount
+        bc.turn_on_max_amount,
+        nmc.nm_mode as netMeteringMode,
+        nmc.feed_in_rate as feedInRate
       FROM MeterBillingConfiguration bc
       JOIN MeterProfileReal mp ON bc.DRN = mp.DRN
+      LEFT JOIN VendingCustomers vc ON mp.DRN = vc.meterNo
+      LEFT JOIN MeterNetMeteringConfig nmc ON mp.DRN = nmc.DRN
       WHERE bc.billing_mode = 'Postpaid'
       ORDER BY mp.DRN
     `);
@@ -542,12 +740,14 @@ router.get('/all-meters', authenticateToken, async (req, res) => {
         CONCAT(mp.Name, ' ', mp.Surname) as customer,
         mp.City,
         COALESCE(bc.billing_mode, 'Prepaid') as billing_mode,
-        bc.meter_tier,
+        COALESCE(vc.tariffGroup, 'Unassigned') as tariffGroup,
         vc.email,
-        vc.phone
+        vc.phone,
+        nmc.nm_mode as netMeteringMode
       FROM MeterProfileReal mp
       LEFT JOIN MeterBillingConfiguration bc ON mp.DRN = bc.DRN
       LEFT JOIN VendingCustomers vc ON mp.DRN = vc.meterNo
+      LEFT JOIN MeterNetMeteringConfig nmc ON mp.DRN = nmc.DRN
       ORDER BY mp.DRN
     `);
     res.json({ meters });

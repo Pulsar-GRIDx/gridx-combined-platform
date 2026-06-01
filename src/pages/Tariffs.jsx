@@ -40,7 +40,11 @@ import {
   WifiOffOutlined,
   HistoryOutlined,
   AssignmentOutlined,
+  CheckBoxOutlined,
+  CheckBoxOutlineBlankOutlined,
+  SelectAllOutlined,
 } from "@mui/icons-material";
+import Checkbox from "@mui/material/Checkbox";
 import { tokens } from "../theme";
 import Header from "../components/Header";
 import { vendingAPI } from "../services/api";
@@ -95,6 +99,13 @@ export default function Tariffs() {
   const [bulkAssignLoading, setBulkAssignLoading] = useState(false);
   const [tariffHistoryDialog, setTariffHistoryDialog] = useState({ open: false, drn: null, data: [] });
 
+  // All meters overview state
+  const [allMeters, setAllMeters] = useState([]);
+  const [allMetersLoading, setAllMetersLoading] = useState(false);
+  const [selectedDRNs, setSelectedDRNs] = useState([]);
+  const [assignTargetGroup, setAssignTargetGroup] = useState("");
+  const [assignSelectedLoading, setAssignSelectedLoading] = useState(false);
+
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
@@ -121,6 +132,16 @@ export default function Tariffs() {
       console.error("Tariff load error:", err);
     }
     setLoading(false);
+    loadAllMeters();
+  };
+
+  const loadAllMeters = async () => {
+    setAllMetersLoading(true);
+    try {
+      const res = await vendingAPI.getAllMetersWithTariff();
+      setAllMeters(res.data || []);
+    } catch { setAllMeters([]); }
+    setAllMetersLoading(false);
   };
 
   const handleChange = (field) => (e) => {
@@ -290,6 +311,31 @@ export default function Tariffs() {
       const res = await vendingAPI.getTariffHistory(drn);
       setTariffHistoryDialog({ open: true, drn, data: res.data || [] });
     } catch { setTariffHistoryDialog({ open: true, drn, data: [] }); }
+  };
+
+  const handleAssignSelected = async () => {
+    if (!assignTargetGroup || selectedDRNs.length === 0) return;
+    if (!window.confirm(`Assign ${selectedDRNs.length} meter(s) to "${assignTargetGroup}" and push tariff via MQTT?`)) return;
+    setAssignSelectedLoading(true);
+    try {
+      const res = await vendingAPI.assignTariffToSelected(selectedDRNs, assignTargetGroup);
+      setSnackbar({ open: true, message: `Assigned ${res.assigned || 0} meters, MQTT pushed: ${res.pushed || 0}`, severity: "success" });
+      setSelectedDRNs([]);
+      loadAllMeters();
+      loadData();
+    } catch (err) {
+      setSnackbar({ open: true, message: err.message, severity: "error" });
+    }
+    setAssignSelectedLoading(false);
+  };
+
+  const toggleSelectDRN = (drn) => {
+    setSelectedDRNs(prev => prev.includes(drn) ? prev.filter(d => d !== drn) : [...prev, drn]);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedDRNs.length === allMeters.length) setSelectedDRNs([]);
+    else setSelectedDRNs(allMeters.map(m => m.DRN));
   };
 
   const cellSx = { color: colors.grey[200], borderBottom: `1px solid ${colors.grey[800]}` };
@@ -598,6 +644,122 @@ export default function Tariffs() {
             )}
           </Box>
         </Box>
+
+      {/* ═══════════ ALL METERS — TARIFF OVERVIEW ═══════════ */}
+      <Box mt="20px" backgroundColor={colors.primary[400]} borderRadius="4px" overflow="auto">
+        <Box p="20px" pb="10px" display="flex" justifyContent="space-between" alignItems="center">
+          <Box display="flex" alignItems="center" gap="12px">
+            <AssignmentOutlined sx={{ color: colors.greenAccent[500] }} />
+            <Box>
+              <Typography variant="h5" color={colors.grey[100]} fontWeight="bold">
+                All Meters — Tariff Assignments
+              </Typography>
+              <Typography variant="caption" color={colors.grey[400]}>
+                {allMeters.length} meter{allMeters.length !== 1 ? "s" : ""} in the system
+                {selectedDRNs.length > 0 && ` | ${selectedDRNs.length} selected`}
+              </Typography>
+            </Box>
+          </Box>
+          <Box display="flex" gap="8px" alignItems="center">
+            {selectedDRNs.length > 0 && (
+              <>
+                <FormControl size="small" sx={{ minWidth: 180 }}>
+                  <InputLabel sx={{ color: colors.grey[300] }}>Assign to Group</InputLabel>
+                  <Select label="Assign to Group" value={assignTargetGroup} onChange={(e) => setAssignTargetGroup(e.target.value)}
+                    sx={{ color: colors.grey[100], "& .MuiOutlinedInput-notchedOutline": { borderColor: colors.grey[700] } }}>
+                    {tariffGroups.map((g) => (
+                      <MenuItem key={g.id} value={g.name}>{g.name} ({g.type})</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Button size="small" variant="contained"
+                  startIcon={assignSelectedLoading ? <CircularProgress size={14} sx={{ color: "#000" }} /> : <SendOutlined />}
+                  disabled={!assignTargetGroup || assignSelectedLoading}
+                  onClick={handleAssignSelected}
+                  sx={{ backgroundColor: colors.greenAccent[500], color: "#000", fontWeight: 600, textTransform: "none", fontSize: "0.75rem",
+                    "&:hover": { backgroundColor: colors.greenAccent[600] }, whiteSpace: "nowrap" }}>
+                  Assign & Push ({selectedDRNs.length})
+                </Button>
+              </>
+            )}
+            <Button size="small" variant="outlined" startIcon={<SelectAllOutlined />}
+              onClick={toggleSelectAll}
+              sx={{ color: colors.blueAccent[500], borderColor: colors.blueAccent[500], textTransform: "none", fontSize: "0.75rem" }}>
+              {selectedDRNs.length === allMeters.length ? "Deselect All" : "Select All"}
+            </Button>
+          </Box>
+        </Box>
+        <Box px="20px" pb="20px">
+          {allMetersLoading ? (
+            <Box display="flex" justifyContent="center" py="30px">
+              <CircularProgress size={28} sx={{ color: colors.greenAccent[500] }} />
+            </Box>
+          ) : allMeters.length === 0 ? (
+            <Box textAlign="center" py="30px">
+              <Typography color={colors.grey[500]}>No meters found in the system</Typography>
+            </Box>
+          ) : (
+            <TableContainer sx={{ maxHeight: 500 }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell padding="checkbox" sx={{ ...headerSx, backgroundColor: colors.primary[400] }}>
+                      <Checkbox size="small" checked={selectedDRNs.length === allMeters.length && allMeters.length > 0}
+                        indeterminate={selectedDRNs.length > 0 && selectedDRNs.length < allMeters.length}
+                        onChange={toggleSelectAll}
+                        sx={{ color: colors.grey[400], "&.Mui-checked": { color: colors.greenAccent[500] }, "&.MuiCheckbox-indeterminate": { color: colors.greenAccent[500] } }} />
+                    </TableCell>
+                    <TableCell sx={{ ...headerSx, backgroundColor: colors.primary[400] }}>DRN</TableCell>
+                    <TableCell sx={{ ...headerSx, backgroundColor: colors.primary[400] }}>Customer</TableCell>
+                    <TableCell sx={{ ...headerSx, backgroundColor: colors.primary[400] }}>Area</TableCell>
+                    <TableCell sx={{ ...headerSx, backgroundColor: colors.primary[400] }}>Assigned Tariff</TableCell>
+                    <TableCell align="center" sx={{ ...headerSx, backgroundColor: colors.primary[400] }}>Status</TableCell>
+                    <TableCell sx={{ ...headerSx, backgroundColor: colors.primary[400] }}>Last Seen</TableCell>
+                    <TableCell align="right" sx={{ ...headerSx, backgroundColor: colors.primary[400] }}>Credit (kWh)</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {allMeters.map((m) => {
+                    const isSelected = selectedDRNs.includes(m.DRN);
+                    const isUnassigned = m.assignedTariff === "Unassigned";
+                    return (
+                      <TableRow key={m.DRN} hover selected={isSelected} onClick={() => toggleSelectDRN(m.DRN)} sx={{ cursor: "pointer" }}>
+                        <TableCell padding="checkbox" sx={cellSx}>
+                          <Checkbox size="small" checked={isSelected}
+                            sx={{ color: colors.grey[400], "&.Mui-checked": { color: colors.greenAccent[500] } }} />
+                        </TableCell>
+                        <TableCell sx={{ ...cellSx, fontWeight: 600, fontFamily: "monospace" }}>{m.DRN}</TableCell>
+                        <TableCell sx={cellSx}>{[m.Name, m.Surname].filter(Boolean).join(" ") || "—"}</TableCell>
+                        <TableCell sx={cellSx}>{m.City || "—"}</TableCell>
+                        <TableCell sx={cellSx}>
+                          <Chip size="small" label={m.assignedTariff}
+                            sx={{ backgroundColor: isUnassigned ? "#db4f4a22" : "#4cceac22",
+                              color: isUnassigned ? "#db4f4a" : "#4cceac", fontWeight: 600, fontSize: "0.7rem" }} />
+                        </TableCell>
+                        <TableCell align="center" sx={cellSx}>
+                          <Chip size="small"
+                            icon={m.status === "Online" ? <WifiOutlined sx={{ fontSize: 14 }} /> : <WifiOffOutlined sx={{ fontSize: 14 }} />}
+                            label={m.status || "Offline"}
+                            sx={{ backgroundColor: m.status === "Online" ? "#4cceac22" : "#db4f4a22",
+                              color: m.status === "Online" ? "#4cceac" : "#db4f4a",
+                              fontWeight: 600, fontSize: "0.7rem",
+                              "& .MuiChip-icon": { color: "inherit" } }} />
+                        </TableCell>
+                        <TableCell sx={{ ...cellSx, fontSize: "0.75rem" }}>
+                          {m.last_seen ? new Date(m.last_seen).toLocaleString("en-ZA", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "Never"}
+                        </TableCell>
+                        <TableCell align="right" sx={{ ...cellSx, fontWeight: 600, color: colors.greenAccent[500] }}>
+                          {m.credit_remaining != null ? Number(m.credit_remaining).toFixed(2) : "—"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Box>
+      </Box>
 
       {/* ─── TOU Schedule Editor Dialog ─── */}
       <Dialog open={touDialogOpen} onClose={() => setTouDialogOpen(false)} maxWidth="lg" fullWidth

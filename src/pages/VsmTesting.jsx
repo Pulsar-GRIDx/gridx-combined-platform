@@ -544,13 +544,12 @@ export default function VsmTesting() {
   return (
     <Box sx={{ p: 3, maxWidth: 1400, mx: "auto" }}>
       {/* Header */}
-      <Typography variant="h4" sx={{ fontWeight: 800, letterSpacing: "-0.5px", mb: 0.5 }}>
+      <Typography variant="h2" sx={{ fontWeight: "bold", color: colors.grey[100], mb: "4px" }}>
         HARDWARE SECURITY MODULE
       </Typography>
-      <Typography sx={{ color: activeAccent, fontWeight: 500, fontSize: "14px", mb: 3 }}>
+      <Typography variant="h5" sx={{ color: activeAccent, fontWeight: 500, mb: 2 }}>
         STS Vending Security Module — Token Generation & Validation
       </Typography>
-      <Divider sx={{ mb: 2, borderColor: activeAccent + "40" }} />
 
       {/* ═══ HSM MODE TOGGLE: Real vs Virtual ═══ */}
       <Box sx={{ display: "flex", gap: 1, mb: 3 }}>
