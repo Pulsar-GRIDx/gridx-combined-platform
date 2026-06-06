@@ -34,29 +34,15 @@ import {
   Legend,
 } from "recharts";
 import { tokens } from "../theme";
-import { groupControlAPI } from "../services/api";
+import { groupControlAPI, netMeteringAPI } from "../services/api";
 
 const TARIFF_RETAIL = 2.45;
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const TARIFF_COST = 1.60;
 
-function generateWeeklyData(totalPower) {
-  const base = totalPower * 0.024; // rough daily kWh estimate
-  return DAYS.map((d) => ({
-    day: d,
-    import: +(base * (0.7 + Math.random() * 0.6)).toFixed(1),
-    export: +(base * (0.05 + Math.random() * 0.15)).toFixed(1),
-  }));
-}
-
-function generateMonthlyData(totalPower) {
-  const base = totalPower * 0.024;
-  const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  return Array.from({ length: daysInMonth }, (_, i) => ({
-    day: `${i + 1}`,
-    import: i < now.getDate() ? +(base * (0.6 + Math.random() * 0.8)).toFixed(1) : 0,
-    export: i < now.getDate() ? +(base * (0.03 + Math.random() * 0.12)).toFixed(1) : 0,
-  }));
+/** Safe number — returns 0 for NaN / null / undefined */
+function safeNum(v, fallback = 0) {
+  const n = parseFloat(v);
+  return isNaN(n) || !isFinite(n) ? fallback : n;
 }
 
 export default function AreaProfile() {
@@ -69,15 +55,17 @@ export default function AreaProfile() {
   const [loading, setLoading] = useState(true);
   const [allMeters, setAllMeters] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [dailyEnergyData, setDailyEnergyData] = useState([]);
 
   const decodedName = decodeURIComponent(areaName);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [metersRes, groupsRes] = await Promise.allSettled([
+      const [metersRes, groupsRes, dashRes] = await Promise.allSettled([
         groupControlAPI.getMetersState(),
         groupControlAPI.getGroups(),
+        netMeteringAPI.getDashboard("daily"),
       ]);
       if (metersRes.status === "fulfilled") {
         const d = metersRes.value?.data || metersRes.value || [];
@@ -86,6 +74,11 @@ export default function AreaProfile() {
       if (groupsRes.status === "fulfilled") {
         const d = groupsRes.value?.data || groupsRes.value || [];
         setGroups(Array.isArray(d) ? d : []);
+      }
+      if (dashRes.status === "fulfilled") {
+        const raw = dashRes.value?.data || dashRes.value || {};
+        const daily = raw.daily || raw.data?.daily || [];
+        setDailyEnergyData(Array.isArray(daily) ? daily : []);
       }
     } catch (err) {
       console.error("Fetch error:", err);
@@ -117,17 +110,65 @@ export default function AreaProfile() {
   const offlineCount = areaMeters.length - onlineCount;
 
   const totalPower = useMemo(() =>
-    areaMeters.reduce((s, m) => s + (parseFloat(m.active_power || m.ActivePower || 0) || 0), 0),
+    areaMeters.reduce((s, m) => s + safeNum(m.active_power || m.ActivePower), 0),
   [areaMeters]);
 
   const totalUnits = useMemo(() =>
-    areaMeters.reduce((s, m) => s + (parseFloat(m.CumulativeUnits || m.credit || 0) || 0), 0),
+    areaMeters.reduce((s, m) => s + safeNum(m.CumulativeUnits || m.credit), 0),
   [areaMeters]);
 
-  const estimatedRevenue = (totalUnits * TARIFF_RETAIL).toFixed(2);
+  const estimatedRevenue = safeNum(totalUnits * TARIFF_RETAIL).toFixed(2);
 
-  const weeklyData = useMemo(() => generateWeeklyData(totalPower), [totalPower]);
-  const monthlyData = useMemo(() => generateMonthlyData(totalPower), [totalPower]);
+  // --- Build weekly chart data from last 7 days of API daily data ---
+  const weeklyData = useMemo(() => {
+    if (!dailyEnergyData.length) return [];
+    const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    // Sort by date descending, take last 7
+    const sorted = [...dailyEnergyData]
+      .sort((a, b) => new Date(b.date || b.label) - new Date(a.date || a.label))
+      .slice(0, 7)
+      .reverse();
+    return sorted.map((d) => {
+      const dt = new Date(d.date || d.label);
+      return {
+        day: DAYS[dt.getDay()] || d.label || "?",
+        import: safeNum(d.import || d.total_import),
+        export: safeNum(d.export || d.total_export),
+      };
+    });
+  }, [dailyEnergyData]);
+
+  // --- Build monthly chart data for current month from API daily data ---
+  const monthlyData = useMemo(() => {
+    if (!dailyEnergyData.length) return [];
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    return dailyEnergyData
+      .filter((d) => {
+        const dt = new Date(d.date || d.label);
+        return dt.getFullYear() === currentYear && dt.getMonth() === currentMonth;
+      })
+      .sort((a, b) => new Date(a.date || a.label) - new Date(b.date || b.label))
+      .map((d) => {
+        const dt = new Date(d.date || d.label);
+        return {
+          day: String(dt.getDate()),
+          import: safeNum(d.import || d.total_import),
+          export: safeNum(d.export || d.total_export),
+        };
+      });
+  }, [dailyEnergyData]);
+
+  // --- Revenue chart data — per day in current month ---
+  const revenueData = useMemo(() => {
+    if (!monthlyData.length) return [];
+    return monthlyData.map((d) => ({
+      day: d.day,
+      revenue: safeNum((safeNum(d.import) * TARIFF_RETAIL).toFixed(2)),
+      cost: safeNum((safeNum(d.export) * TARIFF_COST).toFixed(2)),
+    }));
+  }, [monthlyData]);
 
   const isGroupActive = (g) => {
     const schedule = g.schedule || null;
@@ -191,7 +232,7 @@ export default function AreaProfile() {
           },
           {
             label: "Total Power",
-            value: `${totalPower.toLocaleString()} W`,
+            value: `${safeNum(totalPower).toLocaleString()} W`,
             sub: "Active power consumption",
             icon: <BoltOutlined sx={{ fontSize: 20 }} />,
             iconBg: isDark ? "rgba(245,158,11,0.1)" : "#FFFBEB",
@@ -199,7 +240,7 @@ export default function AreaProfile() {
           },
           {
             label: "Est. Revenue",
-            value: `N$ ${Number(estimatedRevenue).toLocaleString()}`,
+            value: `N$ ${safeNum(Number(estimatedRevenue)).toLocaleString()}`,
             sub: `@ ${TARIFF_RETAIL} N$/kWh`,
             icon: <AttachMoneyOutlined sx={{ fontSize: 20 }} />,
             iconBg: isDark ? "rgba(16,185,129,0.1)" : "#ECFDF5",
@@ -242,39 +283,80 @@ export default function AreaProfile() {
       {/* CHARTS ROW */}
       <Box sx={{ px: 3, pb: 2, display: "flex", gap: 2, flexWrap: "wrap" }}>
         {/* Weekly */}
-        <Box sx={{ flex: "1 1 400px", bgcolor: cardBg, border: cardBorder, borderRadius: "12px", p: "18px 22px" }}>
+        <Box sx={{ flex: "1 1 380px", bgcolor: cardBg, border: cardBorder, borderRadius: "12px", p: "18px 22px" }}>
           <Typography variant="subtitle1" fontWeight={600} color={headingColor} mb={1.5}>
-            Weekly Energy (Current Week)
+            Weekly Energy (Last 7 Days)
           </Typography>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={weeklyData} barGap={2}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1E293B" : "#E5E7EB"} />
-              <XAxis dataKey="day" tick={{ fontSize: 11, fill: labelColor }} />
-              <YAxis tick={{ fontSize: 11, fill: labelColor }} unit=" kWh" />
-              <Tooltip contentStyle={{ backgroundColor: isDark ? "#1E293B" : "#fff", border: cardBorder, borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="import" name="Import" fill="#3B82F6" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="export" name="Export" fill="#F59E0B" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {weeklyData.length === 0 ? (
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: 280 }}>
+              <Typography color={labelColor} fontSize={13}>No energy data available</Typography>
+            </Box>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={weeklyData} barGap={2}>
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1E293B" : "#E5E7EB"} />
+                <XAxis dataKey="day" tick={{ fontSize: 11, fill: labelColor }} />
+                <YAxis tick={{ fontSize: 11, fill: labelColor }} unit=" kWh" />
+                <Tooltip contentStyle={{ backgroundColor: isDark ? "#1E293B" : "#fff", border: cardBorder, borderRadius: 8, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="import" name="Import" fill="#3B82F6" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="export" name="Export" fill="#F59E0B" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </Box>
 
         {/* Monthly */}
-        <Box sx={{ flex: "1 1 400px", bgcolor: cardBg, border: cardBorder, borderRadius: "12px", p: "18px 22px" }}>
+        <Box sx={{ flex: "1 1 380px", bgcolor: cardBg, border: cardBorder, borderRadius: "12px", p: "18px 22px" }}>
           <Typography variant="subtitle1" fontWeight={600} color={headingColor} mb={1.5}>
             Monthly Energy (Current Month)
           </Typography>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={monthlyData} barGap={2}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1E293B" : "#E5E7EB"} />
-              <XAxis dataKey="day" tick={{ fontSize: 10, fill: labelColor }} interval={2} />
-              <YAxis tick={{ fontSize: 11, fill: labelColor }} unit=" kWh" />
-              <Tooltip contentStyle={{ backgroundColor: isDark ? "#1E293B" : "#fff", border: cardBorder, borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="import" name="Import" fill="#3B82F6" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="export" name="Export" fill="#F59E0B" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {monthlyData.length === 0 ? (
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: 280 }}>
+              <Typography color={labelColor} fontSize={13}>No energy data available</Typography>
+            </Box>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={monthlyData} barGap={2}>
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1E293B" : "#E5E7EB"} />
+                <XAxis dataKey="day" tick={{ fontSize: 10, fill: labelColor }} interval={2} />
+                <YAxis tick={{ fontSize: 11, fill: labelColor }} unit=" kWh" />
+                <Tooltip contentStyle={{ backgroundColor: isDark ? "#1E293B" : "#fff", border: cardBorder, borderRadius: 8, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="import" name="Import" fill="#3B82F6" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="export" name="Export" fill="#F59E0B" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </Box>
+      </Box>
+
+      {/* REVENUE CHART */}
+      <Box sx={{ px: 3, pb: 2 }}>
+        <Box sx={{ bgcolor: cardBg, border: cardBorder, borderRadius: "12px", p: "18px 22px" }}>
+          <Typography variant="subtitle1" fontWeight={600} color={headingColor} mb={1.5}>
+            Revenue / Cost (Current Month)
+          </Typography>
+          {revenueData.length === 0 ? (
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: 280 }}>
+              <Typography color={labelColor} fontSize={13}>No revenue data available</Typography>
+            </Box>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={revenueData} barGap={2}>
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1E293B" : "#E5E7EB"} />
+                <XAxis dataKey="day" tick={{ fontSize: 10, fill: labelColor }} interval={2} />
+                <YAxis tick={{ fontSize: 11, fill: labelColor }} unit=" N$" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: isDark ? "#1E293B" : "#fff", border: cardBorder, borderRadius: 8, fontSize: 12 }}
+                  formatter={(value, name) => [`N$ ${safeNum(value).toFixed(2)}`, name]}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="revenue" name="Revenue (Import)" fill="#10B981" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="cost" name="Cost (Export)" fill="#EF4444" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </Box>
       </Box>
 
@@ -323,8 +405,8 @@ export default function AreaProfile() {
                         <TableCell sx={{ borderColor: isDark ? "#1E293B" : "#E5E7EB" }}>
                           <Chip label={geyserOn ? "ON" : "OFF"} size="small" sx={{ height: 20, fontSize: 10, bgcolor: geyserOn ? (isDark ? "rgba(245,158,11,0.12)" : "#FFFBEB") : (isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6"), color: geyserOn ? "#F59E0B" : (isDark ? colors.grey[500] : "#9CA3AF") }} />
                         </TableCell>
-                        <TableCell sx={{ color: isDark ? colors.grey[200] : "#374151", fontSize: 12, borderColor: isDark ? "#1E293B" : "#E5E7EB" }}>{m.active_power || m.ActivePower || "—"}</TableCell>
-                        <TableCell sx={{ color: isDark ? colors.grey[200] : "#374151", fontSize: 12, borderColor: isDark ? "#1E293B" : "#E5E7EB" }}>{m.CumulativeUnits || m.credit || "—"}</TableCell>
+                        <TableCell sx={{ color: isDark ? colors.grey[200] : "#374151", fontSize: 12, borderColor: isDark ? "#1E293B" : "#E5E7EB" }}>{safeNum(m.active_power || m.ActivePower, null) ?? "—"}</TableCell>
+                        <TableCell sx={{ color: isDark ? colors.grey[200] : "#374151", fontSize: 12, borderColor: isDark ? "#1E293B" : "#E5E7EB" }}>{safeNum(m.CumulativeUnits || m.credit, null) ?? "—"}</TableCell>
                         <TableCell sx={{ color: isDark ? colors.grey[200] : "#374151", fontSize: 12, borderColor: isDark ? "#1E293B" : "#E5E7EB" }}>{m.tariff_type || m.TariffType || "—"}</TableCell>
                       </TableRow>
                     );

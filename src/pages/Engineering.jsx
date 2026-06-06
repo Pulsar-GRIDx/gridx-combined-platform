@@ -25,6 +25,11 @@ function isOnline(m) {
   return m.Status === "1" || m.Status === 1 || m.Status === "Active";
 }
 
+function safeNum(v, fallback = 0) {
+  const n = parseFloat(v);
+  return isNaN(n) || !isFinite(n) ? fallback : n;
+}
+
 // ---- Main Component ---------------------------------------------------------
 
 export default function Engineering() {
@@ -114,16 +119,19 @@ export default function Engineering() {
     return Object.values(areaMap).sort((a, b) => b.count - a.count);
   }, [allMeters]);
 
-  // Derived: substations with nearby meters
+  // Derived: substations with nearby meters — use 0.02 radius for tighter match
   const substationList = useMemo(() => {
     return substations.map(sub => {
+      const subLat = safeNum(sub.lat, NaN);
+      const subLng = safeNum(sub.lng, NaN);
+      if (isNaN(subLat) || isNaN(subLng)) return { ...sub, drns: [], count: 0 };
       const nearby = [];
       allMeters.forEach(m => {
         const lat = parseFloat(m.Lat);
         const lng = parseFloat(m.Longitude);
-        if (!isNaN(lat) && !isNaN(lng)) {
-          const dist = Math.sqrt(Math.pow(lat - sub.lat, 2) + Math.pow(lng - sub.lng, 2));
-          if (dist < 0.05) nearby.push(m.DRN);
+        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+          const dist = Math.sqrt(Math.pow(lat - subLat, 2) + Math.pow(lng - subLng, 2));
+          if (dist < 0.02) nearby.push(m.DRN);
         }
       });
       return { ...sub, drns: nearby, count: nearby.length };
@@ -141,16 +149,36 @@ export default function Engineering() {
     );
   }, [allMeters, meterSearch]);
 
-  // Selection helpers
-  const toggleMeter = (drn) => setSelectedTargets(prev => { const n = new Set(prev); n.has(drn) ? n.delete(drn) : n.add(drn); return n; });
-  const toggleAll = () => setSelectedTargets(selectedTargets.size === allMeters.length ? new Set() : new Set(allMeters.map(m => m.DRN)));
-  const toggleDrns = (drns) => {
+  // Selection helpers — each section is INDEPENDENT, uses e.stopPropagation
+  const toggleMeter = (e, drn) => {
+    if (e) e.stopPropagation();
+    setSelectedTargets(prev => { const n = new Set(prev); n.has(drn) ? n.delete(drn) : n.add(drn); return n; });
+  };
+  const toggleAll = (e) => {
+    if (e) e.stopPropagation();
+    setSelectedTargets(selectedTargets.size === allMeters.length ? new Set() : new Set(allMeters.map(m => m.DRN)));
+  };
+  const toggleDrns = (e, drns) => {
+    if (e) e.stopPropagation();
     const allSel = drns.every(d => selectedTargets.has(d));
     setSelectedTargets(prev => { const n = new Set(prev); drns.forEach(d => allSel ? n.delete(d) : n.add(d)); return n; });
   };
-  const toggleGroup = (g) => toggleDrns((g.members || g.meters || []).map(m => m.DRN || m.meter_drn || m));
-  const toggleArea = (a) => toggleDrns(a.drns);
-  const toggleSubstation = (s) => toggleDrns(s.drns);
+  const toggleGroup = (e, g) => {
+    if (e) e.stopPropagation();
+    const drns = (g.members || g.meters || []).map(m => m.DRN || m.meter_drn || m);
+    const allSel = drns.every(d => selectedTargets.has(d));
+    setSelectedTargets(prev => { const n = new Set(prev); drns.forEach(d => allSel ? n.delete(d) : n.add(d)); return n; });
+  };
+  const toggleArea = (e, a) => {
+    if (e) e.stopPropagation();
+    const allSel = a.drns.every(d => selectedTargets.has(d));
+    setSelectedTargets(prev => { const n = new Set(prev); a.drns.forEach(d => allSel ? n.delete(d) : n.add(d)); return n; });
+  };
+  const toggleSubstation = (e, s) => {
+    if (e) e.stopPropagation();
+    const allSel = s.drns.every(d => selectedTargets.has(d));
+    setSelectedTargets(prev => { const n = new Set(prev); s.drns.forEach(d => allSel ? n.delete(d) : n.add(d)); return n; });
+  };
 
   // Current token type config
   const currentType = TOKEN_TYPES.find(t => t.value === tokenType) || TOKEN_TYPES[0];
@@ -187,9 +215,11 @@ export default function Engineering() {
           token: data.data?.tokenDec || data.data?.token || null,
           error: data.error || null,
           description: data.data?.description || null,
+          tokenType: currentType.label,
+          suppValue: tokenValue,
         });
       } catch (e) {
-        resultsList.push({ drn, success: false, error: e.message });
+        resultsList.push({ drn, success: false, error: e.message, tokenType: currentType.label, suppValue: tokenValue });
       }
     }
     setResults(resultsList);
@@ -216,7 +246,7 @@ export default function Engineering() {
           <Chip label="HSM Connected" size="small" sx={{ backgroundColor: "rgba(16,185,129,0.12)", color: "#10B981", fontWeight: 600, fontSize: "0.75rem" }} />
           {hsmStatus.txCreditsRemaining != null && (
             <Typography variant="caption" color={isDark ? colors.grey[300] : "#6B7280"}>
-              TX Credits: <strong style={{ color: "#10B981" }}>{hsmStatus.txCreditsRemaining.toLocaleString()}</strong>
+              TX Credits: <strong style={{ color: "#10B981" }}>{safeNum(hsmStatus.txCreditsRemaining).toLocaleString()}</strong>
             </Typography>
           )}
         </Box>
@@ -250,18 +280,29 @@ export default function Engineering() {
                     sx={{
                       p: "14px", borderRadius: "8px", cursor: "pointer", transition: "all 0.15s",
                       border: selected ? "2px solid #2563EB" : cardBorder,
-                      background: selected ? (isDark ? "rgba(37,99,235,0.1)" : "#EFF6FF") : (isDark ? "rgba(255,255,255,0.02)" : "#F9FAFB"),
-                      "&:hover": { borderColor: "#2563EB", background: isDark ? "rgba(37,99,235,0.06)" : "#F0F7FF" },
+                      background: selected ? (isDark ? "rgba(37,99,235,0.15)" : "#EFF6FF") : (isDark ? "rgba(255,255,255,0.02)" : "#F9FAFB"),
+                      boxShadow: selected ? (isDark ? "0 0 0 1px rgba(37,99,235,0.4)" : "0 0 0 1px rgba(37,99,235,0.2)") : "none",
+                      "&:hover": { borderColor: "#2563EB", background: isDark ? "rgba(37,99,235,0.1)" : "#F0F7FF" },
                     }}>
-                    <Box display="flex" alignItems="center" gap="10px" mb="4px">
-                      <Icon sx={{ fontSize: 20, color: selected ? "#2563EB" : (isDark ? colors.grey[300] : "#6B7280") }} />
+                    <Box display="flex" alignItems="center" gap="10px" mb="6px">
+                      <Box sx={{
+                        width: 32, height: 32, borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center",
+                        bgcolor: selected ? (isDark ? "rgba(37,99,235,0.2)" : "#DBEAFE") : (isDark ? "rgba(255,255,255,0.05)" : "#F3F4F6"),
+                      }}>
+                        <Icon sx={{ fontSize: 18, color: selected ? "#2563EB" : (isDark ? colors.grey[300] : "#6B7280") }} />
+                      </Box>
                       <Typography sx={{ fontSize: "13px", fontWeight: 600, color: selected ? "#2563EB" : (isDark ? colors.grey[100] : "#1F2937") }}>
                         {tt.label}
                       </Typography>
                     </Box>
-                    <Typography sx={{ fontSize: "11px", color: isDark ? colors.grey[400] : "#9CA3AF", ml: "30px" }}>
+                    <Typography sx={{ fontSize: "11px", color: isDark ? colors.grey[400] : "#9CA3AF", ml: "42px" }}>
                       {tt.description}
                     </Typography>
+                    {selected && tt.unit && (
+                      <Typography sx={{ fontSize: "10px", color: "#2563EB", fontWeight: 600, ml: "42px", mt: "4px" }}>
+                        Default: {tt.defaultValue} {tt.unit}
+                      </Typography>
+                    )}
                   </Box>
                 );
               })}
@@ -270,7 +311,23 @@ export default function Engineering() {
 
           {/* Value input + Send */}
           <Box sx={{ background: cardBg, border: cardBorder, borderRadius: "8px", p: "20px", mb: "16px" }}>
-            <Typography sx={{ ...sectionTitle, mb: "12px" }}>Configuration</Typography>
+            <Box display="flex" alignItems="center" justifyContent="space-between" mb="12px">
+              <Typography sx={{ ...sectionTitle, mb: 0 }}>Configuration</Typography>
+              <Chip
+                label={currentType.label}
+                size="small"
+                sx={{
+                  height: 22, fontSize: "10px", fontWeight: 700,
+                  backgroundColor: isDark ? "rgba(37,99,235,0.15)" : "#DBEAFE",
+                  color: "#2563EB",
+                }}
+              />
+            </Box>
+
+            <Typography sx={{ fontSize: "12px", color: isDark ? colors.grey[300] : "#6B7280", mb: "12px" }}>
+              {currentType.description}
+              {currentType.unit ? ` — Supplementary value in ${currentType.unit}` : " — No supplementary value required"}
+            </Typography>
 
             {currentType.unit && (
               <TextField
@@ -296,6 +353,20 @@ export default function Engineering() {
               />
             )}
 
+            {/* Selected count info */}
+            {selectedTargets.size > 0 && (
+              <Box sx={{
+                display: "flex", alignItems: "center", gap: "8px", mb: "12px", px: "12px", py: "8px",
+                borderRadius: "6px", bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF",
+                border: "1px solid " + (isDark ? "rgba(37,99,235,0.2)" : "#BFDBFE"),
+              }}>
+                <Typography sx={{ fontSize: "12px", color: "#2563EB", fontWeight: 600 }}>
+                  {selectedTargets.size} meter{selectedTargets.size !== 1 ? "s" : ""} will receive "{currentType.label}"
+                  {currentType.unit ? ` with value ${tokenValue} ${currentType.unit}` : ""}
+                </Typography>
+              </Box>
+            )}
+
             <Box display="flex" alignItems="center" gap="12px" mb="8px">
               <Button
                 variant="contained" onClick={handleSend}
@@ -308,7 +379,7 @@ export default function Engineering() {
                   "&.Mui-disabled": { backgroundColor: isDark ? colors.primary[300] : "#E5E7EB", color: isDark ? colors.grey[400] : "#9CA3AF" },
                 }}
               >
-                {sending ? "Sending..." : `Send to Selected (${selectedTargets.size})`}
+                {sending ? "Sending..." : `Send to ${selectedTargets.size} meter${selectedTargets.size !== 1 ? "s" : ""}`}
               </Button>
             </Box>
 
@@ -322,27 +393,53 @@ export default function Engineering() {
           {/* Results */}
           {results.length > 0 && (
             <Box sx={{ background: cardBg, border: cardBorder, borderRadius: "8px", p: "20px" }}>
-              <Typography sx={{ ...sectionTitle, mb: "10px" }}>
+              <Typography sx={{ ...sectionTitle, mb: "12px" }}>
                 Results ({results.filter(r => r.success).length}/{results.length} successful)
               </Typography>
-              <Box sx={{ maxHeight: "400px", overflowY: "auto" }}>
+              <Box sx={{ maxHeight: "500px", overflowY: "auto" }}>
                 {results.map((r, i) => (
                   <Box key={i} sx={{
-                    display: "flex", alignItems: "center", gap: "10px", py: "8px", px: "10px",
-                    borderBottom: i < results.length - 1 ? (isDark ? "1px solid #1E293B" : "1px solid #F3F4F6") : "none",
+                    py: "10px", px: "12px", borderRadius: "6px", mb: "8px",
+                    border: "1px solid " + (r.success ? (isDark ? "rgba(16,185,129,0.2)" : "#D1FAE5") : (isDark ? "rgba(239,68,68,0.2)" : "#FEE2E2")),
+                    bgcolor: r.success ? (isDark ? "rgba(16,185,129,0.04)" : "#F0FDF4") : (isDark ? "rgba(239,68,68,0.04)" : "#FEF2F2"),
                   }}>
-                    <Box sx={{
-                      width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-                      backgroundColor: r.success ? "#10B981" : "#EF4444",
-                    }} />
-                    <Typography sx={{ fontSize: "12px", fontWeight: 600, color: isDark ? colors.grey[100] : "#1F2937", minWidth: "120px" }}>
-                      {r.drn}
-                    </Typography>
+                    {/* Row 1: DRN + Status */}
+                    <Box display="flex" alignItems="center" gap="8px" mb="4px">
+                      <Box sx={{
+                        width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                        backgroundColor: r.success ? "#10B981" : "#EF4444",
+                      }} />
+                      <Typography sx={{ fontSize: "12px", fontWeight: 700, color: isDark ? colors.grey[100] : "#1F2937", fontFamily: "monospace" }}>
+                        {r.drn}
+                      </Typography>
+                      <Chip
+                        label={r.success ? "Success" : "Failed"}
+                        size="small"
+                        sx={{
+                          height: 18, fontSize: "9px", fontWeight: 700,
+                          bgcolor: r.success ? (isDark ? "rgba(16,185,129,0.15)" : "#D1FAE5") : (isDark ? "rgba(239,68,68,0.15)" : "#FEE2E2"),
+                          color: r.success ? "#10B981" : "#EF4444",
+                        }}
+                      />
+                    </Box>
+                    {/* Row 2: Token type + supplementary value */}
+                    <Box display="flex" alignItems="center" gap="6px" mb="4px" ml="16px">
+                      <Typography sx={{ fontSize: "11px", color: isDark ? colors.grey[300] : "#6B7280" }}>
+                        Type: <strong style={{ color: isDark ? colors.grey[200] : "#374151" }}>{r.tokenType || currentType.label}</strong>
+                      </Typography>
+                      {r.suppValue && currentType.unit && (
+                        <Typography sx={{ fontSize: "11px", color: isDark ? colors.grey[300] : "#6B7280" }}>
+                          | Value: <strong style={{ color: isDark ? colors.grey[200] : "#374151" }}>{r.suppValue} {currentType.unit}</strong>
+                        </Typography>
+                      )}
+                    </Box>
+                    {/* Row 3: Token or error */}
                     {r.success && r.token ? (
-                      <Box display="flex" alignItems="center" gap="4px" flex={1} minWidth={0}>
+                      <Box display="flex" alignItems="center" gap="6px" ml="16px">
+                        <Typography sx={{ fontSize: "11px", color: isDark ? colors.grey[400] : "#6B7280" }}>Token:</Typography>
                         <Typography sx={{
-                          fontSize: "12px", fontFamily: '"Courier New", monospace', fontWeight: 600,
-                          color: "#10B981", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          fontSize: "13px", fontFamily: '"Courier New", monospace', fontWeight: 700,
+                          color: "#10B981", letterSpacing: "0.5px",
                         }}>
                           {formatToken(r.token)}
                         </Typography>
@@ -354,12 +451,12 @@ export default function Engineering() {
                         </Tooltip>
                       </Box>
                     ) : r.success ? (
-                      <Typography sx={{ fontSize: "12px", color: "#10B981" }}>
-                        {r.description || "Success"}
+                      <Typography sx={{ fontSize: "11px", color: "#10B981", ml: "16px" }}>
+                        {r.description || "Command accepted"}
                       </Typography>
                     ) : (
-                      <Typography sx={{ fontSize: "12px", color: "#EF4444", flex: 1 }}>
-                        {r.error || "Failed"}
+                      <Typography sx={{ fontSize: "11px", color: "#EF4444", ml: "16px" }}>
+                        {r.error || "Unknown error"}
                       </Typography>
                     )}
                   </Box>
@@ -397,7 +494,7 @@ export default function Engineering() {
           {!loading && (
             <Box display="flex" flexDirection="column" gap="10px">
 
-              {/* METERS */}
+              {/* METERS — independent section */}
               <Box sx={{ background: sidebarBg, border: cardBorder, borderRadius: "8px", overflow: "hidden" }}>
                 <Box sx={{ px: "12px", pt: "10px", pb: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <Box display="flex" alignItems="center" gap="6px">
@@ -406,7 +503,7 @@ export default function Engineering() {
                     </Typography>
                     <Chip label={allMeters.length} size="small" sx={{ height: 18, fontSize: "10px", fontWeight: 700, backgroundColor: isDark ? "#1E293B" : "#F3F4F6", color: isDark ? colors.grey[300] : "#6B7280" }} />
                   </Box>
-                  <Typography onClick={toggleAll}
+                  <Typography onClick={(e) => toggleAll(e)}
                     sx={{ fontSize: "10px", color: "#2563EB", cursor: "pointer", fontWeight: 600, "&:hover": { textDecoration: "underline" } }}>
                     {selectedTargets.size === allMeters.length ? "Deselect All" : "Select All"}
                   </Typography>
@@ -416,6 +513,7 @@ export default function Engineering() {
                   <TextField
                     fullWidth size="small" placeholder="Search meters..."
                     value={meterSearch} onChange={(e) => setMeterSearch(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
                     InputProps={{
                       startAdornment: <InputAdornment position="start"><SearchOutlined sx={{ fontSize: 16, color: isDark ? colors.grey[400] : "#9CA3AF" }} /></InputAdornment>,
                     }}
@@ -437,13 +535,16 @@ export default function Engineering() {
                     const sel = selectedTargets.has(m.DRN);
                     const online = isOnline(m);
                     return (
-                      <Box key={m.DRN} onClick={() => toggleMeter(m.DRN)}
+                      <Box key={m.DRN} onClick={(e) => toggleMeter(e, m.DRN)}
                         sx={{
                           ...listItemBase,
                           background: sel ? (isDark ? "rgba(37,99,235,0.12)" : "#EFF6FF") : "transparent",
                           "&:hover": { background: sel ? (isDark ? "rgba(37,99,235,0.18)" : "#DBEAFE") : (isDark ? "rgba(255,255,255,0.03)" : "#F9FAFB") },
                         }}>
-                        <Checkbox size="small" checked={sel} sx={{ p: 0, "& .MuiSvgIcon-root": { fontSize: 16 }, color: isDark ? colors.grey[400] : "#D1D5DB", "&.Mui-checked": { color: "#2563EB" } }} />
+                        <Checkbox size="small" checked={sel}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => { e.stopPropagation(); toggleMeter(e, m.DRN); }}
+                          sx={{ p: 0, "& .MuiSvgIcon-root": { fontSize: 16 }, color: isDark ? colors.grey[400] : "#D1D5DB", "&.Mui-checked": { color: "#2563EB" } }} />
                         <FiberManualRecordOutlined sx={{ fontSize: 8, color: online ? "#10B981" : "#EF4444" }} />
                         <Box flex={1} minWidth={0}>
                           <Typography sx={{ fontSize: "11px", fontWeight: 600, color: isDark ? colors.grey[100] : "#1F2937", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -466,7 +567,7 @@ export default function Engineering() {
                 </Box>
               </Box>
 
-              {/* GROUPS */}
+              {/* GROUPS — independent section */}
               {groups.length > 0 && (
                 <Box sx={{ background: sidebarBg, border: cardBorder, borderRadius: "8px", overflow: "hidden" }}>
                   <Box sx={{ px: "12px", pt: "10px", pb: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
@@ -481,7 +582,7 @@ export default function Engineering() {
                       const allSel = memberDrns.length > 0 && memberDrns.every(d => selectedTargets.has(d));
                       const someSel = !allSel && memberDrns.some(d => selectedTargets.has(d));
                       return (
-                        <Box key={g.id || g.name} onClick={() => toggleGroup(g)}
+                        <Box key={g.id || g.name} onClick={(e) => toggleGroup(e, g)}
                           sx={{
                             ...listItemBase,
                             background: allSel ? (isDark ? "rgba(37,99,235,0.12)" : "#EFF6FF") : "transparent",
@@ -503,7 +604,7 @@ export default function Engineering() {
                 </Box>
               )}
 
-              {/* AREAS */}
+              {/* AREAS — independent section */}
               {areas.length > 0 && (
                 <Box sx={{ background: sidebarBg, border: cardBorder, borderRadius: "8px", overflow: "hidden" }}>
                   <Box sx={{ px: "12px", pt: "10px", pb: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
@@ -517,7 +618,7 @@ export default function Engineering() {
                       const allSel = a.drns.every(d => selectedTargets.has(d));
                       const someSel = !allSel && a.drns.some(d => selectedTargets.has(d));
                       return (
-                        <Box key={a.name} onClick={() => toggleArea(a)}
+                        <Box key={a.name} onClick={(e) => toggleArea(e, a)}
                           sx={{
                             ...listItemBase,
                             background: allSel ? (isDark ? "rgba(37,99,235,0.12)" : "#EFF6FF") : "transparent",
@@ -537,7 +638,7 @@ export default function Engineering() {
                 </Box>
               )}
 
-              {/* SUBSTATIONS */}
+              {/* SUBSTATIONS — independent section */}
               {substationList.length > 0 && (
                 <Box sx={{ background: sidebarBg, border: cardBorder, borderRadius: "8px", overflow: "hidden" }}>
                   <Box sx={{ px: "12px", pt: "10px", pb: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
@@ -552,7 +653,7 @@ export default function Engineering() {
                       const allSel = s.drns.length > 0 && s.drns.every(d => selectedTargets.has(d));
                       const someSel = !allSel && s.drns.some(d => selectedTargets.has(d));
                       return (
-                        <Box key={subId} onClick={() => toggleSubstation(s)}
+                        <Box key={subId} onClick={(e) => toggleSubstation(e, s)}
                           sx={{
                             ...listItemBase,
                             background: allSel ? (isDark ? "rgba(37,99,235,0.12)" : "#EFF6FF") : "transparent",
