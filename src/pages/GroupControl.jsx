@@ -166,6 +166,10 @@ export default function GroupControl() {
   const [calibrationPeriod, setCalibrationPeriod] = useState("weekly");
   const [calibrationTime, setCalibrationTime] = useState("02:00");
 
+  // Left sidebar state
+  const [selectedArea, setSelectedArea] = useState(null);
+  const [selectedSidebarSubstation, setSelectedSidebarSubstation] = useState(null);
+
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: GOOGLE_MAPS_KEY, libraries: LIBRARIES });
 
   const fetchData = useCallback(async () => {
@@ -215,6 +219,18 @@ export default function GroupControl() {
     meters.filter(m => m.Status === "1" || m.Status === 1 || m.Status === "Active").length,
   [meters]);
   const offlineCount = useMemo(() => meters.length - onlineCount, [meters, onlineCount]);
+
+  /* Areas derived from meters */
+  const areas = useMemo(() => {
+    const areaMap = {};
+    meters.forEach(m => {
+      const area = m.LocationName || m.Suburb || m.City || "Unknown";
+      if (!areaMap[area]) areaMap[area] = { name: area, count: 0, drns: [] };
+      areaMap[area].count++;
+      areaMap[area].drns.push(m.DRN);
+    });
+    return Object.values(areaMap).sort((a, b) => b.count - a.count);
+  }, [meters]);
 
   /* Filtered meters */
   const filteredMeters = useMemo(() => {
@@ -268,6 +284,41 @@ export default function GroupControl() {
     setDrawingPoints([]);
     setDrawingMode(false);
     setSelectedMeters(new Set());
+    setSelectedArea(null);
+    setSelectedSidebarSubstation(null);
+  };
+
+  /* Select area — highlight meters in that area */
+  const selectArea = (area) => {
+    if (selectedArea === area.name) {
+      setSelectedArea(null);
+      setSelectedMeters(new Set());
+    } else {
+      setSelectedArea(area.name);
+      setSelectedSidebarSubstation(null);
+      setSelectedMeters(new Set(area.drns));
+    }
+  };
+
+  /* Select substation — find nearby meters */
+  const selectSubstation = (sub) => {
+    if (selectedSidebarSubstation === sub.id) {
+      setSelectedSidebarSubstation(null);
+      setSelectedMeters(new Set());
+    } else {
+      setSelectedSidebarSubstation(sub.id);
+      setSelectedArea(null);
+      const nearby = new Set();
+      meters.forEach(m => {
+        const lat = parseFloat(m.Lat);
+        const lng = parseFloat(m.Longitude);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const dist = Math.sqrt(Math.pow(lat - sub.lat, 2) + Math.pow(lng - sub.lng, 2));
+          if (dist < 0.05) nearby.add(m.DRN);
+        }
+      });
+      setSelectedMeters(nearby);
+    }
   };
 
   /* Create group */
@@ -342,6 +393,22 @@ export default function GroupControl() {
   const headingColor = isDark ? colors.grey[100] : "#111827";
   const labelColor = isDark ? colors.grey[300] : "#6B7280";
 
+  /* Check if a group is currently active */
+  const isGroupActive = (g) => {
+    const schedule = g.schedule || null;
+    if (!schedule?.enabled || !schedule.periods) return false;
+    const now = new Date();
+    const currentDay = now.getDay();
+    const currentTime = now.getHours().toString().padStart(2, "0") + ":" + now.getMinutes().toString().padStart(2, "0");
+    let active = false;
+    schedule.periods.forEach(p => {
+      if (p.days?.includes(currentDay) && currentTime >= (p.startTime || "") && currentTime <= (p.endTime || "23:59")) {
+        active = true;
+      }
+    });
+    return active;
+  };
+
   if (loading || !isLoaded) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" height="80vh">
@@ -406,264 +473,429 @@ export default function GroupControl() {
         ))}
       </Box>
 
-      {/* ===== MAP SECTION ===== */}
-      <Box sx={{ px: 3, pb: 2 }}>
-        <Box display="flex" gap={1} mb={1}>
-          <Button
-            variant={drawingMode ? "contained" : "outlined"}
-            size="small"
-            startIcon={<PolylineOutlined sx={{ fontSize: 16 }} />}
-            onClick={() => { setDrawingMode(prev => !prev); setDrawingPoints([]); }}
-            sx={{
-              textTransform: "none",
-              fontSize: 12,
-              borderRadius: "8px",
-              ...(drawingMode
-                ? { bgcolor: "#2563EB", color: "#fff", "&:hover": { bgcolor: "#1D4ED8" } }
-                : { borderColor: isDark ? "#374151" : "#D1D5DB", color: headingColor, "&:hover": { borderColor: "#2563EB", bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF" } }),
-            }}
-          >
-            {drawingMode ? `Drawing (${drawingPoints.length} points)` : "Draw Selection"}
-          </Button>
-          {drawingMode && drawingPoints.length >= 3 && (
-            <Button size="small" variant="contained"
-              onClick={finishDrawing}
-              sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", bgcolor: "#10B981", "&:hover": { bgcolor: "#059669" } }}>
-              Finish Drawing
-            </Button>
-          )}
-          {drawingMode && drawingPoints.length > 0 && drawingPoints.length < 3 && (
-            <Typography variant="caption" color={labelColor} sx={{ alignSelf: "center" }}>
-              Click {3 - drawingPoints.length} more point{drawingPoints.length < 2 ? "s" : ""} on the map
+      {/* ===== MAP AREA WITH SIDEBARS ===== */}
+      <Box sx={{ display: "flex", gap: 0, px: 3, pb: 2 }}>
+
+        {/* ===== LEFT SIDEBAR ===== */}
+        <Box sx={{
+          width: 220,
+          flexShrink: 0,
+          borderRight: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`,
+          pr: 0,
+          display: "flex",
+          flexDirection: "column",
+          height: 710, // map controls + map height
+          overflowY: "auto",
+          "&::-webkit-scrollbar": { width: 4 },
+          "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 },
+        }}>
+          {/* Areas Section */}
+          <Box sx={{ px: 1.5, pt: 1.5, pb: 1 }}>
+            <Typography
+              variant="caption"
+              fontWeight={700}
+              color={labelColor}
+              letterSpacing="0.5px"
+              textTransform="uppercase"
+              display="block"
+              mb={1}
+              fontSize="10px"
+            >
+              Areas
             </Typography>
-          )}
-          {drawnPolygon && (
+            {areas.map(area => {
+              const isActive = selectedArea === area.name;
+              return (
+                <Box
+                  key={area.name}
+                  onClick={() => selectArea(area)}
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    px: 1.5,
+                    py: "6px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    mb: "2px",
+                    bgcolor: isActive ? "rgba(37,99,235,0.1)" : "transparent",
+                    transition: "all 0.15s",
+                    "&:hover": {
+                      bgcolor: isActive ? "rgba(37,99,235,0.15)" : (isDark ? "rgba(100,116,139,0.08)" : "#F3F4F6"),
+                    },
+                  }}
+                >
+                  <Typography
+                    fontSize="12px"
+                    fontWeight={isActive ? 600 : 400}
+                    color={isActive ? "#2563EB" : headingColor}
+                    noWrap
+                    sx={{ maxWidth: 140 }}
+                  >
+                    {area.name}
+                  </Typography>
+                  <Chip
+                    label={area.count}
+                    size="small"
+                    sx={{
+                      height: 18,
+                      minWidth: 28,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      bgcolor: isActive
+                        ? "rgba(37,99,235,0.15)"
+                        : (isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6"),
+                      color: isActive ? "#2563EB" : labelColor,
+                      "& .MuiChip-label": { px: "6px" },
+                    }}
+                  />
+                </Box>
+              );
+            })}
+          </Box>
+
+          {/* Divider */}
+          <Box sx={{ mx: 1.5, my: 1, borderTop: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}` }} />
+
+          {/* Substations Section */}
+          <Box sx={{ px: 1.5, pb: 1, flex: 1 }}>
+            <Typography
+              variant="caption"
+              fontWeight={700}
+              color={labelColor}
+              letterSpacing="0.5px"
+              textTransform="uppercase"
+              display="block"
+              mb={1}
+              fontSize="10px"
+            >
+              Substations
+            </Typography>
+            {substations.length === 0 ? (
+              <Typography fontSize="11px" color={labelColor} sx={{ px: 1.5, py: 1 }}>
+                No substations loaded
+              </Typography>
+            ) : (
+              substations.map(sub => {
+                const isActive = selectedSidebarSubstation === sub.id;
+                return (
+                  <Box
+                    key={sub.id}
+                    onClick={() => selectSubstation(sub)}
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      px: 1.5,
+                      py: "6px",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      mb: "2px",
+                      bgcolor: isActive ? "rgba(37,99,235,0.1)" : "transparent",
+                      transition: "all 0.15s",
+                      "&:hover": {
+                        bgcolor: isActive ? "rgba(37,99,235,0.15)" : (isDark ? "rgba(100,116,139,0.08)" : "#F3F4F6"),
+                      },
+                    }}
+                  >
+                    <Typography
+                      fontSize="12px"
+                      fontWeight={isActive ? 600 : 400}
+                      color={isActive ? "#2563EB" : headingColor}
+                      noWrap
+                      sx={{ maxWidth: 110 }}
+                    >
+                      {sub.name || `Sub ${sub.id}`}
+                    </Typography>
+                    <Chip
+                      label={sub.isPrimary ? "Primary" : "Dist"}
+                      size="small"
+                      sx={{
+                        height: 18,
+                        fontSize: 9,
+                        fontWeight: 600,
+                        bgcolor: sub.isPrimary
+                          ? (isDark ? "rgba(37,99,235,0.15)" : "#DBEAFE")
+                          : (isDark ? "rgba(245,158,11,0.15)" : "#FEF3C7"),
+                        color: sub.isPrimary ? "#2563EB" : "#D97706",
+                        "& .MuiChip-label": { px: "6px" },
+                      }}
+                    />
+                  </Box>
+                );
+              })
+            )}
+
+            {/* Create Group from Selection button */}
+            {selectedMeters.size > 0 && (
+              <Button
+                fullWidth
+                size="small"
+                variant="contained"
+                startIcon={<AddOutlined sx={{ fontSize: 14 }} />}
+                onClick={() => setShowCreate(true)}
+                sx={{
+                  mt: 1.5,
+                  textTransform: "none",
+                  fontSize: 11,
+                  borderRadius: "6px",
+                  bgcolor: "#2563EB",
+                  py: "5px",
+                  "&:hover": { bgcolor: "#1D4ED8" },
+                }}
+              >
+                Create Group ({selectedMeters.size})
+              </Button>
+            )}
+          </Box>
+
+          {/* Divider */}
+          <Box sx={{ mx: 1.5, my: 1, borderTop: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}` }} />
+
+          {/* Legend */}
+          <Box sx={{ px: 1.5, pb: 1.5 }}>
+            <Typography
+              variant="caption"
+              fontWeight={700}
+              color={labelColor}
+              letterSpacing="0.5px"
+              textTransform="uppercase"
+              display="block"
+              mb={0.75}
+              fontSize="10px"
+            >
+              Legend
+            </Typography>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+              <Box display="flex" alignItems="center" gap={0.75}>
+                <FiberManualRecord sx={{ fontSize: 8, color: "#10B981" }} />
+                <Typography fontSize="11px" color={labelColor}>Online</Typography>
+              </Box>
+              <Box display="flex" alignItems="center" gap={0.75}>
+                <FiberManualRecord sx={{ fontSize: 8, color: "#EF4444" }} />
+                <Typography fontSize="11px" color={labelColor}>Offline</Typography>
+              </Box>
+              <Box display="flex" alignItems="center" gap={0.75}>
+                <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: "#3b82f6" }} />
+                <Typography fontSize="11px" color={labelColor}>Primary</Typography>
+              </Box>
+              <Box display="flex" alignItems="center" gap={0.75}>
+                <Box sx={{ width: 8, height: 8, transform: "rotate(45deg)", bgcolor: "#f59e0b" }} />
+                <Typography fontSize="11px" color={labelColor}>Distribution</Typography>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* ===== MAP COLUMN ===== */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {/* Layer toggles + drawing tools */}
+          <Box display="flex" gap={1} mb={1} px={1.5}>
             <Button
-              variant="outlined"
+              variant={drawingMode ? "contained" : "outlined"}
               size="small"
-              startIcon={<ClearOutlined sx={{ fontSize: 16 }} />}
-              onClick={clearPolygonSelection}
+              startIcon={<PolylineOutlined sx={{ fontSize: 16 }} />}
+              onClick={() => { setDrawingMode(prev => !prev); setDrawingPoints([]); }}
               sx={{
                 textTransform: "none",
                 fontSize: 12,
                 borderRadius: "8px",
-                borderColor: isDark ? "#374151" : "#D1D5DB",
-                color: "#EF4444",
-                "&:hover": { borderColor: "#EF4444", bgcolor: isDark ? "rgba(239,68,68,0.08)" : "#FEF2F2" },
+                ...(drawingMode
+                  ? { bgcolor: "#2563EB", color: "#fff", "&:hover": { bgcolor: "#1D4ED8" } }
+                  : { borderColor: isDark ? "#374151" : "#D1D5DB", color: headingColor, "&:hover": { borderColor: "#2563EB", bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF" } }),
               }}
             >
-              Clear Selection
+              {drawingMode ? `Drawing (${drawingPoints.length} points)` : "Draw Selection"}
             </Button>
-          )}
-
-          {/* Network topology layer toggles */}
-          <Box sx={{ ml: "auto", display: "flex", gap: 0.75 }}>
-            <Chip
-              label="Substations"
-              size="small"
-              variant={showSubstations ? "filled" : "outlined"}
-              onClick={() => setShowSubstations(prev => !prev)}
-              sx={{
-                height: 28,
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: "pointer",
-                borderRadius: "8px",
-                ...(showSubstations
-                  ? { bgcolor: isDark ? "rgba(37,99,235,0.2)" : "#DBEAFE", color: "#2563EB", border: "1px solid #2563EB" }
-                  : { bgcolor: "transparent", color: labelColor, borderColor: isDark ? "#374151" : "#D1D5DB" }),
-                "&:hover": { bgcolor: showSubstations ? (isDark ? "rgba(37,99,235,0.3)" : "#BFDBFE") : (isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6") },
-              }}
-            />
-            <Chip
-              label="Connections"
-              size="small"
-              variant={showConnections ? "filled" : "outlined"}
-              onClick={() => setShowConnections(prev => !prev)}
-              sx={{
-                height: 28,
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: "pointer",
-                borderRadius: "8px",
-                ...(showConnections
-                  ? { bgcolor: isDark ? "rgba(37,99,235,0.2)" : "#DBEAFE", color: "#2563EB", border: "1px solid #2563EB" }
-                  : { bgcolor: "transparent", color: labelColor, borderColor: isDark ? "#374151" : "#D1D5DB" }),
-                "&:hover": { bgcolor: showConnections ? (isDark ? "rgba(37,99,235,0.3)" : "#BFDBFE") : (isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6") },
-              }}
-            />
-          </Box>
-        </Box>
-        <Box sx={{ borderRadius: "12px", overflow: "hidden", border: cardBorder, height: "650px", position: "relative" }}>
-          <GoogleMap
-            mapContainerStyle={{ width: "100%", height: "100%" }}
-            center={DEFAULT_CENTER}
-            zoom={13}
-            onClick={handleMapClick}
-            options={{
-              disableDefaultUI: false,
-              zoomControl: true,
-              mapTypeControl: false,
-              streetViewControl: false,
-              fullscreenControl: true,
-              styles: isDark ? DARK_MAP_STYLES : LIGHT_MAP_STYLES,
-              draggableCursor: drawingMode ? "crosshair" : undefined,
-            }}
-          >
-            {/* In-progress drawing: show polyline of clicked points */}
-            {drawingMode && drawingPoints.length > 0 && (
-              <Polyline
-                path={drawingPoints}
-                options={{
-                  strokeColor: "#2563EB",
-                  strokeOpacity: 0.9,
-                  strokeWeight: 2,
-                }}
-              />
+            {drawingMode && drawingPoints.length >= 3 && (
+              <Button size="small" variant="contained"
+                onClick={finishDrawing}
+                sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", bgcolor: "#10B981", "&:hover": { bgcolor: "#059669" } }}>
+                Finish Drawing
+              </Button>
             )}
-            {/* Show dot markers at each drawing point */}
-            {drawingMode && drawingPoints.map((pt, i) => (
-              <Marker key={`dp-${i}`} position={pt} icon={makeDotIcon("#2563EB", 10)} />
-            ))}
-
+            {drawingMode && drawingPoints.length > 0 && drawingPoints.length < 3 && (
+              <Typography variant="caption" color={labelColor} sx={{ alignSelf: "center" }}>
+                Click {3 - drawingPoints.length} more point{drawingPoints.length < 2 ? "s" : ""} on the map
+              </Typography>
+            )}
             {drawnPolygon && (
-              <Polygon
-                paths={drawnPolygon}
-                options={{
-                  fillColor: "#2563EB",
-                  fillOpacity: 0.12,
-                  strokeColor: "#2563EB",
-                  strokeOpacity: 0.6,
-                  strokeWeight: 2,
-                  clickable: false,
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<ClearOutlined sx={{ fontSize: 16 }} />}
+                onClick={clearPolygonSelection}
+                sx={{
+                  textTransform: "none",
+                  fontSize: 12,
+                  borderRadius: "8px",
+                  borderColor: isDark ? "#374151" : "#D1D5DB",
+                  color: "#EF4444",
+                  "&:hover": { borderColor: "#EF4444", bgcolor: isDark ? "rgba(239,68,68,0.08)" : "#FEF2F2" },
                 }}
-              />
-            )}
-
-            {/* Connection lines (render behind markers) */}
-            {showConnections && connectionLines.map(line => (
-              <Polyline
-                key={line.id}
-                path={[line.from, line.to]}
-                options={{
-                  strokeColor: line.type === "substation" ? "#3b82f6" : "#64748B",
-                  strokeOpacity: line.type === "substation" ? 0.4 : 0.3,
-                  strokeWeight: line.type === "substation" ? 2 : 1,
-                  clickable: false,
-                }}
-              />
-            ))}
-
-            {/* Substation markers */}
-            {showSubstations && substations.map(sub => (
-              <Marker
-                key={`sub-${sub.id}`}
-                position={{ lat: sub.lat, lng: sub.lng }}
-                icon={makeSubstationIcon(sub.markerColor, sub.isPrimary)}
-                onClick={() => setClickedSubstation(sub)}
-                zIndex={sub.isPrimary ? 10 : 5}
-              />
-            ))}
-
-            {meters.map(meter => {
-              const online = isOnline(meter);
-              return (
-                <MeterDot
-                  key={meter.DRN}
-                  meter={meter}
-                  icon={makeDotIcon(online ? "#10B981" : "#EF4444")}
-                  onClick={() => setClickedMeter(meter)}
-                />
-              );
-            })}
-
-            {/* Substation InfoWindow */}
-            {clickedSubstation && (
-              <InfoWindow
-                position={{ lat: clickedSubstation.lat, lng: clickedSubstation.lng }}
-                onCloseClick={() => setClickedSubstation(null)}
-                options={{ pixelOffset: { width: 0, height: -14, equals: () => false } }}
               >
-                <Box sx={{ p: "4px 2px", minWidth: 160, color: "#1a1a2e" }}>
-                  <Typography variant="subtitle2" fontWeight={700} fontSize="13px">
-                    {clickedSubstation.name || `Substation ${clickedSubstation.id}`}
-                  </Typography>
-                  <Chip
-                    label={clickedSubstation.isPrimary ? "Primary" : "Distribution"}
-                    size="small"
-                    sx={{
-                      mt: 0.5,
-                      height: 20,
-                      fontSize: 10,
-                      bgcolor: clickedSubstation.isPrimary ? "#DBEAFE" : "#FEF3C7",
-                      color: clickedSubstation.isPrimary ? "#2563EB" : "#D97706",
-                    }}
-                  />
-                  {clickedSubstation.district && (
-                    <Typography variant="caption" display="block" color="#6B7280" mt={0.5} fontSize="10px">
-                      District: {clickedSubstation.district}
-                    </Typography>
-                  )}
-                  {clickedSubstation.regionData?.energy && (
-                    <Typography variant="caption" display="block" color="#6B7280" mt={0.3} fontSize="10px">
-                      Flow: {clickedSubstation.regionData.energy.direction === "net_exporting" ? "Exporting" : "Importing"}
-                    </Typography>
-                  )}
-                  <Button
-                    size="small"
-                    onClick={() => { setClickedSubstation(null); navigate(`/substation/${clickedSubstation.drn || clickedSubstation.id}`); }}
-                    sx={{
-                      mt: 1,
-                      width: "100%",
-                      fontSize: "10px",
-                      textTransform: "none",
-                      bgcolor: "#2563EB",
-                      color: "#fff",
-                      py: "3px",
-                      borderRadius: "6px",
-                      "&:hover": { bgcolor: "#1D4ED8" },
-                    }}
-                  >
-                    View Substation
-                  </Button>
-                </Box>
-              </InfoWindow>
+                Clear Selection
+              </Button>
             )}
 
-            {clickedMeter && (() => {
-              const lat = parseFloat(clickedMeter.Lat);
-              const lng = parseFloat(clickedMeter.Longitude);
-              if (isNaN(lat) || isNaN(lng)) return null;
-              const online = isOnline(clickedMeter);
-              return (
+            {/* Network topology layer toggles */}
+            <Box sx={{ ml: "auto", display: "flex", gap: 0.75 }}>
+              <Chip
+                label="Substations"
+                size="small"
+                variant={showSubstations ? "filled" : "outlined"}
+                onClick={() => setShowSubstations(prev => !prev)}
+                sx={{
+                  height: 28,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  borderRadius: "8px",
+                  ...(showSubstations
+                    ? { bgcolor: isDark ? "rgba(37,99,235,0.2)" : "#DBEAFE", color: "#2563EB", border: "1px solid #2563EB" }
+                    : { bgcolor: "transparent", color: labelColor, borderColor: isDark ? "#374151" : "#D1D5DB" }),
+                  "&:hover": { bgcolor: showSubstations ? (isDark ? "rgba(37,99,235,0.3)" : "#BFDBFE") : (isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6") },
+                }}
+              />
+              <Chip
+                label="Connections"
+                size="small"
+                variant={showConnections ? "filled" : "outlined"}
+                onClick={() => setShowConnections(prev => !prev)}
+                sx={{
+                  height: 28,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  borderRadius: "8px",
+                  ...(showConnections
+                    ? { bgcolor: isDark ? "rgba(37,99,235,0.2)" : "#DBEAFE", color: "#2563EB", border: "1px solid #2563EB" }
+                    : { bgcolor: "transparent", color: labelColor, borderColor: isDark ? "#374151" : "#D1D5DB" }),
+                  "&:hover": { bgcolor: showConnections ? (isDark ? "rgba(37,99,235,0.3)" : "#BFDBFE") : (isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6") },
+                }}
+              />
+            </Box>
+          </Box>
+
+          {/* Map */}
+          <Box sx={{ height: 650, borderRadius: "12px", overflow: "hidden", border: cardBorder, position: "relative" }}>
+            <GoogleMap
+              mapContainerStyle={{ width: "100%", height: "100%" }}
+              center={DEFAULT_CENTER}
+              zoom={13}
+              onClick={handleMapClick}
+              options={{
+                disableDefaultUI: false,
+                zoomControl: true,
+                mapTypeControl: false,
+                streetViewControl: false,
+                fullscreenControl: true,
+                styles: isDark ? DARK_MAP_STYLES : LIGHT_MAP_STYLES,
+                draggableCursor: drawingMode ? "crosshair" : undefined,
+              }}
+            >
+              {/* In-progress drawing: show polyline of clicked points */}
+              {drawingMode && drawingPoints.length > 0 && (
+                <Polyline
+                  path={drawingPoints}
+                  options={{
+                    strokeColor: "#2563EB",
+                    strokeOpacity: 0.9,
+                    strokeWeight: 2,
+                  }}
+                />
+              )}
+              {/* Show dot markers at each drawing point */}
+              {drawingMode && drawingPoints.map((pt, i) => (
+                <Marker key={`dp-${i}`} position={pt} icon={makeDotIcon("#2563EB", 10)} />
+              ))}
+
+              {drawnPolygon && (
+                <Polygon
+                  paths={drawnPolygon}
+                  options={{
+                    fillColor: "#2563EB",
+                    fillOpacity: 0.12,
+                    strokeColor: "#2563EB",
+                    strokeOpacity: 0.6,
+                    strokeWeight: 2,
+                    clickable: false,
+                  }}
+                />
+              )}
+
+              {/* Connection lines (render behind markers) */}
+              {showConnections && connectionLines.map(line => (
+                <Polyline
+                  key={line.id}
+                  path={[line.from, line.to]}
+                  options={{
+                    strokeColor: line.type === "substation" ? "#3b82f6" : "#64748B",
+                    strokeOpacity: line.type === "substation" ? 0.4 : 0.3,
+                    strokeWeight: line.type === "substation" ? 2 : 1,
+                    clickable: false,
+                  }}
+                />
+              ))}
+
+              {/* Substation markers */}
+              {showSubstations && substations.map(sub => (
+                <Marker
+                  key={`sub-${sub.id}`}
+                  position={{ lat: sub.lat, lng: sub.lng }}
+                  icon={makeSubstationIcon(sub.markerColor, sub.isPrimary)}
+                  onClick={() => setClickedSubstation(sub)}
+                  zIndex={sub.isPrimary ? 10 : 5}
+                />
+              ))}
+
+              {meters.map(meter => {
+                const online = isOnline(meter);
+                return (
+                  <MeterDot
+                    key={meter.DRN}
+                    meter={meter}
+                    icon={makeDotIcon(online ? "#10B981" : "#EF4444")}
+                    onClick={() => setClickedMeter(meter)}
+                  />
+                );
+              })}
+
+              {/* Substation InfoWindow */}
+              {clickedSubstation && (
                 <InfoWindow
-                  position={{ lat, lng }}
-                  onCloseClick={() => setClickedMeter(null)}
-                  options={{ pixelOffset: { width: 0, height: -10, equals: () => false } }}
+                  position={{ lat: clickedSubstation.lat, lng: clickedSubstation.lng }}
+                  onCloseClick={() => setClickedSubstation(null)}
+                  options={{ pixelOffset: { width: 0, height: -14, equals: () => false } }}
                 >
-                  <Box sx={{ p: "4px 2px", minWidth: 140, color: "#1a1a2e" }}>
-                    <Typography variant="subtitle2" fontWeight={700} fontSize="13px" fontFamily="monospace">
-                      {clickedMeter.DRN}
+                  <Box sx={{ p: "4px 2px", minWidth: 160, color: "#1a1a2e" }}>
+                    <Typography variant="subtitle2" fontWeight={700} fontSize="13px">
+                      {clickedSubstation.name || `Substation ${clickedSubstation.id}`}
                     </Typography>
                     <Chip
-                      label={online ? "Online" : "Offline"}
+                      label={clickedSubstation.isPrimary ? "Primary" : "Distribution"}
                       size="small"
                       sx={{
                         mt: 0.5,
                         height: 20,
                         fontSize: 10,
-                        bgcolor: online ? "#ECFDF5" : "#FEF2F2",
-                        color: online ? "#059669" : "#DC2626",
+                        bgcolor: clickedSubstation.isPrimary ? "#DBEAFE" : "#FEF3C7",
+                        color: clickedSubstation.isPrimary ? "#2563EB" : "#D97706",
                       }}
                     />
-                    {clickedMeter.LocationName && (
+                    {clickedSubstation.district && (
                       <Typography variant="caption" display="block" color="#6B7280" mt={0.5} fontSize="10px">
-                        {clickedMeter.LocationName}
+                        District: {clickedSubstation.district}
+                      </Typography>
+                    )}
+                    {clickedSubstation.regionData?.energy && (
+                      <Typography variant="caption" display="block" color="#6B7280" mt={0.3} fontSize="10px">
+                        Flow: {clickedSubstation.regionData.energy.direction === "net_exporting" ? "Exporting" : "Importing"}
                       </Typography>
                     )}
                     <Button
                       size="small"
-                      onClick={() => navigate(`/meter/${clickedMeter.DRN}`)}
+                      onClick={() => { setClickedSubstation(null); navigate(`/substation/${clickedSubstation.drn || clickedSubstation.id}`); }}
                       sx={{
                         mt: 1,
                         width: "100%",
@@ -676,246 +908,217 @@ export default function GroupControl() {
                         "&:hover": { bgcolor: "#1D4ED8" },
                       }}
                     >
-                      View Profile
+                      View Substation
                     </Button>
                   </Box>
                 </InfoWindow>
-              );
-            })()}
-          </GoogleMap>
+              )}
 
-          {/* ===== FLOATING CONTROL PANEL (inside map) ===== */}
-          {groups.length > 0 && (
-            <Box sx={{
-              position: "absolute", top: 12, right: 12, zIndex: 5,
-              width: 260,
-              maxHeight: "calc(100% - 24px)",
-              overflowY: "auto",
-              borderRadius: "10px",
-              bgcolor: isDark ? "rgba(15,23,42,0.92)" : "rgba(255,255,255,0.95)",
-              backdropFilter: "blur(12px)",
-              border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
-              boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.5)" : "0 4px 20px rgba(0,0,0,0.12)",
-              p: "12px",
-              "&::-webkit-scrollbar": { width: 4 },
-              "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 },
-            }}>
-              <Typography variant="caption" fontWeight={700} color={labelColor} letterSpacing="1px" textTransform="uppercase" mb={1} display="block">
-                Active Groups
-              </Typography>
-              {groups.map(g => {
-                const meterCount = g.meters?.length || g.meter_count || 0;
-                const schedule = g.schedule || null;
-                const now = new Date();
-                const currentDay = now.getDay();
-                const currentTime = now.getHours().toString().padStart(2,"0") + ":" + now.getMinutes().toString().padStart(2,"0");
-                let isActive = false;
-                if (schedule?.enabled && schedule.periods) {
-                  schedule.periods.forEach(p => {
-                    if (p.days?.includes(currentDay) && currentTime >= (p.startTime || "") && currentTime <= (p.endTime || "23:59")) {
-                      isActive = true;
-                    }
-                  });
-                }
+              {clickedMeter && (() => {
+                const lat = parseFloat(clickedMeter.Lat);
+                const lng = parseFloat(clickedMeter.Longitude);
+                if (isNaN(lat) || isNaN(lng)) return null;
+                const online = isOnline(clickedMeter);
                 return (
-                  <Box key={g.id} sx={{
-                    p: "10px", mb: "8px", borderRadius: "8px",
-                    bgcolor: isDark ? "rgba(30,41,59,0.6)" : "rgba(243,244,246,0.8)",
-                    border: `1px solid ${isActive ? "#10B981" : (isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)")}`,
-                    cursor: "pointer",
-                    transition: "border-color 0.2s",
-                    "&:hover": { borderColor: "#2563EB" },
-                  }} onClick={() => navigate(`/load-control/group/${g.id}`)}>
+                  <InfoWindow
+                    position={{ lat, lng }}
+                    onCloseClick={() => setClickedMeter(null)}
+                    options={{ pixelOffset: { width: 0, height: -10, equals: () => false } }}
+                  >
+                    <Box sx={{ p: "4px 2px", minWidth: 140, color: "#1a1a2e" }}>
+                      <Typography variant="subtitle2" fontWeight={700} fontSize="13px" fontFamily="monospace">
+                        {clickedMeter.DRN}
+                      </Typography>
+                      <Chip
+                        label={online ? "Online" : "Offline"}
+                        size="small"
+                        sx={{
+                          mt: 0.5,
+                          height: 20,
+                          fontSize: 10,
+                          bgcolor: online ? "#ECFDF5" : "#FEF2F2",
+                          color: online ? "#059669" : "#DC2626",
+                        }}
+                      />
+                      {clickedMeter.LocationName && (
+                        <Typography variant="caption" display="block" color="#6B7280" mt={0.5} fontSize="10px">
+                          {clickedMeter.LocationName}
+                        </Typography>
+                      )}
+                      <Button
+                        size="small"
+                        onClick={() => navigate(`/meter/${clickedMeter.DRN}`)}
+                        sx={{
+                          mt: 1,
+                          width: "100%",
+                          fontSize: "10px",
+                          textTransform: "none",
+                          bgcolor: "#2563EB",
+                          color: "#fff",
+                          py: "3px",
+                          borderRadius: "6px",
+                          "&:hover": { bgcolor: "#1D4ED8" },
+                        }}
+                      >
+                        View Profile
+                      </Button>
+                    </Box>
+                  </InfoWindow>
+                );
+              })()}
+            </GoogleMap>
+          </Box>
+        </Box>
+
+        {/* ===== RIGHT SIDEBAR ===== */}
+        <Box sx={{
+          width: 260,
+          flexShrink: 0,
+          borderLeft: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`,
+          pl: 0,
+          display: "flex",
+          flexDirection: "column",
+          height: 710,
+          overflowY: "auto",
+          "&::-webkit-scrollbar": { width: 4 },
+          "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 },
+        }}>
+          <Box sx={{ px: 1.5, pt: 1.5, pb: 1 }}>
+            {/* Header */}
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
+              <Box display="flex" alignItems="center" gap={0.75}>
+                <Typography
+                  variant="caption"
+                  fontWeight={700}
+                  color={labelColor}
+                  letterSpacing="0.5px"
+                  textTransform="uppercase"
+                  fontSize="10px"
+                >
+                  Control Groups
+                </Typography>
+                <Chip
+                  label={groups.length}
+                  size="small"
+                  sx={{
+                    height: 18,
+                    minWidth: 24,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    bgcolor: isDark ? "rgba(37,99,235,0.15)" : "#DBEAFE",
+                    color: "#2563EB",
+                    "& .MuiChip-label": { px: "5px" },
+                  }}
+                />
+              </Box>
+              <Button
+                size="small"
+                startIcon={<AddOutlined sx={{ fontSize: 14 }} />}
+                onClick={() => setShowCreate(true)}
+                sx={{
+                  textTransform: "none",
+                  fontSize: 11,
+                  borderRadius: "6px",
+                  color: "#2563EB",
+                  minWidth: 0,
+                  px: 1,
+                  py: "3px",
+                  "&:hover": { bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF" },
+                }}
+              >
+                Create
+              </Button>
+            </Box>
+
+            {/* Groups list */}
+            {groups.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 3 }}>
+                <GroupWorkOutlined sx={{ fontSize: 32, color: isDark ? colors.grey[500] : "#D1D5DB", mb: 0.5 }} />
+                <Typography fontSize="12px" color={labelColor}>No groups yet</Typography>
+                <Typography fontSize="10px" color={labelColor} mt={0.25}>
+                  Create a group to organize meters
+                </Typography>
+              </Box>
+            ) : (
+              groups.map(g => {
+                const meterCount = g.meters?.length || g.member_count || g.meter_count || 0;
+                const typeColor = g.control_type === "mains" ? "#EF4444"
+                  : g.control_type === "geyser" ? "#F59E0B" : "#2563EB";
+                const schedule = g.schedule || null;
+                const active = isGroupActive(g);
+                return (
+                  <Box
+                    key={g.id}
+                    onClick={() => navigate(`/load-control/group/${g.id}`)}
+                    sx={{
+                      p: "10px 12px",
+                      mb: "6px",
+                      borderRadius: "8px",
+                      bgcolor: isDark ? "rgba(30,41,59,0.4)" : "rgba(249,250,251,0.8)",
+                      border: `1px solid ${active ? "#10B981" : (isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)")}`,
+                      cursor: "pointer",
+                      transition: "all 0.15s",
+                      "&:hover": {
+                        borderColor: "#2563EB",
+                        bgcolor: isDark ? "rgba(37,99,235,0.06)" : "rgba(37,99,235,0.03)",
+                      },
+                    }}
+                  >
                     <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
-                      <Typography fontSize="12px" fontWeight={600} color={headingColor} noWrap sx={{ maxWidth: 150 }}>
+                      <Typography
+                        fontSize="12px"
+                        fontWeight={600}
+                        color={headingColor}
+                        noWrap
+                        sx={{ maxWidth: 140 }}
+                      >
                         {g.name}
                       </Typography>
-                      {isActive ? (
-                        <Chip label="ACTIVE" size="small" sx={{ height: 18, fontSize: 9, fontWeight: 700, bgcolor: "rgba(16,185,129,0.15)", color: "#10B981", border: "1px solid #10B981" }} />
+                      {active ? (
+                        <Chip label="ACTIVE" size="small" sx={{
+                          height: 18, fontSize: 9, fontWeight: 700,
+                          bgcolor: "rgba(16,185,129,0.15)", color: "#10B981",
+                          border: "1px solid #10B981",
+                          "& .MuiChip-label": { px: "5px" },
+                        }} />
                       ) : (
-                        <Chip label="IDLE" size="small" sx={{ height: 18, fontSize: 9, fontWeight: 600, bgcolor: isDark ? "rgba(100,116,139,0.15)" : "rgba(100,116,139,0.1)", color: "#94A3AF" }} />
+                        <Chip label="IDLE" size="small" sx={{
+                          height: 18, fontSize: 9, fontWeight: 600,
+                          bgcolor: isDark ? "rgba(100,116,139,0.15)" : "rgba(100,116,139,0.1)",
+                          color: "#94A3AF",
+                          "& .MuiChip-label": { px: "5px" },
+                        }} />
                       )}
                     </Box>
-                    <Box display="flex" gap={1} alignItems="center">
-                      <Typography fontSize="10px" color={labelColor}>{meterCount} meters</Typography>
-                      <Chip label={g.control_type || "load"} size="small" sx={{ height: 16, fontSize: 8, bgcolor: isDark ? "rgba(37,99,235,0.12)" : "#EFF6FF", color: "#2563EB" }} />
+                    <Box display="flex" gap={0.5} alignItems="center" flexWrap="wrap">
+                      <Typography fontSize="10px" color={labelColor}>
+                        {meterCount} meters
+                      </Typography>
+                      <Chip
+                        label={g.control_type || "load"}
+                        size="small"
+                        sx={{
+                          height: 16,
+                          fontSize: 8,
+                          fontWeight: 500,
+                          bgcolor: isDark ? `${typeColor}1A` : `${typeColor}15`,
+                          color: typeColor,
+                          textTransform: "capitalize",
+                          "& .MuiChip-label": { px: "5px" },
+                        }}
+                      />
                     </Box>
                     {schedule?.enabled && schedule.periods?.[0] && (
                       <Typography fontSize="9px" color={labelColor} mt={0.5}>
-                        Schedule: {schedule.periods[0].startTime || "—"} – {schedule.periods[0].endTime || "—"}
+                        {schedule.periods[0].startTime || "—"} – {schedule.periods[0].endTime || "—"}
                       </Typography>
                     )}
                   </Box>
                 );
-              })}
-            </Box>
-          )}
-
-          {/* ===== FLOATING LEGEND (bottom-left inside map) ===== */}
-          <Box sx={{
-            position: "absolute", bottom: 12, left: 12, zIndex: 5,
-            display: "flex", gap: 1.5, alignItems: "center",
-            px: "12px", py: "8px", borderRadius: "8px",
-            bgcolor: isDark ? "rgba(15,23,42,0.9)" : "rgba(255,255,255,0.92)",
-            backdropFilter: "blur(8px)",
-            border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
-            boxShadow: isDark ? "0 2px 10px rgba(0,0,0,0.4)" : "0 2px 10px rgba(0,0,0,0.08)",
-          }}>
-            <Box display="flex" alignItems="center" gap={0.5}>
-              <FiberManualRecord sx={{ fontSize: 8, color: "#10B981" }} />
-              <Typography fontSize="9px" color={labelColor}>Online</Typography>
-            </Box>
-            <Box display="flex" alignItems="center" gap={0.5}>
-              <FiberManualRecord sx={{ fontSize: 8, color: "#EF4444" }} />
-              <Typography fontSize="9px" color={labelColor}>Offline</Typography>
-            </Box>
-            <Box display="flex" alignItems="center" gap={0.5}>
-              <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: "#3b82f6" }} />
-              <Typography fontSize="9px" color={labelColor}>Primary</Typography>
-            </Box>
-            <Box display="flex" alignItems="center" gap={0.5}>
-              <Box sx={{ width: 8, height: 8, transform: "rotate(45deg)", bgcolor: "#f59e0b" }} />
-              <Typography fontSize="9px" color={labelColor}>Distribution</Typography>
-            </Box>
+              })
+            )}
           </Box>
         </Box>
-      </Box>
-
-      {/* ===== GROUPS SECTION ===== */}
-      <Box sx={{ px: 3, pb: 2 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-          <Typography variant="h5" fontWeight={600} color={headingColor}>
-            Control Groups
-          </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddOutlined />}
-            onClick={() => setShowCreate(true)}
-            sx={{
-              textTransform: "none",
-              fontSize: "13px",
-              borderRadius: "8px",
-              bgcolor: "#2563EB",
-              px: 2.5,
-              "&:hover": { bgcolor: "#1D4ED8" },
-            }}
-          >
-            Create Group
-          </Button>
-        </Box>
-
-        {groups.length === 0 ? (
-          <Box
-            sx={{
-              bgcolor: cardBg,
-              border: cardBorder,
-              borderRadius: "12px",
-              p: 4,
-              textAlign: "center",
-            }}
-          >
-            <GroupWorkOutlined sx={{ fontSize: 40, color: isDark ? colors.grey[500] : "#D1D5DB", mb: 1 }} />
-            <Typography color={labelColor}>No groups created yet</Typography>
-            <Typography variant="caption" color={labelColor} mt={0.5} display="block">
-              Create a group to organize meters for batch control commands
-            </Typography>
-          </Box>
-        ) : (
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 2 }}>
-            {groups.map(g => {
-              const typeColor = g.control_type === "mains" ? "#EF4444"
-                : g.control_type === "geyser" ? "#F59E0B" : "#2563EB";
-              const schedule = g.schedule || null;
-              const now = new Date();
-              const currentDay = now.getDay();
-              const currentTime = now.getHours().toString().padStart(2,"0") + ":" + now.getMinutes().toString().padStart(2,"0");
-              let isActive = false;
-              if (schedule?.enabled && schedule.periods) {
-                schedule.periods.forEach(p => {
-                  if (p.days?.includes(currentDay) && currentTime >= (p.startTime || "") && currentTime <= (p.endTime || "23:59")) {
-                    isActive = true;
-                  }
-                });
-              }
-              return (
-                <Box
-                  key={g.id}
-                  onClick={() => navigate(`/load-control/group/${g.id}`)}
-                  sx={{
-                    bgcolor: cardBg,
-                    border: isActive ? "1px solid #10B981" : cardBorder,
-                    borderRadius: "12px",
-                    p: "20px",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    position: "relative",
-                    "&:hover": {
-                      borderColor: "#2563EB",
-                      boxShadow: isDark ? "0 4px 16px rgba(37,99,235,0.15)" : "0 4px 16px rgba(37,99,235,0.1)",
-                    },
-                  }}
-                >
-                  {isActive && (
-                    <Box sx={{ position: "absolute", top: 10, right: 10 }}>
-                      <Chip label="ACTIVE NOW" size="small" sx={{ height: 20, fontSize: 9, fontWeight: 700, bgcolor: "rgba(16,185,129,0.15)", color: "#10B981", border: "1px solid #10B981" }} />
-                    </Box>
-                  )}
-                  <Box display="flex" justifyContent="space-between" alignItems="flex-start">
-                    <Box>
-                      <Typography variant="subtitle1" fontWeight={600} color={headingColor}>
-                        {g.name}
-                      </Typography>
-                      {g.description && (
-                        <Typography variant="caption" color={labelColor} display="block" mt={0.5} noWrap sx={{ maxWidth: 220 }}>
-                          {g.description}
-                        </Typography>
-                      )}
-                    </Box>
-                    <ArrowForwardOutlined sx={{ fontSize: 18, color: labelColor, mt: isActive ? 3 : 0 }} />
-                  </Box>
-                  <Box display="flex" gap={1} mt={2} alignItems="center" flexWrap="wrap">
-                    <Chip
-                      label={`${g.member_count || 0} meters`}
-                      size="small"
-                      sx={{
-                        height: 24,
-                        fontSize: 11,
-                        fontWeight: 500,
-                        bgcolor: isDark ? "rgba(16,185,129,0.15)" : "#ECFDF5",
-                        color: isDark ? "#10B981" : "#059669",
-                      }}
-                    />
-                    <Chip
-                      label={g.control_type || "mixed"}
-                      size="small"
-                      sx={{
-                        height: 24,
-                        fontSize: 11,
-                        fontWeight: 500,
-                        bgcolor: isDark ? `${typeColor}22` : `${typeColor}15`,
-                        color: typeColor,
-                        textTransform: "capitalize",
-                      }}
-                    />
-                    {schedule?.enabled && schedule.periods?.[0] && (
-                      <Chip
-                        label={`${schedule.periods[0].startTime || "—"} – ${schedule.periods[0].endTime || "—"}`}
-                        size="small"
-                        sx={{
-                          height: 24,
-                          fontSize: 10,
-                          fontWeight: 500,
-                          bgcolor: isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6",
-                          color: labelColor,
-                        }}
-                      />
-                    )}
-                  </Box>
-                </Box>
-              );
-            })}
-          </Box>
-        )}
       </Box>
 
       {/* ===== METERS TABLE ===== */}
