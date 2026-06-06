@@ -232,6 +232,53 @@ export default function GroupControl() {
     return Object.values(areaMap).sort((a, b) => b.count - a.count);
   }, [meters]);
 
+  /* Cross-reference areas with groups to find configuration status */
+  const areaConfigs = useMemo(() => {
+    const result = {};
+    areas.forEach(area => {
+      const areaDrns = new Set(area.drns);
+      const matchingGroup = groups.find(g => {
+        const memberDrns = (g.members || g.meters || []).map(m => m.DRN || m.meter_drn || m);
+        return memberDrns.some(drn => areaDrns.has(drn));
+      });
+      result[area.name] = matchingGroup || null;
+    });
+    return result;
+  }, [areas, groups]);
+
+  /* Nearby meters per substation */
+  const substationMeters = useMemo(() => {
+    const result = {};
+    substations.forEach(sub => {
+      const nearby = [];
+      meters.forEach(m => {
+        const lat = parseFloat(m.Lat);
+        const lng = parseFloat(m.Longitude);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const dist = Math.sqrt(Math.pow(lat - sub.lat, 2) + Math.pow(lng - sub.lng, 2));
+          if (dist < 0.05) nearby.push(m.DRN);
+        }
+      });
+      result[sub.id || sub.name] = nearby;
+    });
+    return result;
+  }, [substations, meters]);
+
+  /* Cross-reference substations with groups to find configuration status */
+  const substationConfigs = useMemo(() => {
+    const result = {};
+    substations.forEach(sub => {
+      const subId = sub.id || sub.name;
+      const nearbyDrns = new Set(substationMeters[subId] || []);
+      const matchingGroup = groups.find(g => {
+        const memberDrns = (g.members || g.meters || []).map(m => m.DRN || m.meter_drn || m);
+        return memberDrns.some(drn => nearbyDrns.has(drn));
+      });
+      result[subId] = matchingGroup || null;
+    });
+    return result;
+  }, [substations, substationMeters, groups]);
+
   /* Filtered meters */
   const filteredMeters = useMemo(() => {
     if (!search) return meters;
@@ -491,64 +538,150 @@ export default function GroupControl() {
         }}>
           {/* Areas Section */}
           <Box sx={{ px: 1.5, pt: 1.5, pb: 1 }}>
-            <Typography
-              variant="caption"
-              fontWeight={700}
-              color={labelColor}
-              letterSpacing="0.5px"
-              textTransform="uppercase"
-              display="block"
-              mb={1}
-              fontSize="10px"
-            >
-              Areas
-            </Typography>
+            <Box display="flex" alignItems="center" gap={0.75} mb={1}>
+              <Typography
+                variant="caption"
+                fontWeight={700}
+                color={labelColor}
+                letterSpacing="0.5px"
+                textTransform="uppercase"
+                fontSize="10px"
+              >
+                Areas
+              </Typography>
+              <Chip
+                label={areas.length}
+                size="small"
+                sx={{
+                  height: 16,
+                  minWidth: 20,
+                  fontSize: 9,
+                  fontWeight: 600,
+                  bgcolor: isDark ? "rgba(37,99,235,0.15)" : "#DBEAFE",
+                  color: "#2563EB",
+                  "& .MuiChip-label": { px: "4px" },
+                }}
+              />
+            </Box>
             {areas.map(area => {
-              const isActive = selectedArea === area.name;
+              const isSelected = selectedArea === area.name;
+              const configGroup = areaConfigs[area.name];
+              const hasConfig = !!configGroup;
+              const active = hasConfig && isGroupActive(configGroup);
+              const schedule = configGroup?.schedule || null;
               return (
                 <Box
                   key={area.name}
-                  onClick={() => selectArea(area)}
+                  onClick={() => {
+                    selectArea(area);
+                  }}
                   sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    px: 1.5,
-                    py: "6px",
-                    borderRadius: "6px",
+                    p: "10px 12px",
+                    mb: "6px",
+                    borderRadius: "8px",
+                    bgcolor: isDark ? "rgba(30,41,59,0.5)" : "#FFFFFF",
+                    border: `1px solid ${isSelected ? "#2563EB" : (hasConfig ? "#10B981" : (isDark ? "#1E293B" : "#E5E7EB"))}`,
+                    ...((!hasConfig && !isSelected) ? { borderStyle: "dashed" } : {}),
                     cursor: "pointer",
-                    mb: "2px",
-                    bgcolor: isActive ? "rgba(37,99,235,0.1)" : "transparent",
                     transition: "all 0.15s",
                     "&:hover": {
-                      bgcolor: isActive ? "rgba(37,99,235,0.15)" : (isDark ? "rgba(100,116,139,0.08)" : "#F3F4F6"),
+                      borderColor: "#2563EB",
+                      bgcolor: isDark ? "rgba(37,99,235,0.06)" : "rgba(37,99,235,0.03)",
                     },
                   }}
                 >
-                  <Typography
-                    fontSize="12px"
-                    fontWeight={isActive ? 600 : 400}
-                    color={isActive ? "#2563EB" : headingColor}
-                    noWrap
-                    sx={{ maxWidth: 140 }}
-                  >
-                    {area.name}
-                  </Typography>
-                  <Chip
-                    label={area.count}
-                    size="small"
-                    sx={{
-                      height: 18,
-                      minWidth: 28,
-                      fontSize: 10,
-                      fontWeight: 600,
-                      bgcolor: isActive
-                        ? "rgba(37,99,235,0.15)"
-                        : (isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6"),
-                      color: isActive ? "#2563EB" : labelColor,
-                      "& .MuiChip-label": { px: "6px" },
-                    }}
-                  />
+                  <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                    <Typography
+                      fontSize="12px"
+                      fontWeight={600}
+                      color={headingColor}
+                      noWrap
+                      sx={{ maxWidth: 110 }}
+                    >
+                      {area.name}
+                    </Typography>
+                    {active ? (
+                      <Chip label="ACTIVE" size="small" sx={{
+                        height: 16, fontSize: 8, fontWeight: 700,
+                        bgcolor: "rgba(16,185,129,0.15)", color: "#10B981",
+                        border: "1px solid #10B981",
+                        "& .MuiChip-label": { px: "4px" },
+                      }} />
+                    ) : hasConfig ? (
+                      <Chip label="CONFIGURED" size="small" sx={{
+                        height: 16, fontSize: 8, fontWeight: 700,
+                        bgcolor: "rgba(16,185,129,0.1)", color: "#10B981",
+                        "& .MuiChip-label": { px: "4px" },
+                      }} />
+                    ) : (
+                      <Chip label="NO CONFIG" size="small" sx={{
+                        height: 16, fontSize: 8, fontWeight: 600,
+                        bgcolor: isDark ? "rgba(100,116,139,0.15)" : "rgba(100,116,139,0.1)",
+                        color: "#94A3AF",
+                        "& .MuiChip-label": { px: "4px" },
+                      }} />
+                    )}
+                  </Box>
+                  <Box display="flex" gap={0.5} alignItems="center" flexWrap="wrap">
+                    <Typography fontSize="10px" color={labelColor}>
+                      {area.count} meter{area.count !== 1 ? "s" : ""}
+                    </Typography>
+                    {hasConfig && (
+                      <Chip
+                        label={configGroup.control_type || "load"}
+                        size="small"
+                        sx={{
+                          height: 16, fontSize: 8, fontWeight: 500,
+                          bgcolor: isDark ? "rgba(37,99,235,0.12)" : "rgba(37,99,235,0.08)",
+                          color: "#2563EB",
+                          textTransform: "capitalize",
+                          "& .MuiChip-label": { px: "4px" },
+                        }}
+                      />
+                    )}
+                  </Box>
+                  {hasConfig && (
+                    <Typography fontSize="9px" color={labelColor} mt={0.5} noWrap>
+                      Group: {configGroup.name}
+                      {schedule?.enabled && schedule.periods?.[0] && (
+                        <> &middot; {schedule.periods[0].startTime || "—"} – {schedule.periods[0].endTime || "—"}</>
+                      )}
+                    </Typography>
+                  )}
+                  {isSelected && (
+                    <Box mt={0.75}>
+                      {hasConfig ? (
+                        <Button
+                          size="small"
+                          fullWidth
+                          onClick={(e) => { e.stopPropagation(); navigate(`/load-control/group/${configGroup.id}`); }}
+                          sx={{
+                            textTransform: "none", fontSize: 10, py: "2px",
+                            borderRadius: "4px", color: "#2563EB",
+                            bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF",
+                            "&:hover": { bgcolor: isDark ? "rgba(37,99,235,0.15)" : "#DBEAFE" },
+                          }}
+                        >
+                          View Group: {configGroup.name}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="small"
+                          fullWidth
+                          variant="contained"
+                          startIcon={<AddOutlined sx={{ fontSize: 12 }} />}
+                          onClick={(e) => { e.stopPropagation(); setShowCreate(true); }}
+                          sx={{
+                            textTransform: "none", fontSize: 10, py: "2px",
+                            borderRadius: "4px", bgcolor: "#2563EB",
+                            "&:hover": { bgcolor: "#1D4ED8" },
+                          }}
+                        >
+                          Create Group
+                        </Button>
+                      )}
+                    </Box>
+                  )}
                 </Box>
               );
             })}
@@ -559,68 +692,154 @@ export default function GroupControl() {
 
           {/* Substations Section */}
           <Box sx={{ px: 1.5, pb: 1, flex: 1 }}>
-            <Typography
-              variant="caption"
-              fontWeight={700}
-              color={labelColor}
-              letterSpacing="0.5px"
-              textTransform="uppercase"
-              display="block"
-              mb={1}
-              fontSize="10px"
-            >
-              Substations
-            </Typography>
+            <Box display="flex" alignItems="center" gap={0.75} mb={1}>
+              <Typography
+                variant="caption"
+                fontWeight={700}
+                color={labelColor}
+                letterSpacing="0.5px"
+                textTransform="uppercase"
+                fontSize="10px"
+              >
+                Substations
+              </Typography>
+              <Chip
+                label={substations.length}
+                size="small"
+                sx={{
+                  height: 16,
+                  minWidth: 20,
+                  fontSize: 9,
+                  fontWeight: 600,
+                  bgcolor: isDark ? "rgba(37,99,235,0.15)" : "#DBEAFE",
+                  color: "#2563EB",
+                  "& .MuiChip-label": { px: "4px" },
+                }}
+              />
+            </Box>
             {substations.length === 0 ? (
               <Typography fontSize="11px" color={labelColor} sx={{ px: 1.5, py: 1 }}>
                 No substations loaded
               </Typography>
             ) : (
               substations.map(sub => {
-                const isActive = selectedSidebarSubstation === sub.id;
+                const subId = sub.id || sub.name;
+                const isSelected = selectedSidebarSubstation === sub.id;
+                const nearbyCount = (substationMeters[subId] || []).length;
+                const configGroup = substationConfigs[subId];
+                const hasConfig = !!configGroup;
+                const active = hasConfig && isGroupActive(configGroup);
+                const schedule = configGroup?.schedule || null;
                 return (
                   <Box
                     key={sub.id}
                     onClick={() => selectSubstation(sub)}
                     sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      px: 1.5,
-                      py: "6px",
-                      borderRadius: "6px",
+                      p: "10px 12px",
+                      mb: "6px",
+                      borderRadius: "8px",
+                      bgcolor: isDark ? "rgba(30,41,59,0.5)" : "#FFFFFF",
+                      border: `1px solid ${isSelected ? "#2563EB" : (hasConfig ? "#10B981" : (isDark ? "#1E293B" : "#E5E7EB"))}`,
+                      ...((!hasConfig && !isSelected) ? { borderStyle: "dashed" } : {}),
                       cursor: "pointer",
-                      mb: "2px",
-                      bgcolor: isActive ? "rgba(37,99,235,0.1)" : "transparent",
                       transition: "all 0.15s",
                       "&:hover": {
-                        bgcolor: isActive ? "rgba(37,99,235,0.15)" : (isDark ? "rgba(100,116,139,0.08)" : "#F3F4F6"),
+                        borderColor: "#2563EB",
+                        bgcolor: isDark ? "rgba(37,99,235,0.06)" : "rgba(37,99,235,0.03)",
                       },
                     }}
                   >
-                    <Typography
-                      fontSize="12px"
-                      fontWeight={isActive ? 600 : 400}
-                      color={isActive ? "#2563EB" : headingColor}
-                      noWrap
-                      sx={{ maxWidth: 110 }}
-                    >
-                      {sub.name || `Sub ${sub.id}`}
-                    </Typography>
-                    <Chip
-                      label={sub.isPrimary ? "Primary" : "Dist"}
-                      size="small"
-                      sx={{
-                        height: 18,
-                        fontSize: 9,
-                        fontWeight: 600,
-                        bgcolor: sub.isPrimary
-                          ? (isDark ? "rgba(37,99,235,0.15)" : "#DBEAFE")
-                          : (isDark ? "rgba(245,158,11,0.15)" : "#FEF3C7"),
-                        color: sub.isPrimary ? "#2563EB" : "#D97706",
-                        "& .MuiChip-label": { px: "6px" },
-                      }}
-                    />
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                      <Typography
+                        fontSize="12px"
+                        fontWeight={600}
+                        color={headingColor}
+                        noWrap
+                        sx={{ maxWidth: 90 }}
+                      >
+                        {sub.name || `Sub ${sub.id}`}
+                      </Typography>
+                      {active ? (
+                        <Chip label="ACTIVE" size="small" sx={{
+                          height: 16, fontSize: 8, fontWeight: 700,
+                          bgcolor: "rgba(16,185,129,0.15)", color: "#10B981",
+                          border: "1px solid #10B981",
+                          "& .MuiChip-label": { px: "4px" },
+                        }} />
+                      ) : hasConfig ? (
+                        <Chip label="CONFIGURED" size="small" sx={{
+                          height: 16, fontSize: 8, fontWeight: 700,
+                          bgcolor: "rgba(16,185,129,0.1)", color: "#10B981",
+                          "& .MuiChip-label": { px: "4px" },
+                        }} />
+                      ) : (
+                        <Chip label="NO CONFIG" size="small" sx={{
+                          height: 16, fontSize: 8, fontWeight: 600,
+                          bgcolor: isDark ? "rgba(100,116,139,0.15)" : "rgba(100,116,139,0.1)",
+                          color: "#94A3AF",
+                          "& .MuiChip-label": { px: "4px" },
+                        }} />
+                      )}
+                    </Box>
+                    <Box display="flex" gap={0.5} alignItems="center" flexWrap="wrap">
+                      <Typography fontSize="10px" color={labelColor}>
+                        {nearbyCount} meter{nearbyCount !== 1 ? "s" : ""}
+                      </Typography>
+                      <Chip
+                        label={sub.isPrimary ? "Primary" : "Distribution"}
+                        size="small"
+                        sx={{
+                          height: 16, fontSize: 8, fontWeight: 500,
+                          bgcolor: sub.isPrimary
+                            ? (isDark ? "rgba(37,99,235,0.12)" : "#DBEAFE")
+                            : (isDark ? "rgba(245,158,11,0.12)" : "#FEF3C7"),
+                          color: sub.isPrimary ? "#2563EB" : "#D97706",
+                          "& .MuiChip-label": { px: "4px" },
+                        }}
+                      />
+                    </Box>
+                    {hasConfig && (
+                      <Typography fontSize="9px" color={labelColor} mt={0.5} noWrap>
+                        Group: {configGroup.name}
+                        {schedule?.enabled && schedule.periods?.[0] && (
+                          <> &middot; {schedule.periods[0].startTime || "—"} – {schedule.periods[0].endTime || "—"}</>
+                        )}
+                      </Typography>
+                    )}
+                    {isSelected && (
+                      <Box mt={0.75}>
+                        {hasConfig ? (
+                          <Button
+                            size="small"
+                            fullWidth
+                            onClick={(e) => { e.stopPropagation(); navigate(`/load-control/group/${configGroup.id}`); }}
+                            sx={{
+                              textTransform: "none", fontSize: 10, py: "2px",
+                              borderRadius: "4px", color: "#2563EB",
+                              bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF",
+                              "&:hover": { bgcolor: isDark ? "rgba(37,99,235,0.15)" : "#DBEAFE" },
+                            }}
+                          >
+                            View Group: {configGroup.name}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="small"
+                            fullWidth
+                            variant="contained"
+                            startIcon={<AddOutlined sx={{ fontSize: 12 }} />}
+                            onClick={(e) => { e.stopPropagation(); setShowCreate(true); }}
+                            sx={{
+                              textTransform: "none", fontSize: 10, py: "2px",
+                              borderRadius: "4px", bgcolor: "#2563EB",
+                              "&:hover": { bgcolor: "#1D4ED8" },
+                            }}
+                          >
+                            Create Group
+                          </Button>
+                        )}
+                      </Box>
+                    )}
                   </Box>
                 );
               })
