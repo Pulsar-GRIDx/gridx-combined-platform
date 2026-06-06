@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Box, Typography, useTheme, Grid, CircularProgress, Chip,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -27,6 +27,8 @@ import SolarPowerIcon from "@mui/icons-material/SolarPower";
 import OpenInNewOutlinedIcon from "@mui/icons-material/OpenInNewOutlined";
 import ElectricBoltIcon from "@mui/icons-material/ElectricBolt";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
+import ChevronLeftOutlinedIcon from "@mui/icons-material/ChevronLeftOutlined";
+import ChevronRightOutlinedIcon from "@mui/icons-material/ChevronRightOutlined";
 import { useNavigate } from "react-router-dom";
 
 // Tariff rates (N$ per kWh)
@@ -81,7 +83,7 @@ function EnergyBarChart({ colors, isDark, title, data, height }) {
       <Typography sx={{ fontSize: "14px", fontWeight: 700, color: colors.grey[100], mb: 2 }}>{title}</Typography>
       <ResponsiveContainer width="100%" height={height || 260}>
         <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? colors.grey[700] : "#f0f0f0"} />
+          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} />
           <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.grey[400] }} />
           <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
           <RechartsTooltip contentStyle={{ backgroundColor: isDark ? colors.primary[500] : "#fff", border: "1px solid " + colors.grey[600], borderRadius: "8px", fontSize: "12px" }} />
@@ -100,7 +102,7 @@ function RevenueBarChart({ colors, isDark, title, data, height }) {
       <Typography sx={{ fontSize: "14px", fontWeight: 700, color: colors.grey[100], mb: 2 }}>{title}</Typography>
       <ResponsiveContainer width="100%" height={height || 260}>
         <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? colors.grey[700] : "#f0f0f0"} />
+          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} />
           <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.grey[400] }} />
           <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} label={{ value: "N$", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
           <RechartsTooltip
@@ -116,54 +118,326 @@ function RevenueBarChart({ colors, isDark, title, data, height }) {
   );
 }
 
+function safeNum(val) {
+  var n = Number(val);
+  return isNaN(n) ? 0 : n;
+}
+
 function processChartData(raw) {
   return (raw || []).map(function(d) {
-    var deliveredKwh = (d.import || 0) / 1000;
-    var receivedKwh = (d.export || 0) / 1000;
+    var deliveredKwh = safeNum(d.import) / 1000;
+    var receivedKwh = safeNum(d.export) / 1000;
     return {
       label: d.label || "",
-      delivered: Number(deliveredKwh.toFixed(2)),
-      received: Number(receivedKwh.toFixed(2)),
-      revenue: Number((deliveredKwh * TARIFF_RETAIL).toFixed(2)),
-      feedInCost: Number((receivedKwh * TARIFF_FEEDIN).toFixed(2)),
+      date: d.date || d.label || "",
+      delivered: safeNum(deliveredKwh.toFixed(2)),
+      received: safeNum(receivedKwh.toFixed(2)),
+      revenue: safeNum((deliveredKwh * TARIFF_RETAIL).toFixed(2)),
+      feedInCost: safeNum((receivedKwh * TARIFF_FEEDIN).toFixed(2)),
     };
   });
 }
 
 function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated, allPeriodData, fetchDashboard }) {
-  var totalDelivered = dashData?.total_import || 0;
-  var totalReceived = dashData?.total_export || 0;
-  var totalMeters = dashData?.total_meters || activeMeters.length || 0;
+  // Navigation offsets: 0 = current, -1 = previous, etc.
+  var _weekState = useState(0);
+  var weekOffset = _weekState[0]; var setWeekOffset = _weekState[1];
+  var _monthState = useState(0);
+  var monthOffset = _monthState[0]; var setMonthOffset = _monthState[1];
+  var _yearState = useState(0);
+  var yearOffset = _yearState[0]; var setYearOffset = _yearState[1];
+
+  var totalDelivered = safeNum(dashData?.total_import);
+  var totalReceived = safeNum(dashData?.total_export);
+  var totalMeters = safeNum(dashData?.total_meters) || activeMeters.length || 0;
   var salesRevenue = (totalDelivered / 1000) * TARIFF_RETAIL;
   var feedInCost = (totalReceived / 1000) * TARIFF_FEEDIN;
   var netRevenue = salesRevenue - feedInCost;
-  var todayDelivered = dashData?.today_import || 0;
-  var todayReceived = dashData?.today_export || 0;
+  var todayDelivered = safeNum(dashData?.today_import);
+  var todayReceived = safeNum(dashData?.today_export);
   var todayRevenue = (todayDelivered / 1000) * TARIFF_RETAIL;
   var todayFeedIn = (todayReceived / 1000) * TARIFF_FEEDIN;
 
   var hourlyData = (dashData?.hourly || []).map(function(h, i) {
     return {
       hour: String(i).padStart(2, "0") + ":00",
-      delivered: (h?.import || 0) / 1000,
-      received: (h?.export || 0) / 1000,
+      delivered: safeNum(safeNum(h?.import) / 1000),
+      received: safeNum(safeNum(h?.export) / 1000),
     };
   });
 
-  var dailyData = processChartData(allPeriodData.daily);
-  var weeklyData = processChartData(allPeriodData.thisweek);
-  var monthlyData = processChartData(allPeriodData.thisyear);
-  var yearlyData = processChartData(allPeriodData.yearly);
+  var allDailyData = processChartData(allPeriodData.daily);
+  var allMonthlyData = processChartData(allPeriodData.thisyear);
+  var allYearlyData = processChartData(allPeriodData.yearly);
+
+  // ---- Date helpers ----
+  var MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  var MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  function getMonday(d) {
+    var dt = new Date(d);
+    var day = dt.getDay();
+    var diff = dt.getDate() - day + (day === 0 ? -6 : 1);
+    dt.setDate(diff);
+    dt.setHours(0, 0, 0, 0);
+    return dt;
+  }
+
+  function addDays(d, n) {
+    var dt = new Date(d);
+    dt.setDate(dt.getDate() + n);
+    return dt;
+  }
+
+  function fmtDate(d) {
+    return MONTH_SHORT[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
+  }
+
+  function dateToStr(d) {
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+
+  function daysInMonth(year, month) {
+    return new Date(year, month + 1, 0).getDate();
+  }
+
+  // ---- Weekly data with navigation ----
+  var weekInfo = useMemo(function() {
+    var now = new Date();
+    var thisMonday = getMonday(now);
+    var targetMonday = addDays(thisMonday, weekOffset * 7);
+    var targetSunday = addDays(targetMonday, 6);
+    var label = fmtDate(targetMonday) + " - " + fmtDate(targetSunday);
+
+    // Build the 7-day range
+    var weekDates = [];
+    for (var i = 0; i < 7; i++) {
+      weekDates.push(dateToStr(addDays(targetMonday, i)));
+    }
+
+    // Try to match from daily API data - handle ISO date strings
+    var dateMap = {};
+    allDailyData.forEach(function(d) {
+      if (d.date) {
+        var key = d.date;
+        if (key.indexOf("T") !== -1) {
+          var parsed = new Date(key);
+          key = parsed.getFullYear() + "-" + String(parsed.getMonth() + 1).padStart(2, "0") + "-" + String(parsed.getDate()).padStart(2, "0");
+        }
+        dateMap[key] = d;
+        if (d.label) dateMap[d.label] = d;
+      }
+    });
+
+    var data = weekDates.map(function(ds, idx) {
+      var existing = dateMap[ds];
+      if (existing) {
+        return { ...existing, label: DAY_SHORT[idx] };
+      }
+      return { label: DAY_SHORT[idx], date: ds, delivered: 0, received: 0, revenue: 0, feedInCost: 0 };
+    });
+
+    return { label: label, data: data, monday: targetMonday, sunday: targetSunday };
+  }, [weekOffset, allDailyData]);
+
+  var weeklyData = weekInfo.data;
+
+  // ---- Monthly data with navigation ----
+  var monthInfo = useMemo(function() {
+    var now = new Date();
+    var targetDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+    var year = targetDate.getFullYear();
+    var month = targetDate.getMonth();
+    var label = MONTH_NAMES[month] + " " + year;
+    var numDays = daysInMonth(year, month);
+
+    // Build the full month day range
+    var monthDates = [];
+    for (var i = 1; i <= numDays; i++) {
+      monthDates.push(dateToStr(new Date(year, month, i)));
+    }
+
+    // Try to match from daily API data - handle ISO date strings
+    var dateMap = {};
+    allDailyData.forEach(function(d) {
+      if (d.date) {
+        var key = d.date;
+        if (key.indexOf("T") !== -1) {
+          var parsed = new Date(key);
+          key = parsed.getFullYear() + "-" + String(parsed.getMonth() + 1).padStart(2, "0") + "-" + String(parsed.getDate()).padStart(2, "0");
+        }
+        dateMap[key] = d;
+        if (d.label) dateMap[d.label] = d;
+      }
+    });
+
+    var data = monthDates.map(function(ds, idx) {
+      var existing = dateMap[ds];
+      if (existing) {
+        return { ...existing, label: String(idx + 1) };
+      }
+      return { label: String(idx + 1), date: ds, delivered: 0, received: 0, revenue: 0, feedInCost: 0 };
+    });
+
+    return { label: label, data: data };
+  }, [monthOffset, allDailyData]);
+
+  var monthlyChartData = monthInfo.data;
+
+  // ---- Yearly data with navigation ----
+  var yearInfo = useMemo(function() {
+    var now = new Date();
+    var targetYear = now.getFullYear() + yearOffset;
+    var label = String(targetYear);
+
+    // Use thisyear (monthly) data for current year, otherwise fill with zeros
+    var data;
+    if (yearOffset === 0 && allMonthlyData.length > 0) {
+      // Ensure all 12 months
+      data = MONTH_SHORT.map(function(m, idx) {
+        var existing = allMonthlyData.find(function(d) { return d.label === m || d.label === MONTH_NAMES[idx]; });
+        if (existing) return { ...existing, label: m };
+        return { label: m, delivered: 0, received: 0, revenue: 0, feedInCost: 0 };
+      });
+    } else if (allYearlyData.length > 0) {
+      // Try to find the year in yearly data
+      var yearEntry = allYearlyData.find(function(d) { return d.label === label; });
+      if (yearEntry) {
+        // Spread single year value across months (just show yearly total once)
+        data = MONTH_SHORT.map(function(m) {
+          return { label: m, delivered: 0, received: 0, revenue: 0, feedInCost: 0 };
+        });
+        // Put all yearly data into a single "Total" placeholder for Jan
+        data[0] = { label: "Jan", delivered: safeNum(yearEntry.delivered), received: safeNum(yearEntry.received), revenue: safeNum(yearEntry.revenue), feedInCost: safeNum(yearEntry.feedInCost) };
+      } else {
+        data = MONTH_SHORT.map(function(m) {
+          return { label: m, delivered: 0, received: 0, revenue: 0, feedInCost: 0 };
+        });
+      }
+    } else {
+      data = MONTH_SHORT.map(function(m) {
+        return { label: m, delivered: 0, received: 0, revenue: 0, feedInCost: 0 };
+      });
+    }
+
+    return { label: label, data: data };
+  }, [yearOffset, allMonthlyData, allYearlyData]);
+
+  var yearlyChartData = yearInfo.data;
 
   var consumingMeters = activeMeters.filter(function(m) { return m.power_direction === "IMPORT"; }).length;
   var feedingMeters = activeMeters.filter(function(m) { return m.power_direction === "EXPORT"; }).length;
 
-  var cardStyle = { p: "20px", borderRadius: "8px", bgcolor: colors.primary[400] };
+  // --- Hourly insights ---
+  var currentHourIdx = new Date().getHours();
+  var currentHourImport = hourlyData[currentHourIdx] ? safeNum(hourlyData[currentHourIdx].delivered) : 0;
+  var currentHourExport = hourlyData[currentHourIdx] ? safeNum(hourlyData[currentHourIdx].received) : 0;
+  var peakHourVal = 0; var peakHourLabel = "--";
+  hourlyData.forEach(function(h) {
+    var total = safeNum(h.delivered) + safeNum(h.received);
+    if (total > peakHourVal) { peakHourVal = total; peakHourLabel = h.hour; }
+  });
+  var todayTotalUsage = (todayDelivered / 1000) + (todayReceived / 1000);
+  var gridDependencyPct = todayTotalUsage > 0 ? ((todayDelivered / 1000) / todayTotalUsage * 100) : 0;
+
+  // --- Weekly insights ---
+  var weekTotalImport = 0; var weekTotalExport = 0;
+  var bestExportDay = ""; var bestExportVal = 0;
+  weeklyData.forEach(function(d) {
+    weekTotalImport += safeNum(d.delivered);
+    weekTotalExport += safeNum(d.received);
+    if (safeNum(d.received) > bestExportVal) { bestExportVal = safeNum(d.received); bestExportDay = d.label; }
+  });
+  var weekSavings = weekTotalExport * TARIFF_FEEDIN;
+  var weekRevenue = weekTotalImport * TARIFF_RETAIL;
+  var weekNetRevenue = weekRevenue - weekSavings;
+
+  // --- Monthly insights ---
+  var monthTotalImport = 0; var monthTotalExport = 0;
+  monthlyChartData.forEach(function(d) { monthTotalImport += safeNum(d.delivered); monthTotalExport += safeNum(d.received); });
+  var monthNetBalance = (monthTotalImport - monthTotalExport);
+  var selfConsumptionRate = (monthTotalImport + monthTotalExport) > 0
+    ? (monthTotalImport / (monthTotalImport + monthTotalExport) * 100) : 0;
+  var monthRevenue = monthTotalImport * TARIFF_RETAIL;
+  var monthFeedInCost = monthTotalExport * TARIFF_FEEDIN;
+  var monthNetRevenue = monthRevenue - monthFeedInCost;
+
+  // --- Yearly insights ---
+  var yearTotalImport = 0; var yearTotalExport = 0;
+  yearlyChartData.forEach(function(d) { yearTotalImport += safeNum(d.delivered); yearTotalExport += safeNum(d.received); });
+  var yearRevenue = yearTotalImport * TARIFF_RETAIL;
+  var yearFeedInCost = yearTotalExport * TARIFF_FEEDIN;
+  var yearNetRevenue = yearRevenue - yearFeedInCost;
+  var gridDepScore = (yearTotalImport + yearTotalExport) > 0
+    ? (yearTotalImport / (yearTotalImport + yearTotalExport) * 100) : 0;
+
+  // --- Shared styles ---
+  var sectionCardSx = {
+    p: "24px", borderRadius: "12px", bgcolor: colors.primary[400],
+    border: "1px solid " + (isDark ? colors.primary[500] : "#e8e8e8"),
+  };
+  var kpiCardSx = function(accentColor) {
+    return {
+      flex: 1, minWidth: "180px", p: "18px 20px", borderRadius: "10px",
+      bgcolor: isDark ? colors.primary[500] : "#fafbfc",
+      border: "1px solid " + (isDark ? colors.primary[600] || colors.grey[700] : "#eee"),
+      position: "relative", overflow: "hidden",
+      "&::before": {
+        content: '""', position: "absolute", top: 0, left: 0,
+        width: "4px", height: "100%", borderRadius: "10px 0 0 10px",
+        background: "linear-gradient(180deg, " + accentColor + ", " + accentColor + "44)",
+      },
+    };
+  };
+  var sectionDividerSx = {
+    my: "40px", height: "1px", width: "100%",
+    background: "linear-gradient(90deg, transparent, " + colors.grey[700] + ", transparent)",
+  };
+  var tooltipStyle = {
+    backgroundColor: isDark ? colors.primary[500] : "#fff",
+    border: "1px solid " + colors.grey[600], borderRadius: "10px", fontSize: "12px",
+    boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+  };
+
+  // --- Navigation header helper ---
+  var NavHeader = function(props) {
+    return (
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", mb: "4px" }}>
+        <IconButton size="small" onClick={props.onPrev} sx={{ color: colors.grey[300], border: "1px solid " + (isDark ? colors.grey[700] : "#ddd"), borderRadius: "8px", width: 32, height: 32, "&:hover": { bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF", borderColor: COLOR_DELIVERED } }}>
+          <ChevronLeftOutlinedIcon sx={{ fontSize: 18 }} />
+        </IconButton>
+        <Typography sx={{ fontSize: "14px", fontWeight: 700, color: colors.grey[100], minWidth: "200px", textAlign: "center" }}>
+          {props.label}
+        </Typography>
+        <IconButton size="small" onClick={props.onNext} disabled={props.disableNext} sx={{ color: props.disableNext ? colors.grey[600] : colors.grey[300], border: "1px solid " + (isDark ? colors.grey[700] : "#ddd"), borderRadius: "8px", width: 32, height: 32, "&:hover": { bgcolor: props.disableNext ? "transparent" : (isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF"), borderColor: props.disableNext ? (isDark ? colors.grey[700] : "#ddd") : COLOR_DELIVERED } }}>
+          <ChevronRightOutlinedIcon sx={{ fontSize: 18 }} />
+        </IconButton>
+      </Box>
+    );
+  };
+
+  // --- Trend indicator helper ---
+  var TrendBadge = function(props) {
+    var val = props.value; var suffix = props.suffix || "%"; var label = props.label || "";
+    var isUp = val > 0; var isNeutral = val === 0;
+    var color = isNeutral ? colors.grey[400] : (isUp ? COLOR_REVENUE : COLOR_COST);
+    var Icon = isUp ? TrendingUpIcon : TrendingDownIcon;
+    return (
+      <Box sx={{ display: "flex", alignItems: "center", gap: "4px", mt: "6px" }}>
+        {!isNeutral && <Icon sx={{ fontSize: 14, color: color }} />}
+        <Typography sx={{ fontSize: "11px", fontWeight: 600, color: color }}>
+          {isNeutral ? "--" : ((isUp ? "+" : "") + val.toFixed(1) + suffix)}
+        </Typography>
+        {label && <Typography sx={{ fontSize: "10px", color: colors.grey[500], ml: "2px" }}>{label}</Typography>}
+      </Box>
+    );
+  };
 
   return (
     <>
-      {/* Summary Cards - Utility Perspective */}
-      <Box display="flex" gap="12px" mb="16px" flexWrap="wrap">
+      {/* ===== HERO SUMMARY ROW ===== */}
+      <Box display="flex" gap="14px" mb="20px" flexWrap="wrap">
         <SummaryCard colors={colors} label="Net Metered Customers" value={totalMeters} icon={ElectricMeterOutlinedIcon} color={COLOR_DELIVERED}
           subtitle={consumingMeters + " consuming, " + feedingMeters + " feeding in"} />
         <SummaryCard colors={colors} label="Today's Grid Supply" value={toKwh(todayDelivered) + " kWh"} icon={ElectricBoltIcon} color={COLOR_DELIVERED}
@@ -174,145 +448,316 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
           subtitle={netRevenue >= 0 ? "Positive margin" : "Feed-in exceeds sales"} />
       </Box>
 
-      <Box display="flex" gap="12px" mb="16px" alignItems="center" justifyContent="flex-end">
+      <Box display="flex" gap="12px" mb="24px" alignItems="center" justifyContent="flex-end">
         {lastUpdated && <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Updated {lastUpdated.toLocaleTimeString()}</Typography>}
         <IconButton size="small" onClick={function() { fetchDashboard(false); }} sx={{ color: colors.grey[400], "&:hover": { color: COLOR_DELIVERED } }}>
           <RefreshIcon sx={{ fontSize: 18 }} />
         </IconButton>
       </Box>
 
-      {/* Row 1: Hourly Flow + Utility Balance */}
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid item xs={12} md={8}>
-          <Box sx={cardStyle}>
-            <Typography sx={{ fontSize: "14px", fontWeight: 700, color: colors.grey[100], mb: 2 }}>Today - Hourly Grid Activity</Typography>
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={hourlyData}>
-                <defs>
-                  <linearGradient id="gradDelivered" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={COLOR_DELIVERED} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={COLOR_DELIVERED} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradReceived" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={COLOR_RECEIVED} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={COLOR_RECEIVED} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? colors.grey[700] : "#f0f0f0"} />
-                <XAxis dataKey="hour" tick={{ fontSize: 10, fill: colors.grey[400] }} />
-                <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
-                <RechartsTooltip contentStyle={{ backgroundColor: isDark ? colors.primary[500] : "#fff", border: "1px solid " + colors.grey[600], borderRadius: "8px", fontSize: "12px" }} />
-                <Area type="monotone" dataKey="delivered" stroke={COLOR_DELIVERED} fill="url(#gradDelivered)" name="Grid Supply (kWh)" strokeWidth={2} />
-                <Area type="monotone" dataKey="received" stroke={COLOR_RECEIVED} fill="url(#gradReceived)" name="Solar Feed-in (kWh)" strokeWidth={2} />
-                <Legend wrapperStyle={{ fontSize: "11px" }} />
-              </AreaChart>
-            </ResponsiveContainer>
+      {/* ===== SECTION 1: HOURLY (Today) ===== */}
+      <Box sx={{ mb: "12px" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: "12px", mb: "6px" }}>
+          <Box sx={{ width: 5, height: 28, borderRadius: "3px", background: "linear-gradient(180deg, " + COLOR_DELIVERED + ", " + COLOR_RECEIVED + ")" }} />
+          <Box>
+            <Typography sx={{ fontSize: "18px", fontWeight: 800, color: colors.grey[100], letterSpacing: "-0.3px" }}>Hourly Grid Activity</Typography>
+            <Typography sx={{ fontSize: "12px", color: colors.grey[400] }}>Real-time energy flow for today — import vs solar feed-in by hour</Typography>
           </Box>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Box sx={{ ...cardStyle, height: "100%", display: "flex", flexDirection: "column" }}>
-            <Typography sx={{ fontSize: "14px", fontWeight: 700, color: colors.grey[100], mb: 2 }}>Utility Net Position</Typography>
-            <Box sx={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 1.5 }}>
-              <Box sx={{
-                width: 100, height: 100, borderRadius: "50%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                background: netRevenue >= 0 ? "linear-gradient(135deg, rgba(76,175,80,0.08), rgba(76,175,80,0.16))" : "linear-gradient(135deg, rgba(244,67,54,0.08), rgba(244,67,54,0.16))",
-                border: "3px solid " + (netRevenue >= 0 ? COLOR_REVENUE : COLOR_COST),
-              }}>
-                <Typography sx={{ fontSize: "14px", fontWeight: 800, color: netRevenue >= 0 ? COLOR_REVENUE : COLOR_COST }}>
-                  {fmtCurrency(Math.abs(netRevenue))}
-                </Typography>
-                <Typography sx={{ fontSize: "9px", color: colors.grey[400] }}>Net Revenue</Typography>
-              </Box>
-              <Chip label={netRevenue >= 0 ? "Positive Margin" : "Negative Margin"} size="small"
-                sx={{ bgcolor: (netRevenue >= 0 ? COLOR_REVENUE : COLOR_COST) + "20", color: netRevenue >= 0 ? COLOR_REVENUE : COLOR_COST, fontWeight: 600, fontSize: "10px" }} />
+        </Box>
+      </Box>
+      {/* Hourly KPIs */}
+      <Box display="flex" gap="14px" mb="16px" flexWrap="wrap">
+        <Box sx={kpiCardSx(COLOR_DELIVERED)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Current Hour Import</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{currentHourImport.toFixed(2)} kWh</Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>Hour {String(currentHourIdx).padStart(2, "0")}:00</Typography>
+        </Box>
+        <Box sx={kpiCardSx(COLOR_RECEIVED)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Current Hour Export</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{currentHourExport.toFixed(2)} kWh</Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>Solar feed-in this hour</Typography>
+        </Box>
+        <Box sx={kpiCardSx("#ab47bc")}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Peak Hour Today</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{peakHourLabel}</Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>{peakHourVal.toFixed(2)} kWh total flow</Typography>
+        </Box>
+        <Box sx={kpiCardSx(gridDependencyPct > 60 ? COLOR_COST : COLOR_REVENUE)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Grid Dependency</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{gridDependencyPct.toFixed(1)}%</Typography>
+          <Typography sx={{ fontSize: "10px", color: gridDependencyPct > 60 ? COLOR_COST : COLOR_REVENUE, fontWeight: 600, mt: "2px" }}>
+            {gridDependencyPct > 60 ? "High grid reliance" : "Good solar offset"}
+          </Typography>
+        </Box>
+      </Box>
+      {/* Hourly Chart — AreaChart, full width */}
+      <Box sx={{ ...sectionCardSx, mb: 0 }}>
+        <ResponsiveContainer width="100%" height={320}>
+          <AreaChart data={hourlyData}>
+            <defs>
+              <linearGradient id="gradDeliveredFull" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={COLOR_DELIVERED} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={COLOR_DELIVERED} stopOpacity={0.02} />
+              </linearGradient>
+              <linearGradient id="gradReceivedFull" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={COLOR_RECEIVED} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={COLOR_RECEIVED} stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
+            <XAxis dataKey="hour" tick={{ fontSize: 11, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
+              label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
+            <RechartsTooltip contentStyle={tooltipStyle} />
+            <Area type="monotone" dataKey="delivered" stroke={COLOR_DELIVERED} fill="url(#gradDeliveredFull)" name="Grid Supply (kWh)" strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2 }} />
+            <Area type="monotone" dataKey="received" stroke={COLOR_RECEIVED} fill="url(#gradReceivedFull)" name="Solar Feed-in (kWh)" strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2 }} />
+            <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "12px" }} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </Box>
 
-              <Box sx={{ display: "flex", gap: 3, mt: 1 }}>
-                <Box sx={{ textAlign: "center" }}>
-                  <Typography sx={{ fontSize: "9px", color: COLOR_DELIVERED, fontWeight: 600 }}>GRID SUPPLY</Typography>
-                  <Typography sx={{ fontSize: "14px", fontWeight: 700, color: colors.grey[100] }}>{toKwh(totalDelivered)}</Typography>
-                  <Typography sx={{ fontSize: "10px", color: colors.grey[400] }}>kWh delivered</Typography>
-                </Box>
-                <Box sx={{ width: "1px", bgcolor: colors.grey[600] }} />
-                <Box sx={{ textAlign: "center" }}>
-                  <Typography sx={{ fontSize: "9px", color: COLOR_RECEIVED, fontWeight: 600 }}>SOLAR FEED-IN</Typography>
-                  <Typography sx={{ fontSize: "14px", fontWeight: 700, color: colors.grey[100] }}>{toKwh(totalReceived)}</Typography>
-                  <Typography sx={{ fontSize: "10px", color: colors.grey[400] }}>kWh received</Typography>
-                </Box>
-              </Box>
+      {/* ===== DIVIDER ===== */}
+      <Box sx={sectionDividerSx} />
 
-              <Box sx={{ width: "100%", mt: 1.5, px: 1 }}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                  <Typography sx={{ fontSize: "10px", color: colors.grey[300] }}>Sales Revenue</Typography>
-                  <Typography sx={{ fontSize: "11px", fontWeight: 700, color: COLOR_REVENUE }}>{fmtCurrency(salesRevenue)}</Typography>
-                </Box>
-                <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                  <Typography sx={{ fontSize: "10px", color: colors.grey[300] }}>Feed-in Credits</Typography>
-                  <Typography sx={{ fontSize: "11px", fontWeight: 700, color: COLOR_COST }}>-{fmtCurrency(feedInCost)}</Typography>
-                </Box>
-                <Box sx={{ height: "1px", bgcolor: colors.grey[700], my: 0.5 }} />
-                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                  <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[200] }}>Net</Typography>
-                  <Typography sx={{ fontSize: "12px", fontWeight: 700, color: netRevenue >= 0 ? COLOR_REVENUE : COLOR_COST }}>{fmtCurrency(netRevenue)}</Typography>
-                </Box>
-              </Box>
-            </Box>
-
-            <Box sx={{ mt: 1, pt: 1.5, borderTop: "1px solid " + colors.grey[700] }}>
-              <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[300], mb: 0.5 }}>Tariff Rates</Typography>
-              <Box sx={{ display: "flex", gap: 2 }}>
-                <Box>
-                  <Typography sx={{ fontSize: "9px", color: COLOR_DELIVERED, fontWeight: 600 }}>RETAIL</Typography>
-                  <Typography sx={{ fontSize: "13px", fontWeight: 700, color: colors.grey[100] }}>N$ {TARIFF_RETAIL}</Typography>
-                </Box>
-                <Box>
-                  <Typography sx={{ fontSize: "9px", color: COLOR_RECEIVED, fontWeight: 600 }}>FEED-IN</Typography>
-                  <Typography sx={{ fontSize: "13px", fontWeight: 700, color: colors.grey[100] }}>N$ {TARIFF_FEEDIN}</Typography>
-                </Box>
-              </Box>
-            </Box>
+      {/* ===== SECTION 2: WEEKLY (Navigable Mon-Sun) ===== */}
+      <Box sx={{ mb: "12px" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: "12px", mb: "6px" }}>
+          <Box sx={{ width: 5, height: 28, borderRadius: "3px", background: "linear-gradient(180deg, " + COLOR_REVENUE + ", " + COLOR_DELIVERED + ")" }} />
+          <Box flex={1}>
+            <Typography sx={{ fontSize: "18px", fontWeight: 800, color: colors.grey[100], letterSpacing: "-0.3px" }}>Weekly Overview</Typography>
+            <Typography sx={{ fontSize: "12px", color: colors.grey[400] }}>Energy balance Monday through Sunday</Typography>
           </Box>
-        </Grid>
-      </Grid>
+        </Box>
+        <NavHeader
+          label={weekInfo.label}
+          onPrev={function() { setWeekOffset(function(p) { return p - 1; }); }}
+          onNext={function() { setWeekOffset(function(p) { return p + 1; }); }}
+          disableNext={weekOffset >= 0}
+        />
+      </Box>
+      {/* Weekly KPIs */}
+      <Box display="flex" gap="14px" mb="16px" flexWrap="wrap">
+        <Box sx={kpiCardSx(COLOR_DELIVERED)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Total Week Import</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{weekTotalImport.toFixed(1)} kWh</Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>Revenue: {fmtCurrency(weekRevenue)}</Typography>
+        </Box>
+        <Box sx={kpiCardSx(COLOR_RECEIVED)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Total Week Export</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{weekTotalExport.toFixed(1)} kWh</Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>Feed-in cost: {fmtCurrency(weekSavings)}</Typography>
+        </Box>
+        <Box sx={kpiCardSx("#66bb6a")}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Best Export Day</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{bestExportDay || "--"}</Typography>
+          <Typography sx={{ fontSize: "10px", color: COLOR_RECEIVED, fontWeight: 600, mt: "2px" }}>{bestExportVal.toFixed(1)} kWh solar feed-in</Typography>
+        </Box>
+        <Box sx={kpiCardSx(COLOR_REVENUE)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Weekly Net Revenue</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: weekNetRevenue >= 0 ? COLOR_REVENUE : COLOR_COST, mt: "4px" }}>
+            {fmtCurrency(weekNetRevenue)}
+          </Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>After feed-in credits</Typography>
+        </Box>
+      </Box>
+      {/* Weekly Chart — BarChart, full width */}
+      <Box sx={{ ...sectionCardSx, mb: 0 }}>
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={weeklyData} barGap={4}>
+            <defs>
+              <linearGradient id="barGradDelivered" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={COLOR_DELIVERED} stopOpacity={1} />
+                <stop offset="100%" stopColor={COLOR_DELIVERED} stopOpacity={0.6} />
+              </linearGradient>
+              <linearGradient id="barGradReceived" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={COLOR_RECEIVED} stopOpacity={1} />
+                <stop offset="100%" stopColor={COLOR_RECEIVED} stopOpacity={0.6} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
+              label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
+            <RechartsTooltip contentStyle={tooltipStyle} />
+            <Bar dataKey="delivered" fill="url(#barGradDelivered)" name="Grid Supply (kWh)" radius={[6, 6, 0, 0]} maxBarSize={48} />
+            <Bar dataKey="received" fill="url(#barGradReceived)" name="Solar Feed-in (kWh)" radius={[6, 6, 0, 0]} maxBarSize={48} />
+            <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "12px" }} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Box>
 
-      {/* This Week: Mon-Sun */}
-      <Grid container spacing={2} sx={{ mb: 0 }}>
-        <Grid item xs={12} md={6}>
-          <EnergyBarChart colors={colors} isDark={isDark} title="This Week - Energy (Mon-Sun)" data={weeklyData} />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <RevenueBarChart colors={colors} isDark={isDark} title="This Week - Revenue & Feed-in Cost (Mon-Sun)" data={weeklyData} />
-        </Grid>
-      </Grid>
+      {/* ===== DIVIDER ===== */}
+      <Box sx={sectionDividerSx} />
 
-      {/* Daily: Last 30 Days */}
-      <Grid container spacing={2} sx={{ mb: 0 }}>
-        <Grid item xs={12} md={6}>
-          <EnergyBarChart colors={colors} isDark={isDark} title="Daily Energy - Last 30 Days" data={dailyData} height={280} />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <RevenueBarChart colors={colors} isDark={isDark} title="Daily Revenue & Feed-in Cost - Last 30 Days" data={dailyData} height={280} />
-        </Grid>
-      </Grid>
+      {/* ===== SECTION 3: MONTHLY (Navigable, days 1-28/30/31) ===== */}
+      <Box sx={{ mb: "12px" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: "12px", mb: "6px" }}>
+          <Box sx={{ width: 5, height: 28, borderRadius: "3px", background: "linear-gradient(180deg, " + COLOR_RECEIVED + ", " + "#ab47bc" + ")" }} />
+          <Box flex={1}>
+            <Typography sx={{ fontSize: "18px", fontWeight: 800, color: colors.grey[100], letterSpacing: "-0.3px" }}>Monthly Breakdown</Typography>
+            <Typography sx={{ fontSize: "12px", color: colors.grey[400] }}>Daily energy flow for the selected month</Typography>
+          </Box>
+        </Box>
+        <NavHeader
+          label={monthInfo.label}
+          onPrev={function() { setMonthOffset(function(p) { return p - 1; }); }}
+          onNext={function() { setMonthOffset(function(p) { return p + 1; }); }}
+          disableNext={monthOffset >= 0}
+        />
+      </Box>
+      {/* Monthly KPIs */}
+      <Box display="flex" gap="14px" mb="16px" flexWrap="wrap">
+        <Box sx={kpiCardSx(COLOR_DELIVERED)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Month Import</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{monthTotalImport.toFixed(1)} kWh</Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>Revenue: {fmtCurrency(monthRevenue)}</Typography>
+        </Box>
+        <Box sx={kpiCardSx(COLOR_RECEIVED)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Month Export</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{monthTotalExport.toFixed(1)} kWh</Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>Feed-in cost: {fmtCurrency(monthFeedInCost)}</Typography>
+        </Box>
+        <Box sx={kpiCardSx("#7c4dff")}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Net Balance</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: monthNetBalance >= 0 ? COLOR_DELIVERED : COLOR_RECEIVED, mt: "4px" }}>
+            {monthNetBalance >= 0 ? "+" : ""}{monthNetBalance.toFixed(1)} kWh
+          </Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>{monthNetBalance >= 0 ? "Net importer" : "Net exporter"}</Typography>
+        </Box>
+        <Box sx={kpiCardSx(COLOR_REVENUE)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Monthly Net Revenue</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: monthNetRevenue >= 0 ? COLOR_REVENUE : COLOR_COST, mt: "4px" }}>
+            {fmtCurrency(monthNetRevenue)}
+          </Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>After feed-in credits</Typography>
+        </Box>
+      </Box>
+      {/* Monthly Chart — BarChart, full width */}
+      <Box sx={{ ...sectionCardSx, mb: 0 }}>
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={monthlyChartData} barGap={2}>
+            <defs>
+              <linearGradient id="barGradMonthDel" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={COLOR_DELIVERED} stopOpacity={1} />
+                <stop offset="100%" stopColor={COLOR_DELIVERED} stopOpacity={0.55} />
+              </linearGradient>
+              <linearGradient id="barGradMonthRec" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={COLOR_RECEIVED} stopOpacity={1} />
+                <stop offset="100%" stopColor={COLOR_RECEIVED} stopOpacity={0.55} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 9, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} interval={0} />
+            <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
+              label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
+            <RechartsTooltip contentStyle={tooltipStyle} />
+            <Bar dataKey="delivered" fill="url(#barGradMonthDel)" name="Grid Supply (kWh)" radius={[4, 4, 0, 0]} maxBarSize={20} />
+            <Bar dataKey="received" fill="url(#barGradMonthRec)" name="Solar Feed-in (kWh)" radius={[4, 4, 0, 0]} maxBarSize={20} />
+            <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "12px" }} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Box>
 
-      {/* Monthly: Jan-Dec */}
-      <Grid container spacing={2} sx={{ mb: 0 }}>
-        <Grid item xs={12} md={6}>
-          <EnergyBarChart colors={colors} isDark={isDark} title="Monthly Energy - This Year (Jan-Dec)" data={monthlyData} />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <RevenueBarChart colors={colors} isDark={isDark} title="Monthly Revenue & Feed-in Cost (Jan-Dec)" data={monthlyData} />
-        </Grid>
-      </Grid>
+      {/* ===== DIVIDER ===== */}
+      <Box sx={sectionDividerSx} />
 
-      {/* Yearly: All Time */}
-      <Grid container spacing={2} sx={{ mb: 0 }}>
-        <Grid item xs={12} md={6}>
-          <EnergyBarChart colors={colors} isDark={isDark} title="Yearly Energy - All Time" data={yearlyData} />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <RevenueBarChart colors={colors} isDark={isDark} title="Yearly Revenue & Feed-in Cost - All Time" data={yearlyData} />
-        </Grid>
-      </Grid>
+      {/* ===== SECTION 4: YEARLY (Navigable Jan-Dec) ===== */}
+      <Box sx={{ mb: "12px" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: "12px", mb: "6px" }}>
+          <Box sx={{ width: 5, height: 28, borderRadius: "3px", background: "linear-gradient(180deg, " + "#7c4dff" + ", " + COLOR_DELIVERED + ")" }} />
+          <Box flex={1}>
+            <Typography sx={{ fontSize: "18px", fontWeight: 800, color: colors.grey[100], letterSpacing: "-0.3px" }}>Yearly Summary</Typography>
+            <Typography sx={{ fontSize: "12px", color: colors.grey[400] }}>Monthly energy and financial performance for the selected year</Typography>
+          </Box>
+        </Box>
+        <NavHeader
+          label={yearInfo.label}
+          onPrev={function() { setYearOffset(function(p) { return p - 1; }); }}
+          onNext={function() { setYearOffset(function(p) { return p + 1; }); }}
+          disableNext={yearOffset >= 0}
+        />
+      </Box>
+      {/* Yearly KPIs */}
+      <Box display="flex" gap="14px" mb="16px" flexWrap="wrap">
+        <Box sx={kpiCardSx(COLOR_DELIVERED)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Year Import</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{yearTotalImport.toFixed(1)} kWh</Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>Revenue: {fmtCurrency(yearRevenue)}</Typography>
+        </Box>
+        <Box sx={kpiCardSx(COLOR_RECEIVED)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Year Export</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{yearTotalExport.toFixed(1)} kWh</Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>Feed-in cost: {fmtCurrency(yearFeedInCost)}</Typography>
+        </Box>
+        <Box sx={kpiCardSx(yearNetRevenue >= 0 ? COLOR_REVENUE : COLOR_COST)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Year Net Revenue</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: yearNetRevenue >= 0 ? COLOR_REVENUE : COLOR_COST, mt: "4px" }}>
+            {fmtCurrency(yearNetRevenue)}
+          </Typography>
+          <Chip label={yearNetRevenue >= 0 ? "Profitable" : "Loss"}
+            size="small" sx={{ mt: "6px", height: 20, fontSize: "9px", fontWeight: 700,
+              bgcolor: (yearNetRevenue >= 0 ? COLOR_REVENUE : COLOR_COST) + "18",
+              color: yearNetRevenue >= 0 ? COLOR_REVENUE : COLOR_COST }} />
+        </Box>
+        <Box sx={kpiCardSx(gridDepScore > 60 ? COLOR_COST : COLOR_REVENUE)}>
+          <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Grid Dependency Score</Typography>
+          <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{gridDepScore.toFixed(1)}%</Typography>
+          <Typography sx={{ fontSize: "10px", color: gridDepScore > 60 ? COLOR_COST : COLOR_REVENUE, fontWeight: 600, mt: "2px" }}>
+            {gridDepScore > 75 ? "Highly grid dependent" : gridDepScore > 50 ? "Moderate dependency" : "Solar-forward fleet"}
+          </Typography>
+        </Box>
+      </Box>
+      {/* Yearly Chart — BarChart, full width */}
+      <Box sx={{ ...sectionCardSx, mb: "16px" }}>
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={yearlyChartData} barGap={6}>
+            <defs>
+              <linearGradient id="barGradYearDel" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={COLOR_DELIVERED} stopOpacity={1} />
+                <stop offset="100%" stopColor={COLOR_DELIVERED} stopOpacity={0.5} />
+              </linearGradient>
+              <linearGradient id="barGradYearRec" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={COLOR_RECEIVED} stopOpacity={1} />
+                <stop offset="100%" stopColor={COLOR_RECEIVED} stopOpacity={0.5} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
+              label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
+            <RechartsTooltip contentStyle={tooltipStyle} />
+            <Bar dataKey="delivered" fill="url(#barGradYearDel)" name="Grid Supply (kWh)" radius={[8, 8, 0, 0]} maxBarSize={56} />
+            <Bar dataKey="received" fill="url(#barGradYearRec)" name="Solar Feed-in (kWh)" radius={[8, 8, 0, 0]} maxBarSize={56} />
+            <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "12px" }} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Box>
+
+      {/* ===== TARIFF FOOTER ===== */}
+      <Box sx={{
+        display: "flex", alignItems: "center", justifyContent: "center", gap: "32px",
+        py: "16px", px: "24px", borderRadius: "10px",
+        bgcolor: isDark ? colors.primary[500] : "#f8f9fa",
+        border: "1px solid " + (isDark ? colors.grey[700] : "#eee"),
+        flexWrap: "wrap",
+      }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: COLOR_DELIVERED }} />
+          <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Retail Tariff:</Typography>
+          <Typography sx={{ fontSize: "12px", fontWeight: 700, color: colors.grey[100] }}>N$ {TARIFF_RETAIL}/kWh</Typography>
+        </Box>
+        <Box sx={{ width: "1px", height: "20px", bgcolor: colors.grey[700] }} />
+        <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: COLOR_RECEIVED }} />
+          <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Feed-in Tariff:</Typography>
+          <Typography sx={{ fontSize: "12px", fontWeight: 700, color: colors.grey[100] }}>N$ {TARIFF_FEEDIN}/kWh</Typography>
+        </Box>
+        <Box sx={{ width: "1px", height: "20px", bgcolor: colors.grey[700] }} />
+        <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Spread:</Typography>
+          <Typography sx={{ fontSize: "12px", fontWeight: 700, color: COLOR_REVENUE }}>N$ {(TARIFF_RETAIL - TARIFF_FEEDIN).toFixed(2)}/kWh</Typography>
+        </Box>
+      </Box>
     </>
   );
 }

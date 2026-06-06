@@ -12,27 +12,25 @@ import Vendors from "./pages/Vendors";
 import Engineering from "./pages/Engineering";
 import Batches from "./pages/Batches";
 import Tariffs from "./pages/Tariffs";
-import Reports from "./pages/Reports";
 import Admin from "./pages/Admin";
 import Map from "./pages/Map";
 import MeterProfile from "./pages/MeterProfile";
 import MeterProfiles from "./pages/MeterProfiles";
 import MeterSummary from "./pages/MeterSummary";
-import Analysis from "./pages/Analysis";
 import Billing from "./pages/Billing";
-import Notifications from "./pages/Notifications";
 import Settings from "./pages/Settings";
 import NewMeterDash from "./pages/NewMeterDash";
 import GroupControl from "./pages/GroupControl";
+import GroupDetail from "./pages/GroupDetail";
 import Integrations from "./pages/Integrations";
 import Installers from "./pages/Installers";
 import TamperDetection from "./pages/TamperDetection";
 import VsmTesting from "./pages/VsmTesting";
-import EmergencyNotifications from "./pages/EmergencyNotifications";
 import AppUsers from "./pages/AppUsers";
 import NetMetering from "./pages/NetMetering";
 import DataUsage from "./pages/DataUsage";
 import SubstationProfile from "./pages/SubstationProfile";
+import SystemAnalysis from "./pages/SystemAnalysis";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -53,7 +51,6 @@ function App() {
               <Route path="engineering" element={<Engineering />} />
               <Route path="batches" element={<Batches />} />
               <Route path="tariffs" element={<Tariffs />} />
-              <Route path="reports" element={<Reports />} />
               <Route path="admin" element={<Admin />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="map" element={<Map />} />
@@ -61,21 +58,20 @@ function App() {
               <Route path="substation/:drn" element={<SubstationProfile />} />
               <Route path="meter-profiles" element={<MeterProfiles />} />
               <Route path="meter-summary" element={<MeterSummary />} />
-              <Route path="analysis" element={<Analysis />} />
               <Route path="billing" element={<Billing />} />
-              <Route path="notifications" element={<Notifications />} />
               <Route path="settings" element={<Settings />} />
               <Route path="users" element={<Admin />} />
               <Route path="newmeterdash" element={<NewMeterDash />} />
               <Route path="load-control" element={<GroupControl />} />
+              <Route path="load-control/group/:groupId" element={<GroupDetail />} />
               <Route path="integrations" element={<Integrations />} />
               <Route path="installers" element={<Installers />} />
               <Route path="tamper-detection" element={<TamperDetection />} />
-              <Route path="vsm-testing" element={<VsmTesting />} />
-              <Route path="emergency-notifications" element={<EmergencyNotifications />} />
+              <Route path="hsm" element={<VsmTesting />} />
               <Route path="app-users" element={<AppUsers />} />
               <Route path="net-metering" element={<NetMetering />} />
               <Route path="data-usage" element={<DataUsage />} />
+              <Route path="system-analysis" element={<SystemAnalysis />} />
             </Route>
           </Routes>
         </AuthProvider>

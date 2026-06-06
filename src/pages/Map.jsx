@@ -60,7 +60,7 @@ import {
 } from "recharts";
 
 const GOOGLE_MAPS_KEY = "AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk";
-const LIBRARIES = ["drawing"];
+const LIBRARIES = ["geometry"];
 
 const MAP_CONTAINER = { width: "100%", height: "100%" };
 
@@ -245,6 +245,7 @@ function pointInPolygon(lat, lng, polygonPath) {
 export default function MapPage() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const isDark = theme.palette.mode === "dark";
   const navigate = useNavigate();
 
   const [search, setSearch] = useState("");
@@ -1422,7 +1423,7 @@ export default function MapPage() {
                 ) : areaConsumption.length > 0 ? (
                   <ResponsiveContainer width="100%" height={250}>
                     <BarChart data={areaConsumption} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} />
                       <XAxis
                         dataKey={areaConsumption[0]?.hour !== undefined ? "hour" : "name"}
                         stroke={colors.grey[300]}
@@ -1474,7 +1475,7 @@ export default function MapPage() {
                           <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} />
                       <XAxis
                         dataKey="date"
                         stroke={colors.grey[300]}

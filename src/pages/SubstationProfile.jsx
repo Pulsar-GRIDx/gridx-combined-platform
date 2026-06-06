@@ -214,7 +214,7 @@ export default function SubstationProfile() {
   /* ---------- Google Maps loader ---------- */
   const { isLoaded: mapsLoaded } = useJsApiLoader({
     googleMapsApiKey: "AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk",
-    libraries: ["drawing"],
+    libraries: ["geometry"],
   });
 
   /* ---------- state ---------- */

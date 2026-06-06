@@ -184,6 +184,7 @@ function StatCard({ icon, label, value, subLabel, color, colors }) {
 export default function Billing() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const isDark = theme.palette.mode === "dark";
   const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState(null);
@@ -406,8 +407,8 @@ export default function Billing() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 5, right: 15, left: 5, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[800]} />
-                  <XAxis dataKey={xKey} tick={{ fill: colors.grey[300], fontSize: 11 }} axisLine={{ stroke: colors.grey[700] }} tickLine={false} />
-                  <YAxis tick={{ fill: colors.grey[300], fontSize: 11 }} axisLine={{ stroke: colors.grey[700] }} tickLine={false} tickFormatter={formatter} />
+                  <XAxis dataKey={xKey} tick={{ fill: colors.grey[300], fontSize: 11 }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} />
+                  <YAxis tick={{ fill: colors.grey[300], fontSize: 11 }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} tickFormatter={formatter} />
                   <Tooltip content={<ChartTooltip colors={colors} unit={formatter === kwhFmt ? "kWh" : undefined} />} />
                   <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
                   {bars.map((b) => (

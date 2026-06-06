@@ -614,219 +614,95 @@ function buildPower15minArr(power15minResult) {
  *   - Hourly power breakdown (24h)
  *   - Recent token entries
  */
+let _dashCache = { data: null, ts: 0 };
+const DASH_CACHE_TTL = 25000;
+
+async function _refreshDashCache(thresholdSec = 300) {
+  const [
+    liveStatus, totalMeters, systemPower, todayEnergy, todayTokens,
+    hourlyPower, recentTokens, hourlyTokenCounts, remainingUnits,
+    hourlyEnergy, power15min,
+  ] = await Promise.allSettled([
+    queryAll(`SELECT COUNT(*) as totalTracked, SUM(CASE WHEN last_seen >= NOW() - INTERVAL ? SECOND THEN 1 ELSE 0 END) as liveCount, SUM(CASE WHEN last_seen < NOW() - INTERVAL ? SECOND THEN 1 ELSE 0 END) as offlineCount FROM MeterLastSeen`, [thresholdSec, thresholdSec]),
+    queryAll('SELECT COUNT(DISTINCT DRN) as total FROM MeterProfileReal', []),
+    queryAll(`SELECT ROUND(AVG(p.active_power), 1) as avgPower, ROUND(MAX(p.active_power), 1) as peakPower, ROUND(AVG(p.voltage), 1) as avgVoltage, ROUND(AVG(p.current), 3) as avgCurrent, ROUND(AVG(p.power_factor), 2) as avgPF, COUNT(DISTINCT p.DRN) as reportingMeters FROM MeteringPower p INNER JOIN (SELECT DRN, MAX(id) as maxId FROM MeteringPower WHERE date_time >= NOW() - INTERVAL 10 MINUTE GROUP BY DRN) latest ON p.DRN = latest.DRN AND p.id = latest.maxId`, []),
+    queryAll(`SELECT ROUND(COALESCE(SUM(delta), 0), 2) as totalKwh, COUNT(*) as metersReporting FROM (SELECT DRN, CAST(MAX(active_energy) AS DECIMAL(12,2)) - CAST(MIN(active_energy) AS DECIMAL(12,2)) as delta FROM MeterCumulativeEnergyUsage WHERE DATE(date_time) = CURDATE() GROUP BY DRN HAVING delta > 0) d`, []),
+    queryAll(`SELECT COUNT(*) as tokenCount, ROUND(COALESCE(SUM(token_amount), 0), 2) as totalRevenue FROM STSTokesInfo WHERE DATE(date_time) = CURDATE()`, []),
+    queryAll(`SELECT HOUR(date_time) as hour, ROUND(AVG(active_power), 2) as avgPower, ROUND(SUM(active_power), 2) as totalPower, COUNT(*) as readings FROM MeteringPower WHERE DATE(date_time) = CURDATE() GROUP BY HOUR(date_time) ORDER BY hour`, []),
+    queryAll(`SELECT id, DRN, token_id, token_cls, submission_Method, display_msg, display_auth_result, display_token_result, display_validation_result, token_time, token_amount, date_time FROM STSTokesInfo ORDER BY id DESC LIMIT 30`, []),
+    queryAll(`SELECT HOUR(date_time) as hour, COUNT(*) as count, ROUND(COALESCE(SUM(token_amount), 0), 2) as revenue FROM STSTokesInfo WHERE DATE(date_time) = CURDATE() GROUP BY HOUR(date_time) ORDER BY hour`, []),
+    queryAll(`SELECT ROUND(COALESCE(SUM(latest_units), 0), 2) as totalRemainingUnits, COUNT(*) as metersWithUnits FROM (SELECT e.DRN, e.units as latest_units FROM MeterCumulativeEnergyUsage e INNER JOIN (SELECT DRN, MAX(id) as maxId FROM MeterCumulativeEnergyUsage GROUP BY DRN) m ON e.DRN = m.DRN AND e.id = m.maxId WHERE e.units > 0) u`, []),
+    queryAll(`SELECT HOUR(date_time) as hour, ROUND(AVG(active_power) / 1000, 3) as kWh FROM MeteringPower WHERE DATE(date_time) = CURDATE() GROUP BY HOUR(date_time) ORDER BY hour`, []),
+    queryAll(`SELECT CONCAT(LPAD(HOUR(date_time), 2, '0'), ':', LPAD(FLOOR(MINUTE(date_time)/15)*15, 2, '0')) as time_slot, HOUR(date_time) as hour, FLOOR(MINUTE(date_time)/15) as quarter, ROUND(AVG(active_power), 2) as avgPower, ROUND(MAX(active_power), 2) as peakPower, ROUND(AVG(voltage), 1) as avgVoltage, ROUND(AVG(current), 3) as avgCurrent, ROUND(AVG(power_factor), 3) as avgPF, COUNT(*) as readings FROM MeteringPower WHERE DATE(date_time) = CURDATE() GROUP BY HOUR(date_time), FLOOR(MINUTE(date_time)/15) ORDER BY hour, quarter`, []),
+  ]);
+
+  const hourlyPowerArr = new Array(24).fill(0);
+  if (hourlyPower.status === 'fulfilled') hourlyPower.value.forEach(row => { hourlyPowerArr[row.hour] = row.avgPower || 0; });
+  const hourlyTokenArr = new Array(24).fill(0);
+  if (hourlyTokenCounts.status === 'fulfilled') hourlyTokenCounts.value.forEach(row => { hourlyTokenArr[row.hour] = { count: row.count, revenue: row.revenue }; });
+
+  const live = liveStatus.status === 'fulfilled' ? liveStatus.value[0] || {} : {};
+  const total = totalMeters.status === 'fulfilled' ? totalMeters.value[0] || {} : {};
+  const power = systemPower.status === 'fulfilled' ? systemPower.value[0] || {} : {};
+  const energy = todayEnergy.status === 'fulfilled' ? todayEnergy.value[0] || {} : {};
+  const tokens = todayTokens.status === 'fulfilled' ? todayTokens.value[0] || {} : {};
+  const units = remainingUnits.status === 'fulfilled' ? remainingUnits.value[0] || {} : {};
+
+  const result = {
+    success: true,
+    timestamp: new Date().toISOString(),
+    kpis: {
+      totalMeters: parseInt(total.total) || 0,
+      liveMeters: parseInt(live.liveCount) || 0,
+      offlineMeters: parseInt(live.offlineCount) || 0,
+      totalTracked: parseInt(live.totalTracked) || 0,
+      systemLoad: power.avgPower ? Math.min(100, Math.round((power.avgPower / 5000) * 100)) : 0,
+    },
+    power: {
+      avgPower: parseFloat(power.avgPower) || 0,
+      peakPower: parseFloat(power.peakPower) || 0,
+      avgVoltage: parseFloat(power.avgVoltage) || 0,
+      avgCurrent: parseFloat(power.avgCurrent) || 0,
+      avgPF: parseFloat(power.avgPF) || 0,
+      reportingMeters: parseInt(power.reportingMeters) || 0,
+    },
+    energy: {
+      todayKwh: parseFloat(energy.totalKwh) || 0,
+      metersReporting: parseInt(energy.metersReporting) || 0,
+    },
+    tokens: {
+      todayCount: parseInt(tokens.tokenCount) || 0,
+      todayRevenue: parseFloat(tokens.totalRevenue) || 0,
+    },
+    hourlyPower: hourlyPowerArr,
+    hourlyTokens: hourlyTokenArr,
+    recentTokens: recentTokens.status === 'fulfilled' ? recentTokens.value : [],
+    credits: {
+      totalRemainingUnits: parseFloat(units.totalRemainingUnits) || 0,
+      metersWithUnits: parseInt(units.metersWithUnits) || 0,
+    },
+    hourlyEnergy: (() => {
+      const arr = new Array(24).fill(0);
+      if (hourlyEnergy.status === 'fulfilled') hourlyEnergy.value.forEach(row => { arr[row.hour] = parseFloat(row.kWh) || 0; });
+      return arr;
+    })(),
+    power15min: buildPower15minArr(power15min),
+  };
+  _dashCache = { data: result, ts: Date.now() };
+  return result;
+}
+
+// Pre-warm cache on startup and keep it fresh every 25s
+setTimeout(() => _refreshDashCache().catch(() => {}), 2000);
+setInterval(() => _refreshDashCache().catch(() => {}), DASH_CACHE_TTL);
+
 router.get('/mqtt/dashboard-stats', authenticateToken, async (req, res) => {
   try {
-    const thresholdSec = parseInt(req.query.threshold) || 300;
-
-    // Run all queries in parallel
-    const [
-      liveStatus,
-      totalMeters,
-      systemPower,
-      todayEnergy,
-      todayTokens,
-      hourlyPower,
-      recentTokens,
-      hourlyTokenCounts,
-      remainingUnits,
-      hourlyEnergy,
-      power15min,
-    ] = await Promise.allSettled([
-      // 1. Live/offline from MeterLastSeen
-      queryAll(
-        `SELECT
-           COUNT(*) as totalTracked,
-           SUM(CASE WHEN last_seen >= NOW() - INTERVAL ? SECOND THEN 1 ELSE 0 END) as liveCount,
-           SUM(CASE WHEN last_seen < NOW() - INTERVAL ? SECOND THEN 1 ELSE 0 END) as offlineCount
-         FROM MeterLastSeen`,
-        [thresholdSec, thresholdSec]
-      ),
-      // 2. Total registered meters
-      queryAll('SELECT COUNT(DISTINCT DRN) as total FROM MeterProfileReal', []),
-      // 3. System-wide power (avg of latest reading per meter in last 10 min)
-      queryAll(
-        `SELECT
-           ROUND(AVG(p.active_power), 1) as avgPower,
-           ROUND(MAX(p.active_power), 1) as peakPower,
-           ROUND(AVG(p.voltage), 1) as avgVoltage,
-           ROUND(AVG(p.current), 3) as avgCurrent,
-           ROUND(AVG(p.power_factor), 2) as avgPF,
-           COUNT(DISTINCT p.DRN) as reportingMeters
-         FROM MeteringPower p
-         INNER JOIN (
-           SELECT DRN, MAX(id) as maxId FROM MeteringPower
-           WHERE date_time >= NOW() - INTERVAL 10 MINUTE
-           GROUP BY DRN
-         ) latest ON p.DRN = latest.DRN AND p.id = latest.maxId`,
-        []
-      ),
-      // 4. Today's total energy consumption (delta of active_energy per meter today)
-      queryAll(
-        `SELECT
-           ROUND(COALESCE(SUM(delta), 0), 2) as totalKwh,
-           COUNT(*) as metersReporting
-         FROM (
-           SELECT DRN,
-             CAST(MAX(active_energy) AS DECIMAL(12,2)) - CAST(MIN(active_energy) AS DECIMAL(12,2)) as delta
-           FROM MeterCumulativeEnergyUsage
-           WHERE DATE(date_time) = CURDATE()
-           GROUP BY DRN
-           HAVING delta > 0
-         ) d`,
-        []
-      ),
-      // 5. Today's tokens (count + revenue from STSTokesInfo)
-      queryAll(
-        `SELECT
-           COUNT(*) as tokenCount,
-           ROUND(COALESCE(SUM(token_amount), 0), 2) as totalRevenue
-         FROM STSTokesInfo
-         WHERE DATE(date_time) = CURDATE()`,
-        []
-      ),
-      // 6. Hourly power (24h breakdown)
-      queryAll(
-        `SELECT
-           HOUR(date_time) as hour,
-           ROUND(AVG(active_power), 2) as avgPower,
-           ROUND(SUM(active_power), 2) as totalPower,
-           COUNT(*) as readings
-         FROM MeteringPower
-         WHERE DATE(date_time) = CURDATE()
-         GROUP BY HOUR(date_time)
-         ORDER BY hour`,
-        []
-      ),
-      // 7. Recent token entries (last 30)
-      queryAll(
-        `SELECT id, DRN, token_id, token_cls, submission_Method, display_msg,
-                display_auth_result, display_token_result, display_validation_result,
-                token_time, token_amount, date_time
-         FROM STSTokesInfo
-         ORDER BY id DESC LIMIT 30`,
-        []
-      ),
-      // 8. Hourly token counts for today
-      queryAll(
-        `SELECT
-           HOUR(date_time) as hour,
-           COUNT(*) as count,
-           ROUND(COALESCE(SUM(token_amount), 0), 2) as revenue
-         FROM STSTokesInfo
-         WHERE DATE(date_time) = CURDATE()
-         GROUP BY HOUR(date_time)
-         ORDER BY hour`,
-        []
-      ),
-      // 9. Total remaining units (credits) across all meters — latest reading per meter
-      queryAll(
-        `SELECT ROUND(COALESCE(SUM(latest_units), 0), 2) as totalRemainingUnits,
-                COUNT(*) as metersWithUnits
-         FROM (
-           SELECT e.DRN, e.units as latest_units
-           FROM MeterCumulativeEnergyUsage e
-           INNER JOIN (SELECT DRN, MAX(id) as maxId FROM MeterCumulativeEnergyUsage GROUP BY DRN) m
-             ON e.DRN = m.DRN AND e.id = m.maxId
-           WHERE e.units > 0
-         ) u`,
-        []
-      ),
-      // 10. Hourly energy consumption for today (kWh per hour from power readings)
-      queryAll(
-        `SELECT
-           HOUR(date_time) as hour,
-           ROUND(AVG(active_power) / 1000, 3) as kWh
-         FROM MeteringPower
-         WHERE DATE(date_time) = CURDATE()
-         GROUP BY HOUR(date_time)
-         ORDER BY hour`,
-        []
-      ),
-      // 11. 15-minute averaged power data for today
-      queryAll(
-        `SELECT
-           CONCAT(LPAD(HOUR(date_time), 2, '0'), ':', LPAD(FLOOR(MINUTE(date_time)/15)*15, 2, '0')) as time_slot,
-           HOUR(date_time) as hour,
-           FLOOR(MINUTE(date_time)/15) as quarter,
-           ROUND(AVG(active_power), 2) as avgPower,
-           ROUND(MAX(active_power), 2) as peakPower,
-           ROUND(AVG(voltage), 1) as avgVoltage,
-           ROUND(AVG(current), 3) as avgCurrent,
-           ROUND(AVG(power_factor), 3) as avgPF,
-           COUNT(*) as readings
-         FROM MeteringPower
-         WHERE DATE(date_time) = CURDATE()
-         GROUP BY HOUR(date_time), FLOOR(MINUTE(date_time)/15)
-         ORDER BY hour, quarter`,
-        []
-      ),
-    ]);
-
-    // Build 24-hour array for hourly power
-    const hourlyPowerArr = new Array(24).fill(0);
-    if (hourlyPower.status === 'fulfilled') {
-      hourlyPower.value.forEach(row => {
-        hourlyPowerArr[row.hour] = row.avgPower || 0;
-      });
+    if (_dashCache.data && Date.now() - _dashCache.ts < DASH_CACHE_TTL) {
+      return res.json(_dashCache.data);
     }
-
-    // Build 24-hour array for hourly tokens
-    const hourlyTokenArr = new Array(24).fill(0);
-    if (hourlyTokenCounts.status === 'fulfilled') {
-      hourlyTokenCounts.value.forEach(row => {
-        hourlyTokenArr[row.hour] = { count: row.count, revenue: row.revenue };
-      });
-    }
-
-    const live = liveStatus.status === 'fulfilled' ? liveStatus.value[0] || {} : {};
-    const total = totalMeters.status === 'fulfilled' ? totalMeters.value[0] || {} : {};
-    const power = systemPower.status === 'fulfilled' ? systemPower.value[0] || {} : {};
-    const energy = todayEnergy.status === 'fulfilled' ? todayEnergy.value[0] || {} : {};
-    const tokens = todayTokens.status === 'fulfilled' ? todayTokens.value[0] || {} : {};
-    const units = remainingUnits.status === 'fulfilled' ? remainingUnits.value[0] || {} : {};
-
-    res.json({
-      success: true,
-      timestamp: new Date().toISOString(),
-      kpis: {
-        totalMeters: parseInt(total.total) || 0,
-        liveMeters: parseInt(live.liveCount) || 0,
-        offlineMeters: parseInt(live.offlineCount) || 0,
-        totalTracked: parseInt(live.totalTracked) || 0,
-        systemLoad: power.avgPower ? Math.min(100, Math.round((power.avgPower / 5000) * 100)) : 0,
-      },
-      power: {
-        avgPower: parseFloat(power.avgPower) || 0,
-        peakPower: parseFloat(power.peakPower) || 0,
-        avgVoltage: parseFloat(power.avgVoltage) || 0,
-        avgCurrent: parseFloat(power.avgCurrent) || 0,
-        avgPF: parseFloat(power.avgPF) || 0,
-        reportingMeters: parseInt(power.reportingMeters) || 0,
-      },
-      energy: {
-        todayKwh: parseFloat(energy.totalKwh) || 0,
-        metersReporting: parseInt(energy.metersReporting) || 0,
-      },
-      tokens: {
-        todayCount: parseInt(tokens.tokenCount) || 0,
-        todayRevenue: parseFloat(tokens.totalRevenue) || 0,
-      },
-      hourlyPower: hourlyPowerArr,
-      hourlyTokens: hourlyTokenArr,
-      recentTokens: recentTokens.status === 'fulfilled' ? recentTokens.value : [],
-      credits: {
-        totalRemainingUnits: parseFloat(units.totalRemainingUnits) || 0,
-        metersWithUnits: parseInt(units.metersWithUnits) || 0,
-      },
-      hourlyEnergy: (() => {
-        const arr = new Array(24).fill(0);
-        if (hourlyEnergy.status === 'fulfilled') {
-          hourlyEnergy.value.forEach(row => { arr[row.hour] = parseFloat(row.kWh) || 0; });
-        }
-        return arr;
-      })(),
-      power15min: buildPower15minArr(power15min),
-    });
+    const result = await _refreshDashCache(parseInt(req.query.threshold) || 300);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1044,8 +920,11 @@ router.get('/mqtt/activity-log/:drn', authenticateToken, async (req, res) => {
   }
 });
 
-// ===== All Meters Health Summary (for scatter chart) =====
-router.get('/mqtt/meters-health-summary', authenticateToken, async (req, res) => {
+// ===== All Meters Health Summary (for scatter chart) — cached (slow query ~100s) =====
+let _healthCache = { data: null, ts: 0 };
+const HEALTH_CACHE_TTL = 300000; // 5 min
+
+async function _refreshHealthCache() {
   try {
     const meters = await queryAll(
       `SELECT
@@ -1133,9 +1012,27 @@ router.get('/mqtt/meters-health-summary', authenticateToken, async (req, res) =>
       };
     });
 
-    res.json({ success: true, data: result });
+    const response = { success: true, data: result };
+    _healthCache = { data: response, ts: Date.now() };
+    return response;
   } catch (err) {
     console.error('[HealthSummary] Error:', err.message);
+    throw err;
+  }
+}
+
+// Pre-warm health cache on startup (delayed to let DB connections settle)
+setTimeout(() => _refreshHealthCache().catch(() => {}), 5000);
+setInterval(() => _refreshHealthCache().catch(() => {}), HEALTH_CACHE_TTL);
+
+router.get('/mqtt/meters-health-summary', authenticateToken, async (req, res) => {
+  try {
+    if (_healthCache.data && Date.now() - _healthCache.ts < HEALTH_CACHE_TTL) {
+      return res.json(_healthCache.data);
+    }
+    const result = await _refreshHealthCache();
+    res.json(result);
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

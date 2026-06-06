@@ -5,10 +5,8 @@ import { tokens } from "../theme";
 import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
 import PeopleOutlinedIcon from "@mui/icons-material/PeopleOutlined";
 import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
-import NotificationImportantIcon from "@mui/icons-material/NotificationImportant";
 import AddHomeWorkIcon from "@mui/icons-material/AddHomeWork";
 import SettingsIcon from "@mui/icons-material/Settings";
-import InsertChartIcon from "@mui/icons-material/InsertChart";
 import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
 import BoltIcon from "@mui/icons-material/Bolt";
 import EngineeringIcon from "@mui/icons-material/Engineering";
@@ -17,7 +15,6 @@ import GroupIcon from "@mui/icons-material/Group";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import TuneIcon from "@mui/icons-material/Tune";
-import AssessmentIcon from "@mui/icons-material/Assessment";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import SpeedIcon from "@mui/icons-material/Speed";
 import SolarPowerIcon from "@mui/icons-material/SolarPower";
@@ -26,7 +23,6 @@ import HubIcon from "@mui/icons-material/Hub";
 import BuildIcon from "@mui/icons-material/Build";
 import SecurityIcon from "@mui/icons-material/Security";
 import GppBadIcon from "@mui/icons-material/GppBad";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import PhoneAndroidIcon from "@mui/icons-material/PhoneAndroid";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
@@ -48,39 +44,22 @@ const NavItem = ({ title, to, icon, isCollapsed, accentColor }) => {
         sx={{
           display: "flex",
           alignItems: "center",
-          gap: "12px",
-          px: isCollapsed ? "0" : "14px",
-          py: "8px",
-          mx: isCollapsed ? "6px" : "8px",
+          gap: "10px",
+          px: isCollapsed ? "0" : "12px",
+          py: "7px",
+          mx: isCollapsed ? "8px" : "10px",
           my: "1px",
-          borderRadius: "10px",
+          borderRadius: "8px",
           textDecoration: "none",
           cursor: "pointer",
-          position: "relative",
           justifyContent: isCollapsed ? "center" : "flex-start",
-          overflow: "hidden",
-          transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-          bgcolor: isActive ? `${accentColor || colors.blueAccent[500]}18` : "transparent",
+          transition: "all 0.15s ease",
+          bgcolor: isActive ? "#2563EB" : "transparent",
           "&:hover": {
             bgcolor: isActive
-              ? `${accentColor || colors.blueAccent[500]}22`
-              : isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
-            transform: "translateX(2px)",
+              ? "#1D4ED8"
+              : isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
           },
-          // Active left indicator bar
-          "&::before": isActive
-            ? {
-                content: '""',
-                position: "absolute",
-                left: 0,
-                top: "20%",
-                bottom: "20%",
-                width: "3px",
-                borderRadius: "0 3px 3px 0",
-                bgcolor: accentColor || colors.blueAccent[500],
-                boxShadow: `0 0 8px ${accentColor || colors.blueAccent[500]}60`,
-              }
-            : {},
         }}
       >
         <Box
@@ -88,10 +67,10 @@ const NavItem = ({ title, to, icon, isCollapsed, accentColor }) => {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            minWidth: "24px",
-            color: isActive ? (accentColor || colors.blueAccent[400]) : colors.grey[400],
-            transition: "color 0.2s",
-            "& .MuiSvgIcon-root": { fontSize: "20px" },
+            minWidth: "22px",
+            color: isActive ? "#FFFFFF" : (isDark ? colors.grey[400] : "#6B7280"),
+            transition: "color 0.15s",
+            "& .MuiSvgIcon-root": { fontSize: "19px" },
           }}
         >
           {icon}
@@ -100,10 +79,10 @@ const NavItem = ({ title, to, icon, isCollapsed, accentColor }) => {
           <Typography
             sx={{
               fontSize: "13px",
-              fontWeight: isActive ? 600 : 400,
-              color: isActive ? colors.grey[100] : colors.grey[300],
-              letterSpacing: "0.2px",
-              transition: "color 0.2s",
+              fontWeight: isActive ? 500 : 400,
+              color: isActive ? "#FFFFFF" : (isDark ? colors.grey[300] : "#374151"),
+              letterSpacing: "0.1px",
+              transition: "color 0.15s",
               whiteSpace: "nowrap",
             }}
           >
@@ -116,16 +95,16 @@ const NavItem = ({ title, to, icon, isCollapsed, accentColor }) => {
 };
 
 /* ── Section Header ── */
-const SectionHeader = ({ title, isCollapsed, colors }) => {
+const SectionHeader = ({ title, isCollapsed, colors, isDark }) => {
   if (isCollapsed) {
     return (
       <Box
         sx={{
           mx: "auto",
           my: "8px",
-          width: "24px",
+          width: "20px",
           height: "1px",
-          bgcolor: colors.grey[700],
+          bgcolor: isDark ? colors.grey[600] : "#E5E7EB",
           borderRadius: "1px",
         }}
       />
@@ -136,10 +115,10 @@ const SectionHeader = ({ title, isCollapsed, colors }) => {
       <Typography
         sx={{
           fontSize: "10px",
-          fontWeight: 700,
-          letterSpacing: "1.5px",
+          fontWeight: 600,
+          letterSpacing: "1.2px",
           textTransform: "uppercase",
-          color: colors.grey[500],
+          color: isDark ? colors.grey[500] : "#9CA3AF",
         }}
       >
         {title}
@@ -170,7 +149,6 @@ const Sidebar = () => {
 
   const sidebarWidth = isCollapsed ? 68 : 240;
   const isDark = theme.palette.mode === "dark";
-  const hoverBg = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)";
 
   return (
     <Box
@@ -180,22 +158,12 @@ const Sidebar = () => {
         height: "100vh",
         display: "flex",
         flexDirection: "column",
-        bgcolor: isDark ? colors.primary[500] : colors.primary[900],
-        borderRight: `1px solid ${isDark ? colors.primary[400] : colors.grey[900]}`,
+        bgcolor: isDark ? colors.primary[500] : "#FAFAFA",
+        borderRight: `1px solid ${isDark ? colors.primary[400] : "#E5E7EB"}`,
         transition:
           "width 0.25s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
         position: "relative",
         zIndex: 100,
-        // Subtle right-edge glow
-        "&::after": {
-          content: '""',
-          position: "absolute",
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: "1px",
-          background: `linear-gradient(180deg, transparent 0%, ${colors.blueAccent[500]}30 30%, ${colors.greenAccent[500]}20 70%, transparent 100%)`,
-        },
       }}
     >
       {/* ── Header / Logo ── */}
@@ -206,7 +174,7 @@ const Sidebar = () => {
           display: "flex",
           alignItems: "center",
           justifyContent: isCollapsed ? "center" : "space-between",
-          borderBottom: `1px solid ${isDark ? colors.primary[400] : colors.grey[900]}`,
+          borderBottom: `1px solid ${isDark ? colors.primary[400] : "#E5E7EB"}`,
           minHeight: isCollapsed ? "64px" : "auto",
         }}
       >
@@ -219,9 +187,7 @@ const Sidebar = () => {
                     fontSize: "22px",
                     fontWeight: 800,
                     letterSpacing: "-0.5px",
-                    background: `linear-gradient(135deg, ${colors.greenAccent[400]}, ${colors.blueAccent[400]})`,
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
+                    color: "#2563EB",
                   }}
                 >
                   GRIDx
@@ -231,8 +197,7 @@ const Sidebar = () => {
                     width: 6,
                     height: 6,
                     borderRadius: "50%",
-                    bgcolor: colors.greenAccent[500],
-                    boxShadow: `0 0 6px ${colors.greenAccent[500]}`,
+                    bgcolor: "#10B981",
                     animation: "pulse-dot 2s ease-in-out infinite",
                     "@keyframes pulse-dot": {
                       "0%, 100%": { opacity: 1, transform: "scale(1)" },
@@ -247,7 +212,7 @@ const Sidebar = () => {
                   fontWeight: 500,
                   letterSpacing: "1px",
                   textTransform: "uppercase",
-                  color: colors.grey[500],
+                  color: isDark ? colors.grey[500] : "#9CA3AF",
                   mt: "-2px",
                 }}
               >
@@ -257,11 +222,12 @@ const Sidebar = () => {
             <IconButton
               onClick={() => setIsCollapsed(true)}
               sx={{
-                color: colors.grey[500],
+                color: isDark ? colors.grey[400] : "#9CA3AF",
                 p: "4px",
+                borderRadius: "6px",
                 "&:hover": {
-                  color: colors.grey[300],
-                  bgcolor: hoverBg,
+                  color: isDark ? colors.grey[200] : "#374151",
+                  bgcolor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
                 },
               }}
             >
@@ -272,11 +238,12 @@ const Sidebar = () => {
           <IconButton
             onClick={() => setIsCollapsed(false)}
             sx={{
-              color: colors.grey[500],
+              color: isDark ? colors.grey[400] : "#9CA3AF",
               p: "4px",
+              borderRadius: "6px",
               "&:hover": {
-                color: colors.grey[300],
-                bgcolor: "rgba(255,255,255,0.05)",
+                color: isDark ? colors.grey[200] : "#374151",
+                bgcolor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
               },
             }}
           >
@@ -294,16 +261,16 @@ const Sidebar = () => {
             mb: "4px",
             px: "12px",
             py: "8px",
-            borderRadius: "10px",
-            background: `linear-gradient(135deg, ${colors.blueAccent[500]}12, ${colors.greenAccent[500]}08)`,
-            border: `1px solid ${colors.blueAccent[500]}15`,
+            borderRadius: "8px",
+            bgcolor: isDark ? "rgba(37,99,235,0.08)" : "rgba(37,99,235,0.05)",
+            border: `1px solid ${isDark ? "rgba(37,99,235,0.15)" : "rgba(37,99,235,0.1)"}`,
           }}
         >
-          <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>
+          <Typography sx={{ fontSize: "11px", color: isDark ? colors.grey[400] : "#6B7280" }}>
             Welcome back,
           </Typography>
           <Typography
-            sx={{ fontSize: "13px", fontWeight: 600, color: colors.grey[100] }}
+            sx={{ fontSize: "13px", fontWeight: 600, color: isDark ? colors.grey[100] : "#111827" }}
           >
             {userName}
           </Typography>
@@ -321,13 +288,13 @@ const Sidebar = () => {
           "&::-webkit-scrollbar": { width: "4px" },
           "&::-webkit-scrollbar-track": { background: "transparent" },
           "&::-webkit-scrollbar-thumb": {
-            background: colors.grey[700],
+            background: isDark ? colors.grey[600] : "#D1D5DB",
             borderRadius: "4px",
-            "&:hover": { background: colors.grey[600] },
+            "&:hover": { background: isDark ? colors.grey[500] : "#9CA3AF" },
           },
           // Firefox scrollbar
           scrollbarWidth: "thin",
-          scrollbarColor: `${colors.grey[700]} transparent`,
+          scrollbarColor: `${isDark ? colors.grey[600] : "#D1D5DB"} transparent`,
         }}
       >
         {/* Map (default landing page) */}
@@ -344,6 +311,7 @@ const Sidebar = () => {
           title="System"
           isCollapsed={isCollapsed}
           colors={colors}
+          isDark={isDark}
         />
         <NavItem
           title="Dashboard"
@@ -358,13 +326,6 @@ const Sidebar = () => {
           icon={<SolarPowerIcon />}
           isCollapsed={isCollapsed}
           accentColor="#4caf50"
-        />
-        <NavItem
-          title="Meter Profiles"
-          to="/meter-profiles"
-          icon={<ElectricMeterOutlinedIcon />}
-          isCollapsed={isCollapsed}
-          accentColor={colors.greenAccent[500]}
         />
         <NavItem
           title="Tamper Detection"
@@ -387,12 +348,20 @@ const Sidebar = () => {
           isCollapsed={isCollapsed}
           accentColor="#f2b705"
         />
+        <NavItem
+          title="Meter Profiles"
+          to="/meter-profiles"
+          icon={<ElectricMeterOutlinedIcon />}
+          isCollapsed={isCollapsed}
+          accentColor={colors.greenAccent[500]}
+        />
 
         {/* Vending */}
         <SectionHeader
           title="Vending"
           isCollapsed={isCollapsed}
           colors={colors}
+          isDark={isDark}
         />
         <NavItem
           title="Vend Token"
@@ -431,8 +400,8 @@ const Sidebar = () => {
         />
         {/* Integrations removed — POS connects via API (background) */}
         <NavItem
-          title="HSM / VSM"
-          to="/vsm-testing"
+          title="HSM"
+          to="/hsm"
           icon={<SecurityIcon />}
           isCollapsed={isCollapsed}
           accentColor="#00bfa5"
@@ -443,6 +412,7 @@ const Sidebar = () => {
           title="Data"
           isCollapsed={isCollapsed}
           colors={colors}
+          isDark={isDark}
         />
         <NavItem
           title="Transactions"
@@ -466,45 +436,27 @@ const Sidebar = () => {
           accentColor={colors.blueAccent[500]}
         />
         <NavItem
-          title="Reports"
-          to="/reports"
-          icon={<AssessmentIcon />}
-          isCollapsed={isCollapsed}
-          accentColor={colors.blueAccent[500]}
-        />
-        <NavItem
-          title="Notifications"
-          to="/notifications"
-          icon={<NotificationImportantIcon />}
-          isCollapsed={isCollapsed}
-          accentColor={colors.redAccent[500]}
-        />
-        <NavItem
-          title="Emergency Alerts"
-          to="/emergency-notifications"
-          icon={<WarningAmberIcon />}
-          isCollapsed={isCollapsed}
-          accentColor="#db4f4a"
-        />
-        <NavItem
-          title="Analysis"
-          to="/analysis"
-          icon={<InsertChartIcon />}
-          isCollapsed={isCollapsed}
-          accentColor={colors.blueAccent[500]}
-        />
-        <NavItem
           title="Data Usage"
           to="/data-usage"
           icon={<CellTowerIcon />}
           isCollapsed={isCollapsed}
           accentColor="#06b6d4"
         />
+        {/* System Analysis — disabled for now
+        <NavItem
+          title="System Analysis"
+          to="/system-analysis"
+          icon={<SpeedIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#6366f1"
+        />
+        */}
         {/* Administration */}
         <SectionHeader
           title="Admin"
           isCollapsed={isCollapsed}
           colors={colors}
+          isDark={isDark}
         />
         <NavItem
           title="Admin Panel"
@@ -551,7 +503,7 @@ const Sidebar = () => {
         sx={{
           px: isCollapsed ? "8px" : "16px",
           py: "10px",
-          borderTop: `1px solid ${isDark ? colors.primary[400] : colors.grey[900]}`,
+          borderTop: `1px solid ${isDark ? colors.primary[400] : "#E5E7EB"}`,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -561,7 +513,7 @@ const Sidebar = () => {
           <Typography
             sx={{
               fontSize: "9px",
-              color: colors.grey[600],
+              color: isDark ? colors.grey[500] : "#9CA3AF",
               letterSpacing: "0.5px",
               textAlign: "center",
             }}
@@ -571,11 +523,10 @@ const Sidebar = () => {
         ) : (
           <Box
             sx={{
-              width: 8,
-              height: 8,
+              width: 6,
+              height: 6,
               borderRadius: "50%",
-              bgcolor: colors.greenAccent[500],
-              boxShadow: `0 0 4px ${colors.greenAccent[500]}80`,
+              bgcolor: "#10B981",
             }}
           />
         )}

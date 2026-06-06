@@ -22,6 +22,8 @@ import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import SmsOutlinedIcon from "@mui/icons-material/SmsOutlined";
 import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
+import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { tokens } from "../theme";
 import Header from "../components/Header";
 import { vendingAPI } from "../services/api";
@@ -94,6 +96,7 @@ export default function Vending() {
   const [vendLoading, setVendLoading] = useState(false);
   const [vendResult, setVendResult] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
+  const [hsmStatus, setHsmStatus] = useState(null);
 
   // Load tariff data from API
   useEffect(() => {
@@ -106,6 +109,23 @@ export default function Vending() {
     vendingAPI.getCustomers({ limit: 4 }).then(r => {
       if (r.success && r.data?.length > 0) setSampleCustomers(r.data);
     }).catch(() => {});
+  }, []);
+
+  // HSM connection check — poll every 60s
+  useEffect(() => {
+    const fetchHsmStatus = () => {
+      const token = sessionStorage.getItem("token");
+      if (!token) return;
+      fetch("/cb/vending/prismvend-check", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((r) => r.json())
+        .then((r) => { if (r.success) setHsmStatus(r.data); })
+        .catch(() => {});
+    };
+    fetchHsmStatus();
+    const interval = setInterval(fetchHsmStatus, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   const amount = selectedAmount || (customAmount ? parseFloat(customAmount) : 0);
@@ -214,6 +234,32 @@ export default function Vending() {
   return (
     <Box m="20px">
       <Header title="TOKEN VENDING" subtitle="STS Prepaid Electricity Token Generation" />
+
+      {/* HSM Connection Status Banner */}
+      {hsmStatus && hsmStatus.connected === true && (
+        <Box display="flex" alignItems="center" gap="8px" mb="10px" px="10px" py="6px"
+          sx={{ backgroundColor: "rgba(76,206,172,0.08)", borderRadius: "6px", border: `1px solid ${colors.greenAccent[700]}` }}>
+          <CheckCircleOutlinedIcon sx={{ color: colors.greenAccent[500], fontSize: 20 }} />
+          <Chip label="HSM Connected" size="small" sx={{ backgroundColor: colors.greenAccent[900], color: colors.greenAccent[500], fontWeight: 600, fontSize: "0.75rem" }} />
+          {hsmStatus.txCreditsRemaining != null && (
+            <Typography variant="caption" color={colors.grey[300]}>
+              TX Credits: <strong style={{ color: colors.greenAccent[400] }}>{hsmStatus.txCreditsRemaining.toLocaleString()}</strong>
+            </Typography>
+          )}
+        </Box>
+      )}
+      {hsmStatus && hsmStatus.connected !== true && (
+        <Box display="flex" alignItems="center" gap="8px" mb="10px" px="12px" py="10px"
+          sx={{ backgroundColor: "rgba(219,79,74,0.1)", borderRadius: "6px", border: "1px solid #db4f4a55" }}>
+          <WarningAmberIcon sx={{ color: "#db4f4a", fontSize: 22 }} />
+          <Typography variant="body2" sx={{ color: "#db4f4a", fontWeight: 600 }}>
+            HSM Not Connected
+          </Typography>
+          <Typography variant="caption" color={colors.grey[300]} sx={{ ml: 1 }}>
+            Token vending is disabled until the HSM connection is established.
+          </Typography>
+        </Box>
+      )}
 
       <Box
         display="grid"
@@ -424,7 +470,7 @@ export default function Vending() {
                   fullWidth
                   size="large"
                   startIcon={<BoltIcon />}
-                  disabled={!breakdown || breakdown.netEnergy <= 0}
+                  disabled={!breakdown || breakdown.netEnergy <= 0 || hsmStatus?.connected !== true}
                   onClick={handleGenerate}
                   sx={{
                     py: 1.5,

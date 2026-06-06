@@ -176,6 +176,7 @@ function NotifGroup({ groupKey, items, borderColor, colors, navigate }) {
 export default function Dashboard() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const isDark = theme.palette.mode === "dark";
   const navigate = useNavigate();
 
   const [kpis, setKpis] = useState({
@@ -450,13 +451,12 @@ export default function Dashboard() {
   }, [revenuePeriod]);
 
   useEffect(() => {
-    // Initial load: fast MQTT stats first, then slow charts
     fetchMqttStats();
     fetchSlowCharts();
-
-    // Auto-refresh MQTT stats every 30 seconds for real-time dashboard
+    // Retry after 2s to handle transient first-request failures on initial mount
+    const retryTimer = setTimeout(fetchMqttStats, 2000);
     refreshRef.current = setInterval(fetchMqttStats, 30000);
-    return () => clearInterval(refreshRef.current);
+    return () => { clearTimeout(retryTimer); clearInterval(refreshRef.current); };
   }, [fetchMqttStats, fetchSlowCharts]);
 
   return (
@@ -648,7 +648,7 @@ export default function Dashboard() {
                 ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={suburbChartData} margin={{ top: 5, right: 20, left: 0, bottom: 60 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} />
                     <XAxis
                       dataKey="suburb"
                       stroke={colors.grey[300]}
@@ -759,7 +759,7 @@ export default function Dashboard() {
                         <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} />
                     <XAxis
                       dataKey="hour"
                       stroke={colors.grey[300]}
@@ -886,7 +886,7 @@ export default function Dashboard() {
                         <stop offset="95%" stopColor={colors.blueAccent[400]} stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} />
                     <XAxis
                       dataKey="time"
                       stroke={colors.grey[300]}
@@ -1004,7 +1004,7 @@ export default function Dashboard() {
           <Box height="calc(100% - 120px)">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={salesTrend} margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.4} />
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"}  />
                 <XAxis dataKey="day" stroke={colors.grey[300]} tick={{ fontSize: 11, fontWeight: 600 }} />
                 <YAxis stroke={colors.grey[300]} tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}`} />
                 <Tooltip
@@ -1154,7 +1154,7 @@ export default function Dashboard() {
                         <stop offset="95%" stopColor={colors.greenAccent[500]} stopOpacity={0.55} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.4} vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
                     <XAxis dataKey="label" stroke={colors.grey[300]} tick={{ fontSize: 9, angle: isHourly ? -45 : 0, textAnchor: isHourly ? "end" : "middle" }} interval={0} height={50} />
                     <YAxis stroke={colors.grey[300]} tick={{ fontSize: 10 }} tickFormatter={(v) => `N$${v}`} />
                     <Tooltip
@@ -1446,7 +1446,7 @@ export default function Dashboard() {
             <Box height="calc(100% - 40px)">
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.4} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"}  />
                   <XAxis type="number" dataKey="avgPower" name="Avg Power (W)" stroke={colors.grey[300]} tick={{ fontSize: 10 }}
                     label={{ value: "Avg Power (W)", position: "insideBottom", offset: -10, style: { fill: colors.grey[300], fontSize: 11 } }} />
                   <YAxis type="number" dataKey="healthScore" name="Health Score" domain={[0, 100]} stroke={colors.grey[300]} tick={{ fontSize: 10 }}

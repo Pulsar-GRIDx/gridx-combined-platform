@@ -272,15 +272,15 @@ var TABLES = [
   "CREATE TABLE IF NOT EXISTS MeterSecurityParams (" +
   "  id INT AUTO_INCREMENT PRIMARY KEY," +
   "  meterNumber VARCHAR(20) NOT NULL UNIQUE," +
-  "  sgc VARCHAR(6) NOT NULL DEFAULT '600675'," +
+  "  sgc VARCHAR(6) NOT NULL DEFAULT '999907'," +
   "  tariffIndex INT NOT NULL DEFAULT 1," +
-  "  keyRevisionNumber INT NOT NULL DEFAULT 1," +
+  "  keyRevisionNumber INT NOT NULL DEFAULT 2," +
   "  keyType INT NOT NULL DEFAULT 3," +
   "  keyExpiryNumber INT NOT NULL DEFAULT 255," +
   "  tct VARCHAR(2) DEFAULT '01'," +
   "  dkga VARCHAR(2) DEFAULT '02'," +
   "  ea VARCHAR(2) DEFAULT '07'," +
-  "  bdt VARCHAR(2) DEFAULT '01'," +
+  "  bdt VARCHAR(2) DEFAULT '02'," +
   "  supplyGroupCode VARCHAR(20)," +
   "  decoderReferenceNumber VARCHAR(20)," +
   "  meterPAN VARCHAR(20)," +
@@ -290,6 +290,43 @@ var TABLES = [
   "  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
   "  INDEX idx_meter (meterNumber)," +
   "  INDEX idx_sgc (sgc)" +
+  ")",
+
+  // GRIDx Meter Registration Audit Trail
+  "CREATE TABLE IF NOT EXISTS MeterRegistrationAudit (" +
+  "  id INT AUTO_INCREMENT PRIMARY KEY," +
+  "  drn VARCHAR(20) NOT NULL," +
+  "  action VARCHAR(50) NOT NULL," +
+  "  status ENUM('Success','Failed','Pending') DEFAULT 'Pending'," +
+  "  requestData TEXT," +
+  "  responseData TEXT," +
+  "  errorMessage TEXT," +
+  "  operator VARCHAR(100)," +
+  "  operatorId INT," +
+  "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+  "  INDEX idx_drn (drn)," +
+  "  INDEX idx_status (status)," +
+  "  INDEX idx_created (created_at)" +
+  ")",
+
+  // PrismVend Operation Log — tracks every API call to PrismVend
+  "CREATE TABLE IF NOT EXISTS PrismVendOperationLog (" +
+  "  id INT AUTO_INCREMENT PRIMARY KEY," +
+  "  operationType VARCHAR(50) NOT NULL," +
+  "  meterId VARCHAR(20)," +
+  "  requestData TEXT," +
+  "  responseData TEXT," +
+  "  prismvendStatus VARCHAR(20)," +
+  "  transactionId VARCHAR(100)," +
+  "  errorMessage TEXT," +
+  "  operator VARCHAR(100)," +
+  "  operatorId INT," +
+  "  durationMs INT," +
+  "  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP," +
+  "  INDEX idx_type (operationType)," +
+  "  INDEX idx_meter (meterId)," +
+  "  INDEX idx_status (prismvendStatus)," +
+  "  INDEX idx_created (created_at)" +
   ")"
 ];
 
@@ -306,6 +343,7 @@ TABLES.forEach(function(sql) {
       addIdempotencyColumn();
       addVendorApiColumns();
       seedDefaults();
+      migrateStsParams();
     }
   });
 });
@@ -395,6 +433,17 @@ function addVendorApiColumns() {
   });
 }
 
+function migrateStsParams() {
+  db.query(
+    "UPDATE MeterSecurityParams SET sgc = '999907', keyRevisionNumber = 2, bdt = '02' WHERE sgc = '600675' OR keyRevisionNumber = 1 OR bdt = '01'",
+    function(err, result) {
+      if (!err && result && result.affectedRows > 0) {
+        console.log('[Vending] Migrated ' + result.affectedRows + ' MeterSecurityParams rows to SGC=999901, KRN=2, BDT=02');
+      }
+    }
+  );
+}
+
 function seedDefaults() {
   db.query('SELECT COUNT(*) as c FROM TariffConfig', function(err, rows) {
     if (!err && rows[0].c === 0) {
@@ -475,6 +524,793 @@ function seedDefaults() {
   });
 }
 
+// ─── PrismVend HSM Status & Config ──────────────────────────────────────────
+
+router.get('/hsm-status', authenticateToken, function(req, res) {
+  var status = hsmService.getHSMStatus();
+  res.json({ success: true, data: status });
+});
+
+router.put('/hsm-config', authenticateToken, function(req, res) {
+  var b = req.body;
+  if (b.host !== undefined) hsmService.hsmConfig.host = b.host || null;
+  if (b.port !== undefined) hsmService.hsmConfig.port = parseInt(b.port) || 8080;
+  if (b.uiPort !== undefined) hsmService.hsmConfig.uiPort = parseInt(b.uiPort) || 80;
+  if (b.tlsPort !== undefined) hsmService.hsmConfig.tlsPort = parseInt(b.tlsPort) || 9443;
+  if (b.useTLS !== undefined) hsmService.hsmConfig.useTLS = !!b.useTLS;
+  if (b.timeout !== undefined) hsmService.hsmConfig.timeout = parseInt(b.timeout) || 15000;
+  if (b.mode !== undefined) hsmService.hsmConfig.mode = b.mode || 'prismvend';
+  // Allow overriding API endpoint paths
+  if (b.endpoints && typeof b.endpoints === 'object') {
+    var keys = Object.keys(b.endpoints);
+    for (var i = 0; i < keys.length; i++) {
+      if (hsmService.hsmConfig.endpoints.hasOwnProperty(keys[i])) {
+        hsmService.hsmConfig.endpoints[keys[i]] = b.endpoints[keys[i]];
+      }
+    }
+  }
+  // Clear nsssession cookie when host changes
+  if (b.host !== undefined) {
+    hsmService.hsmConfig.nsssession = null;
+  }
+  console.log('[PrismVend] Config updated: host=%s, port=%s, useTLS=%s (no auth — API has no auth mechanism)',
+    hsmService.hsmConfig.host, hsmService.hsmConfig.port,
+    hsmService.hsmConfig.useTLS);
+  logAudit('PrismVend HSM config updated', 'UPDATE',
+    'Host: ' + hsmService.hsmConfig.host + ', Port: ' + hsmService.hsmConfig.port,
+    getOperatorName(req), getOperatorId(req), req.ip);
+  res.json({ success: true, data: hsmService.getHSMStatus() });
+});
+
+// ─── PrismVend Connection Check & Connect ─────────────────────────────────
+
+// GET /vending/prismvend-check — Check PrismVend connection health
+router.get('/prismvend-check', authenticateToken, function(req, res) {
+  hsmService.checkConnection(function(err, status) {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    res.json({ success: true, data: status });
+  });
+});
+
+// POST /vending/prismvend-connect — Test connection with optional host/port override
+router.post('/prismvend-connect', authenticateToken, function(req, res) {
+  var b = req.body;
+  // Apply host/port from request body if provided
+  if (b.host !== undefined && b.host) {
+    hsmService.hsmConfig.host = b.host;
+    hsmService.hsmConfig.nsssession = null;
+  }
+  if (b.port !== undefined) {
+    hsmService.hsmConfig.port = parseInt(b.port) || 8080;
+  }
+  hsmService.checkConnection(function(err, status) {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    logAudit('PrismVend connection test: ' + status.status, 'SYSTEM',
+      status.message, getOperatorName(req), getOperatorId(req), req.ip);
+    res.json({ success: true, data: status });
+  });
+});
+
+// ─── PrismVend Operation Log ──────────────────────────────────────────────
+
+// GET /vending/prismvend-log — Retrieve PrismVend operation log (paginated, filterable)
+router.get('/prismvend-log', authenticateToken, function(req, res) {
+  var page = parseInt(req.query.page) || 1;
+  var limit = parseInt(req.query.limit) || 50;
+  var offset = (page - 1) * limit;
+  var operationType = req.query.type || '';
+  var meterId = req.query.meterId || '';
+  var status = req.query.status || '';
+  var dateFrom = req.query.dateFrom || '';
+  var dateTo = req.query.dateTo || '';
+
+  var conditions = [];
+  var params = [];
+
+  if (operationType) {
+    conditions.push('operationType = ?');
+    params.push(operationType);
+  }
+  if (meterId) {
+    conditions.push('meterId LIKE ?');
+    params.push('%' + meterId + '%');
+  }
+  if (status) {
+    conditions.push('prismvendStatus = ?');
+    params.push(status);
+  }
+  if (dateFrom) {
+    conditions.push('created_at >= ?');
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    conditions.push('created_at <= ?');
+    params.push(dateTo + ' 23:59:59');
+  }
+
+  var where = conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : '';
+
+  db.query('SELECT COUNT(*) as total FROM PrismVendOperationLog' + where, params, function(err, countRows) {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to fetch operation log: ' + err.message });
+    }
+    var total = (countRows && countRows[0]) ? countRows[0].total : 0;
+
+    var dataSql = 'SELECT * FROM PrismVendOperationLog' + where + ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    var dataParams = params.concat([limit, offset]);
+
+    db.query(dataSql, dataParams, function(err2, results) {
+      if (err2) {
+        return res.status(500).json({ error: 'Failed to fetch operation log: ' + err2.message });
+      }
+      res.json({
+        success: true,
+        data: results || [],
+        pagination: {
+          page: page,
+          limit: limit,
+          total: total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
+    });
+  });
+});
+
+// ─── PrismVend Bulk Operations ──────────────────────────────────────────────
+
+// POST /vending/bulk/meter-import — Generate PrismVend-compatible meter import CSV
+router.post('/bulk/meter-import', authenticateToken, function(req, res) {
+  var meters = req.body.meters || req.body;
+  if (!Array.isArray(meters) || meters.length === 0) {
+    return res.status(400).json({ error: 'meters array is required with at least one entry' });
+  }
+
+  // Validate each meter has required fields
+  var errors = [];
+  for (var i = 0; i < meters.length; i++) {
+    var m = meters[i];
+    var pan = String(m.meterPAN || m.meterNumber || '').replace(/[^0-9]/g, '');
+    if (!pan || (pan.length !== 11 && pan.length !== 13)) {
+      errors.push('Row ' + (i + 1) + ': meterPAN must be 11 or 13 digits (got "' + pan + '")');
+    }
+    var sgc = String(m.sgc || '').replace(/[^0-9]/g, '');
+    if (sgc && sgc.length !== 6) {
+      errors.push('Row ' + (i + 1) + ': SGC must be 6 digits (got "' + sgc + '")');
+    }
+  }
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Validation errors', details: errors });
+  }
+
+  try {
+    var result = hsmService.generateBulkMeterImportCSV(meters);
+    logAudit('Bulk meter import CSV generated', 'CREATE',
+      result.meterCount + ' meters, file: ' + result.filename,
+      getOperatorName(req), getOperatorId(req), req.ip);
+
+    res.json({
+      success: true,
+      data: {
+        filename: result.filename,
+        filepath: result.filepath,
+        meterCount: result.meterCount,
+        csv: result.csv
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to generate CSV: ' + e.message });
+  }
+});
+
+// POST /vending/bulk/key-change — Generate PrismVend-compatible key change CSV
+router.post('/bulk/key-change', authenticateToken, function(req, res) {
+  var meters = req.body.meters || req.body;
+  if (!Array.isArray(meters) || meters.length === 0) {
+    return res.status(400).json({ error: 'meters array is required with at least one entry' });
+  }
+
+  // Validate
+  var errors = [];
+  for (var i = 0; i < meters.length; i++) {
+    var m = meters[i];
+    var pan = String(m.meterPAN || m.meterNumber || '').replace(/[^0-9]/g, '');
+    if (!pan || (pan.length !== 11 && pan.length !== 13)) {
+      errors.push('Row ' + (i + 1) + ': meterPAN must be 11 or 13 digits');
+    }
+    if (!m.toSgc) {
+      errors.push('Row ' + (i + 1) + ': toSgc (destination SGC) is required');
+    }
+  }
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Validation errors', details: errors });
+  }
+
+  try {
+    var result = hsmService.generateBulkKeyChangeCSV(meters);
+    logAudit('Bulk key change CSV generated', 'CREATE',
+      result.meterCount + ' meters, file: ' + result.filename,
+      getOperatorName(req), getOperatorId(req), req.ip);
+
+    res.json({
+      success: true,
+      data: {
+        filename: result.filename,
+        filepath: result.filepath,
+        meterCount: result.meterCount,
+        csv: result.csv
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to generate CSV: ' + e.message });
+  }
+});
+
+// POST /vending/bulk/engineering-tokens — Generate PrismVend-compatible engineering token CSV
+router.post('/bulk/engineering-tokens', authenticateToken, function(req, res) {
+  var meters = req.body.meters || req.body;
+  if (!Array.isArray(meters) || meters.length === 0) {
+    return res.status(400).json({ error: 'meters array is required with at least one entry' });
+  }
+
+  // Validate
+  var errors = [];
+  for (var i = 0; i < meters.length; i++) {
+    var m = meters[i];
+    var pan = String(m.meterPAN || m.meterNumber || '').replace(/[^0-9]/g, '');
+    if (!pan || (pan.length !== 11 && pan.length !== 13)) {
+      errors.push('Row ' + (i + 1) + ': meterPAN must be 11 or 13 digits');
+    }
+  }
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Validation errors', details: errors });
+  }
+
+  try {
+    var result = hsmService.generateBulkEngineeringCSV(meters);
+    logAudit('Bulk engineering token CSV generated', 'CREATE',
+      result.meterCount + ' meters, file: ' + result.filename,
+      getOperatorName(req), getOperatorId(req), req.ip);
+
+    res.json({
+      success: true,
+      data: {
+        filename: result.filename,
+        filepath: result.filepath,
+        meterCount: result.meterCount,
+        csv: result.csv
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to generate CSV: ' + e.message });
+  }
+});
+
+// ─── Direct PrismVend API Operations ──────────────────────────────────────
+
+// POST /vending/vend-engineering — Generate engineering token via PrismVend API
+router.post('/vend-engineering', authenticateToken, function(req, res) {
+  var meterId = req.body.meterId;
+  var subclass = req.body.subclass;
+  var supp = req.body.supp || 0;
+  var messageId = req.body.messageId;
+  if (!meterId) return res.status(400).json({ error: 'meterId is required' });
+  if (subclass === undefined) return res.status(400).json({ error: 'subclass is required (0=MaxPowerLimit, 1=ClearCredit, 5=ClearTamper, 6=MaxPhaseLimit)' });
+
+  hsmService.requireConnection(function(connErr, connStatus) {
+    if (connErr) {
+      return res.status(503).json({ success: false, error: 'PrismVend not connected: ' + connStatus.message, connectionStatus: connStatus });
+    }
+    var startTime = Date.now();
+    hsmService.generateEngineeringTokens({ meterPAN: meterId }, { subclass: parseInt(subclass), supp: parseInt(supp), messageId: messageId }, function(err, result) {
+      var durationMs = Date.now() - startTime;
+      if (err) {
+        logPrismVendOperation('engineering', meterId, { subclass: subclass, supp: supp }, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), durationMs);
+        logAudit('Engineering token failed: ' + meterId, 'SYSTEM', err.message, getOperatorName(req), getOperatorId(req), req.ip);
+        return res.status(502).json({ success: false, error: err.message, hsmStatus: hsmService.getHSMStatus() });
+      }
+      logPrismVendOperation('engineering', meterId, { subclass: subclass, supp: supp }, result, 'success', messageId, null, getOperatorName(req), getOperatorId(req), durationMs);
+      logAudit('Engineering token generated: ' + meterId + ' subclass=' + subclass, 'VEND', 'Token: ' + (result.tokenDec || ''), getOperatorName(req), getOperatorId(req), req.ip);
+      res.json({ success: true, data: result });
+    });
+  });
+});
+
+// POST /vending/key-change — Execute key change via PrismVend API
+router.post('/key-change', authenticateToken, function(req, res) {
+  var meterId = req.body.meterId;
+  var fromSgc = req.body.fromSgc;
+  var fromKrn = req.body.fromKrn;
+  var fromTi = req.body.fromTi;
+  var toSgc = req.body.toSgc;
+  var toKrn = req.body.toKrn;
+  var toTi = req.body.toTi;
+  var messageId = req.body.messageId;
+  if (!meterId) return res.status(400).json({ error: 'meterId is required' });
+  if (!fromSgc || fromKrn === undefined || fromTi === undefined) return res.status(400).json({ error: 'fromSgc, fromKrn, fromTi are required' });
+  if (!toSgc || toKrn === undefined || toTi === undefined) return res.status(400).json({ error: 'toSgc, toKrn, toTi are required' });
+
+  hsmService.requireConnection(function(connErr, connStatus) {
+    if (connErr) {
+      return res.status(503).json({ success: false, error: 'PrismVend not connected: ' + connStatus.message, connectionStatus: connStatus });
+    }
+    var startTime = Date.now();
+    hsmService.generateKeyChangeTokens(
+      { meterPAN: meterId }, String(toSgc), parseInt(toKrn), parseInt(toTi),
+      function(err, result) {
+        var durationMs = Date.now() - startTime;
+        if (err) {
+          logPrismVendOperation('key-change', meterId, { fromSgc: fromSgc, fromKrn: fromKrn, toSgc: toSgc, toKrn: toKrn }, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), durationMs);
+          logAudit('Key change failed: ' + meterId, 'SYSTEM', err.message, getOperatorName(req), getOperatorId(req), req.ip);
+          return res.status(502).json({ success: false, error: err.message, hsmStatus: hsmService.getHSMStatus() });
+        }
+        logPrismVendOperation('key-change', meterId, { fromSgc: fromSgc, fromKrn: fromKrn, toSgc: toSgc, toKrn: toKrn }, result, 'success', messageId, null, getOperatorName(req), getOperatorId(req), durationMs);
+        logAudit('Key change executed: ' + meterId + ' from ' + fromSgc + '/' + fromKrn + ' to ' + toSgc + '/' + toKrn, 'VEND', JSON.stringify(result), getOperatorName(req), getOperatorId(req), req.ip);
+        res.json({ success: true, data: result });
+      },
+      { fromSgc: String(fromSgc), fromKrn: parseInt(fromKrn), fromTi: parseInt(fromTi), messageId: messageId }
+    );
+  });
+});
+
+// ─── GRIDx Meter Registration System ──────────────────────────────────────
+
+// GET /vending/gridx-meters — Fetch all GRIDx meters with their registration status
+router.get('/gridx-meters', authenticateToken, function(req, res) {
+  var sql =
+    "SELECT " +
+    "  mp.DRN, mp.Name, mp.Surname, mp.City, mp.Region, mp.tariff_type, " +
+    "  msp.sgc, msp.keyRevisionNumber as krn, msp.tariffIndex as ti, " +
+    "  msp.ea, msp.tct, msp.isActive, " +
+    "  CASE WHEN msp.id IS NOT NULL THEN 'Registered' ELSE 'Unregistered' END as registrationStatus " +
+    "FROM MeterProfileReal mp " +
+    "LEFT JOIN MeterSecurityParams msp ON mp.DRN = msp.meterNumber " +
+    "WHERE mp.DRN != 'TEST' " +
+    "ORDER BY mp.DRN";
+
+  db.query(sql, function(err, results) {
+    if (err) {
+      console.error('[GRIDx] Failed to fetch meters:', err.message);
+      return res.status(500).json({ error: 'Failed to fetch GRIDx meters: ' + err.message });
+    }
+    var meters = results || [];
+    var registered = 0;
+    var unregistered = 0;
+    for (var i = 0; i < meters.length; i++) {
+      if (meters[i].registrationStatus === 'Registered') {
+        registered++;
+      } else {
+        unregistered++;
+      }
+    }
+    res.json({
+      success: true,
+      data: meters,
+      stats: {
+        total: meters.length,
+        registered: registered,
+        unregistered: unregistered
+      }
+    });
+  });
+});
+
+// POST /vending/gridx-register — Register GRIDx meters with PrismVend (single or bulk)
+router.post('/gridx-register', authenticateToken, function(req, res) {
+  var drns = req.body.drns || [];
+  if (req.body.drn) {
+    drns = [req.body.drn];
+  }
+  if (!Array.isArray(drns) || drns.length === 0) {
+    return res.status(400).json({ error: 'drns array or drn string is required' });
+  }
+
+  hsmService.requireConnection(function(connErr, connStatus) {
+    if (connErr) {
+      return res.status(503).json({ success: false, error: 'PrismVend not connected: ' + connStatus.message, connectionStatus: connStatus });
+    }
+
+  var operatorName = getOperatorName(req);
+  var operatorId = getOperatorId(req);
+  var results = [];
+  var idx = 0;
+
+  function processNext() {
+    if (idx >= drns.length) {
+      // All done — summarize
+      var successCount = 0;
+      var failCount = 0;
+      for (var j = 0; j < results.length; j++) {
+        if (results[j].success) successCount++;
+        else failCount++;
+      }
+      logAudit('GRIDx bulk registration completed', 'CREATE',
+        'Total: ' + drns.length + ', Success: ' + successCount + ', Failed: ' + failCount,
+        operatorName, operatorId, req.ip);
+      return res.json({
+        success: true,
+        data: results,
+        summary: {
+          total: drns.length,
+          success: successCount,
+          failed: failCount
+        }
+      });
+    }
+
+    var drn = String(drns[idx]).replace(/[^0-9]/g, '');
+    idx++;
+
+    // Step 1: Look up meter in MeterProfileReal
+    db.query('SELECT DRN, Name, Surname, City, Region, tariff_type FROM MeterProfileReal WHERE DRN = ?', [drn], function(err, rows) {
+      if (err) {
+        results.push({ drn: drn, success: false, error: 'Database error: ' + err.message });
+        logRegAudit(drn, 'register', 'Failed', null, null, 'Database error: ' + err.message, operatorName, operatorId);
+        return processNext();
+      }
+      if (!rows || rows.length === 0) {
+        results.push({ drn: drn, success: false, error: 'Meter not found in MeterProfileReal' });
+        logRegAudit(drn, 'register', 'Failed', null, null, 'Meter not found in MeterProfileReal', operatorName, operatorId);
+        return processNext();
+      }
+
+      var meter = rows[0];
+      var customerName = ((meter.Name || '') + ' ' + (meter.Surname || '')).trim();
+
+      // Step 2: Build registration params with GRIDx defaults
+      var regParams = {
+        meterPAN: drn,
+        sgc: '999907',
+        krn: 2,
+        ti: 1,
+        ea: 7,
+        tct: 2,
+        resType: 0,
+        name: customerName,
+        organisation: 'Pulsar Namibia'
+      };
+
+      var requestDataStr = JSON.stringify(regParams);
+      var prismvendResult = null;
+
+      // Step 3: Try to register with PrismVend (non-blocking — save locally regardless)
+      var regStartTime = Date.now();
+      function afterPrismVend(regErr, regResult) {
+        var regDurationMs = Date.now() - regStartTime;
+        if (regErr) {
+          prismvendResult = { error: regErr.message };
+          logPrismVendOperation('gridx-register', drn, regParams, null, 'error', null, regErr.message, operatorName, operatorId, regDurationMs);
+          console.log('[GRIDx] PrismVend registration skipped for %s: %s', drn, regErr.message);
+        } else {
+          prismvendResult = regResult;
+          logPrismVendOperation('gridx-register', drn, regParams, regResult, 'success', null, null, operatorName, operatorId, regDurationMs);
+        }
+
+        // Step 4: Always upsert into MeterSecurityParams (local registration)
+        var upsertSql =
+          "INSERT INTO MeterSecurityParams (meterNumber, sgc, tariffIndex, keyRevisionNumber, keyType, keyExpiryNumber, tct, dkga, ea, bdt, supplyGroupCode, decoderReferenceNumber, meterPAN, isActive) " +
+          "VALUES (?, '999907', 1, 2, 3, 255, '02', '02', '07', '02', '999907', ?, ?, 1) " +
+          "ON DUPLICATE KEY UPDATE sgc='999907', tariffIndex=1, keyRevisionNumber=2, tct='02', ea='07', isActive=1, updated_at=NOW()";
+
+        db.query(upsertSql, [drn, drn, drn], function(upsertErr) {
+          if (upsertErr) {
+            console.error('[GRIDx] MeterSecurityParams upsert failed for %s: %s', drn, upsertErr.message);
+            results.push({ drn: drn, success: false, error: 'Failed to save security params: ' + upsertErr.message, customer: customerName });
+            logRegAudit(drn, 'register', 'Failed', requestDataStr, null, upsertErr.message, operatorName, operatorId);
+          } else {
+            var hasPrismvend = prismvendResult && !prismvendResult.error;
+            results.push({
+              drn: drn,
+              success: true,
+              customer: customerName,
+              registeredLocally: true,
+              registeredWithPrismVend: hasPrismvend,
+              prismvendNote: hasPrismvend ? 'Registered with PrismVend' : (prismvendResult ? prismvendResult.error : 'PrismVend not configured — register with PrismVend when connected'),
+              prismvendResponse: hasPrismvend ? prismvendResult : null
+            });
+            logRegAudit(drn, 'register', 'Success', requestDataStr, JSON.stringify(prismvendResult), null, operatorName, operatorId);
+          }
+          processNext();
+        });
+      }
+
+      // Try PrismVend, but proceed regardless of outcome
+      hsmService.registerMeter(regParams, afterPrismVend);
+    });
+  }
+
+  processNext();
+  }); // end requireConnection
+});
+
+// GET /vending/registration-audit — Get registration audit trail
+router.get('/registration-audit', authenticateToken, function(req, res) {
+  var page = parseInt(req.query.page) || 1;
+  var limit = parseInt(req.query.limit) || 50;
+  var offset = (page - 1) * limit;
+  var drn = req.query.drn || '';
+  var status = req.query.status || '';
+  var dateFrom = req.query.dateFrom || '';
+  var dateTo = req.query.dateTo || '';
+
+  var conditions = [];
+  var params = [];
+
+  if (drn) {
+    conditions.push('drn LIKE ?');
+    params.push('%' + drn + '%');
+  }
+  if (status) {
+    conditions.push('status = ?');
+    params.push(status);
+  }
+  if (dateFrom) {
+    conditions.push('created_at >= ?');
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    conditions.push('created_at <= ?');
+    params.push(dateTo + ' 23:59:59');
+  }
+
+  var where = conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : '';
+
+  // Get total count
+  db.query('SELECT COUNT(*) as total FROM MeterRegistrationAudit' + where, params, function(err, countRows) {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to fetch audit trail: ' + err.message });
+    }
+    var total = (countRows && countRows[0]) ? countRows[0].total : 0;
+
+    // Get paginated results
+    var dataSql = 'SELECT * FROM MeterRegistrationAudit' + where + ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    var dataParams = params.concat([limit, offset]);
+
+    db.query(dataSql, dataParams, function(err2, results) {
+      if (err2) {
+        return res.status(500).json({ error: 'Failed to fetch audit trail: ' + err2.message });
+      }
+      res.json({
+        success: true,
+        data: results || [],
+        pagination: {
+          page: page,
+          limit: limit,
+          total: total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
+    });
+  });
+});
+
+// POST /vending/gridx-register-preview — Preview registration data without submitting
+router.post('/gridx-register-preview', authenticateToken, function(req, res) {
+  var drns = req.body.drns || [];
+  var fetchAll = req.body.all === true;
+
+  if (!fetchAll && (!Array.isArray(drns) || drns.length === 0)) {
+    return res.status(400).json({ error: 'drns array is required, or set all: true' });
+  }
+
+  var sql;
+  var params;
+
+  if (fetchAll) {
+    // Get all unregistered GRIDx meters
+    sql =
+      "SELECT mp.DRN, mp.Name, mp.Surname, mp.City, mp.Region, mp.tariff_type " +
+      "FROM MeterProfileReal mp " +
+      "LEFT JOIN MeterSecurityParams msp ON mp.DRN = msp.meterNumber " +
+      "WHERE mp.DRN != 'TEST' AND msp.id IS NULL " +
+      "ORDER BY mp.DRN";
+    params = [];
+  } else {
+    // Get specified meters
+    var placeholders = drns.map(function() { return '?'; }).join(',');
+    sql =
+      "SELECT mp.DRN, mp.Name, mp.Surname, mp.City, mp.Region, mp.tariff_type, " +
+      "  CASE WHEN msp.id IS NOT NULL THEN 'Registered' ELSE 'Unregistered' END as currentStatus " +
+      "FROM MeterProfileReal mp " +
+      "LEFT JOIN MeterSecurityParams msp ON mp.DRN = msp.meterNumber " +
+      "WHERE mp.DRN IN (" + placeholders + ") " +
+      "ORDER BY mp.DRN";
+    params = drns.map(function(d) { return String(d).replace(/[^0-9]/g, ''); });
+  }
+
+  db.query(sql, params, function(err, rows) {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to generate preview: ' + err.message });
+    }
+
+    var preview = [];
+    for (var i = 0; i < (rows || []).length; i++) {
+      var m = rows[i];
+      var customerName = ((m.Name || '') + ' ' + (m.Surname || '')).trim();
+      preview.push({
+        drn: m.DRN,
+        customer: customerName,
+        city: m.City || '',
+        region: m.Region || '',
+        tariffType: m.tariff_type || '',
+        currentStatus: m.currentStatus || 'Unregistered',
+        registrationParams: {
+          meterPAN: m.DRN,
+          sgc: '999907',
+          krn: 2,
+          ti: 1,
+          ea: 7,
+          tct: 2,
+          resType: 0,
+          name: customerName,
+          organisation: 'Pulsar Namibia',
+          manufacturerCode: '0260',
+          keyExpiryNumber: 255,
+          baseDateTime: '02 (2014)'
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: preview,
+      count: preview.length
+    });
+  });
+});
+
+// POST /vending/gridx-register-csv — Generate PrismVend-compatible CSV for GRIDx meters
+router.post('/gridx-register-csv', authenticateToken, function(req, res) {
+  var drns = req.body.drns || [];
+  var fetchAll = req.body.all === true;
+
+  var sql;
+  var params;
+
+  if (fetchAll) {
+    sql =
+      "SELECT mp.DRN, mp.Name, mp.Surname, mp.City, mp.Region, mp.tariff_type " +
+      "FROM MeterProfileReal mp " +
+      "LEFT JOIN MeterSecurityParams msp ON mp.DRN = msp.meterNumber " +
+      "WHERE mp.DRN != 'TEST' AND msp.id IS NULL " +
+      "ORDER BY mp.DRN";
+    params = [];
+  } else if (drns.length > 0) {
+    var placeholders = drns.map(function() { return '?'; }).join(',');
+    sql =
+      "SELECT mp.DRN, mp.Name, mp.Surname, mp.City, mp.Region, mp.tariff_type " +
+      "FROM MeterProfileReal mp " +
+      "WHERE mp.DRN IN (" + placeholders + ") AND mp.DRN != 'TEST' " +
+      "ORDER BY mp.DRN";
+    params = drns.map(function(d) { return String(d).replace(/[^0-9]/g, ''); });
+  } else {
+    // All meters
+    sql =
+      "SELECT DRN, Name, Surname, City, Region, tariff_type " +
+      "FROM MeterProfileReal WHERE DRN != 'TEST' ORDER BY DRN";
+    params = [];
+  }
+
+  db.query(sql, params, function(err, rows) {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to fetch meters for CSV: ' + err.message });
+    }
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: 'No meters found for CSV generation' });
+    }
+
+    // Build meters array for hsmService
+    var meters = [];
+    for (var i = 0; i < rows.length; i++) {
+      var m = rows[i];
+      meters.push({
+        meterPAN: m.DRN,
+        organisation: 'Pulsar Namibia',
+        name: ((m.Name || '') + ' ' + (m.Surname || '')).trim(),
+        sgc: '999907',
+        krn: 2,
+        ti: 1
+      });
+    }
+
+    try {
+      var result = hsmService.generateBulkMeterImportCSV(meters);
+      logAudit('GRIDx meter CSV generated', 'CREATE',
+        result.meterCount + ' meters, file: ' + result.filename,
+        getOperatorName(req), getOperatorId(req), req.ip);
+
+      res.json({
+        success: true,
+        data: {
+          filename: result.filename,
+          filepath: result.filepath,
+          meterCount: result.meterCount,
+          csv: result.csv
+        }
+      });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to generate CSV: ' + e.message });
+    }
+  });
+});
+
+// Helper: log to MeterRegistrationAudit table
+function logRegAudit(drn, action, status, requestData, responseData, errorMessage, operator, operatorId) {
+  db.query(
+    'INSERT INTO MeterRegistrationAudit (drn, action, status, requestData, responseData, errorMessage, operator, operatorId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [drn, action, status, requestData, responseData, errorMessage, operator, operatorId],
+    function(err) {
+      if (err) console.error('[GRIDx] Audit log insert failed:', err.message);
+    }
+  );
+}
+
+// POST /vending/meter-registration — Register a single meter with PrismVend
+router.post('/meter-registration', authenticateToken, function(req, res) {
+  var b = req.body;
+  if (!b.meterPAN && !b.meterNumber) {
+    return res.status(400).json({ error: 'meterPAN or meterNumber is required' });
+  }
+
+  hsmService.requireConnection(function(connErr, connStatus) {
+    if (connErr) {
+      return res.status(503).json({ success: false, error: 'PrismVend not connected: ' + connStatus.message, connectionStatus: connStatus });
+    }
+    var regMeterId = b.meterPAN || b.meterNumber || '';
+    var startTime = Date.now();
+    hsmService.registerMeter(b, function(err, result) {
+      var durationMs = Date.now() - startTime;
+      if (err) {
+        logPrismVendOperation('register', regMeterId, b, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), durationMs);
+        return res.status(502).json({ error: err.message, hsmStatus: hsmService.getHSMStatus() });
+      }
+      logPrismVendOperation('register', regMeterId, b, result, 'success', null, null, getOperatorName(req), getOperatorId(req), durationMs);
+      logAudit('Meter registered with PrismVend: ' + result.meterPAN, 'CREATE',
+        'SGC: ' + result.sgc,
+        getOperatorName(req), getOperatorId(req), req.ip);
+      res.json({ success: true, data: result });
+    });
+  });
+});
+
+// GET /vending/meter/:pan/history — Get meter transaction history from PrismVend
+router.get('/meter/:pan/history', authenticateToken, function(req, res) {
+  var pan = req.params.pan;
+  if (!pan) {
+    return res.status(400).json({ error: 'Meter PAN is required' });
+  }
+
+  hsmService.getMeterHistory(pan, function(err, result) {
+    if (err) {
+      return res.status(502).json({ error: err.message, hsmStatus: hsmService.getHSMStatus() });
+    }
+    res.json({ success: true, data: result });
+  });
+});
+
+// POST /vending/verify-token — Verify a token via PrismVend
+router.post('/verify-token', authenticateToken, function(req, res) {
+  var b = req.body;
+  if (!b.meterPAN && !b.meterNumber) {
+    return res.status(400).json({ error: 'meterPAN or meterNumber is required' });
+  }
+  if (!b.token) {
+    return res.status(400).json({ error: 'token (20-digit STS token) is required' });
+  }
+
+  var pan = b.meterPAN || b.meterNumber;
+  hsmService.verifyToken(pan, b.token, function(err, result) {
+    if (err) {
+      return res.status(502).json({ error: err.message, hsmStatus: hsmService.getHSMStatus() });
+    }
+    res.json({ success: true, data: result });
+  });
+});
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function generateRefNo() {
@@ -490,26 +1326,36 @@ function generateToken() {
 }
 
 function generateSTSTokenForMeter(meterNo, energyKwh, callback) {
-  db.query('SELECT * FROM MeterSecurityParams WHERE meterNumber = ? AND isActive = 1', [meterNo], function(err, rows) {
-    if (err || !rows || rows.length === 0) {
-      // No security params — fall back to random token (non-HSM meters)
-      return callback(null, { token: generateToken(), stsGenerated: false, hsmMode: 'fallback' });
+  hsmService.requireConnection(function(connErr, connStatus) {
+    if (connErr) {
+      var e = new Error('PrismVend not connected: ' + connStatus.message);
+      e.connectionStatus = connStatus;
+      return callback(e);
     }
-    var secParams = rows[0];
-    hsmService.generateSTSToken(secParams, energyKwh, function(hsmErr, result) {
-      if (hsmErr) {
-        console.error('[HSM] Token generation failed for meter ' + meterNo + ':', hsmErr.message);
-        return callback(null, { token: generateToken(), stsGenerated: false, hsmMode: 'fallback', hsmError: hsmErr.message });
+    db.query('SELECT * FROM MeterSecurityParams WHERE meterNumber = ? AND isActive = 1', [meterNo], function(err, rows) {
+      if (err || !rows || rows.length === 0) {
+        return callback(new Error('Meter ' + meterNo + ' has no STS security parameters configured. Register the meter before vending.'));
       }
-      // Update last token identifier
-      db.query('UPDATE MeterSecurityParams SET lastTokenTID = ? WHERE meterNumber = ?', [result.tokenIdentifier, meterNo], function() {});
-      callback(null, {
-        token: result.token20Digit,
-        stsGenerated: true,
-        hsmMode: hsmService.hsmConfig.mode,
-        tokenIdentifier: result.tokenIdentifier,
-        encryptedToken: result.encryptedToken,
-        prnRecord: result.PRNRecord
+      var secParams = rows[0];
+      var vendStartTime = Date.now();
+      hsmService.generateSTSToken(secParams, energyKwh, function(hsmErr, result) {
+        var vendDurationMs = Date.now() - vendStartTime;
+        if (hsmErr) {
+          logPrismVendOperation('vend', meterNo, { energyKwh: energyKwh }, null, 'error', null, hsmErr.message, null, null, vendDurationMs);
+          console.error('[HSM] Token generation failed for meter ' + meterNo + ':', hsmErr.message);
+          return callback(new Error('HSM token generation failed: ' + hsmErr.message));
+        }
+        logPrismVendOperation('vend', meterNo, { energyKwh: energyKwh }, { token: result.token20Digit, numTokens: result.numTokens }, 'success', null, null, null, null, vendDurationMs);
+        // Update last token identifier
+        db.query('UPDATE MeterSecurityParams SET lastTokenTID = ? WHERE meterNumber = ?', [result.tokenIdentifier, meterNo], function() {});
+        callback(null, {
+          token: result.token20Digit,
+          stsGenerated: true,
+          hsmMode: hsmService.hsmConfig.mode,
+          tokenIdentifier: result.tokenIdentifier,
+          encryptedToken: result.encryptedToken,
+          prnRecord: result.PRNRecord
+        });
       });
     });
   });
@@ -533,10 +1379,90 @@ function getOperatorId(req) {
   return (req.user && req.user.Admin_ID) || null;
 }
 
+function logPrismVendOperation(type, meterId, requestData, responseData, status, txId, error, operator, operatorId, durationMs) {
+  var reqStr = requestData ? (typeof requestData === 'string' ? requestData : JSON.stringify(requestData)) : null;
+  var resStr = responseData ? (typeof responseData === 'string' ? responseData : JSON.stringify(responseData)) : null;
+  db.query(
+    'INSERT INTO PrismVendOperationLog (operationType, meterId, requestData, responseData, prismvendStatus, transactionId, errorMessage, operator, operatorId, durationMs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [type, meterId || null, reqStr, resStr, status || null, txId || null, error || null, operator || null, operatorId || null, durationMs || null],
+    function(err) {
+      if (err) console.error('[PrismVend] Operation log insert failed:', err.message);
+    }
+  );
+}
+
 function round2(n) {
   return Math.round(parseFloat(n) * 100) / 100;
 }
 
+
+// ─── Meter HSM Registration Status ────────────────────────────────────────
+
+// GET /vending/meter-hsm-status/:drn — Single meter HSM registration status
+router.get('/meter-hsm-status/:drn', authenticateToken, function(req, res) {
+  var drn = req.params.drn;
+  if (!drn) {
+    return res.status(400).json({ error: 'drn parameter is required' });
+  }
+  db.query(
+    'SELECT meterNumber, sgc, keyRevisionNumber as krn, tariffIndex as ti, isActive FROM MeterSecurityParams WHERE meterNumber = ?',
+    [drn],
+    function(err, rows) {
+      if (err) {
+        return res.status(500).json({ error: 'Database error: ' + err.message });
+      }
+      if (!rows || rows.length === 0) {
+        return res.json({ success: true, data: { registered: false, sgc: null, krn: null, ti: null } });
+      }
+      var row = rows[0];
+      res.json({
+        success: true,
+        data: {
+          registered: true,
+          sgc: row.sgc,
+          krn: row.krn,
+          ti: row.ti,
+          isActive: !!row.isActive
+        }
+      });
+    }
+  );
+});
+
+// POST /vending/meters-hsm-status — Bulk meter HSM registration status
+router.post('/meters-hsm-status', authenticateToken, function(req, res) {
+  var drns = req.body.drns;
+  if (!drns || !Array.isArray(drns) || drns.length === 0) {
+    return res.status(400).json({ error: 'drns array is required' });
+  }
+  var placeholders = drns.map(function() { return '?'; }).join(',');
+  db.query(
+    'SELECT meterNumber, sgc, keyRevisionNumber as krn, tariffIndex as ti, isActive FROM MeterSecurityParams WHERE meterNumber IN (' + placeholders + ')',
+    drns,
+    function(err, rows) {
+      if (err) {
+        return res.status(500).json({ error: 'Database error: ' + err.message });
+      }
+      var result = {};
+      // Initialize all as unregistered
+      for (var i = 0; i < drns.length; i++) {
+        result[drns[i]] = { registered: false, sgc: null, krn: null, ti: null };
+      }
+      // Fill in registered ones
+      for (var j = 0; j < (rows || []).length; j++) {
+        var row = rows[j];
+        result[row.meterNumber] = {
+          registered: true,
+          sgc: row.sgc,
+          krn: row.krn,
+          ti: row.ti,
+          isActive: !!row.isActive
+        };
+      }
+      res.json({ success: true, data: result });
+    }
+  );
+});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CUSTOMERS
@@ -1055,8 +1981,11 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
           var refNo = generateRefNo();
 
           generateSTSTokenForMeter(meterNo, totalKwh, function(tokenErr, tokenResult) {
-          var token = tokenResult ? tokenResult.token : generateToken();
-          var stsData = tokenResult || {};
+          if (tokenErr) {
+            return res.status(502).json({ error: tokenErr.message, hsmStatus: hsmService.getHSMStatus() });
+          }
+          var token = tokenResult.token;
+          var stsData = tokenResult;
 
           // Step 6: Get vendor info
           getVendorInfo(vendorId, function(vendor) {
@@ -1752,15 +2681,11 @@ router.delete('/meter-security/:meterNo', authenticateToken, function(req, res) 
 router.get('/hsm/status', authenticateToken, function(req, res) {
   db.query('SELECT COUNT(*) as totalMeters FROM MeterSecurityParams WHERE isActive = 1', function(err, rows) {
     var count = (!err && rows && rows[0]) ? rows[0].totalMeters : 0;
+    var status = hsmService.getHSMStatus();
+    status.metersConfigured = count;
     res.json({
       success: true,
-      data: {
-        mode: hsmService.hsmConfig.mode,
-        host: hsmService.hsmConfig.host,
-        port: hsmService.hsmConfig.port,
-        metersConfigured: count,
-        masterKeyId: hsmService.hsmConfig.masterKeyId
-      }
+      data: status
     });
   });
 });
@@ -2994,6 +3919,276 @@ router.get('/tariff-history/:drn', authenticateToken, function(req, res) {
   db.query('SELECT * FROM MeterTariffHistory WHERE DRN = ? ORDER BY created_at DESC LIMIT 50', [req.params.drn], function(err, results) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true, data: results || [] });
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DIRECT THRIFT HSM ROUTES — PrismToken Thrift API (port 9443)
+// ═══════════════════════════════════════════════════════════════════════════
+
+var thriftHsm = require('./thriftHsmService');
+
+// GET /vending/thrift-status — Direct HSM connection status via Thrift
+router.get('/thrift-status', authenticateToken, function(req, res) {
+  thriftHsm.checkConnection(function(err, status) {
+    if (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    res.json({ success: true, data: status });
+  });
+});
+
+// POST /vending/thrift-connect — Connect to PrismToken Thrift API
+router.post('/thrift-connect', authenticateToken, function(req, res) {
+  var b = req.body;
+  // Apply config from request body
+  if (b.host !== undefined && b.host) thriftHsm.thriftConfig.host = b.host;
+  if (b.port !== undefined) thriftHsm.thriftConfig.port = parseInt(b.port) || 9443;
+  if (b.username !== undefined) thriftHsm.thriftConfig.username = b.username || null;
+  if (b.password !== undefined) thriftHsm.thriftConfig.password = b.password || null;
+  if (b.realm !== undefined) thriftHsm.thriftConfig.realm = b.realm || 'local';
+
+  thriftHsm.connect(function(err) {
+    if (err) {
+      logPrismVendOperation('thrift-connect', null, { host: thriftHsm.thriftConfig.host, port: thriftHsm.thriftConfig.port }, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), null);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    logPrismVendOperation('thrift-connect', null, { host: thriftHsm.thriftConfig.host, port: thriftHsm.thriftConfig.port }, { connected: true }, 'success', null, null, getOperatorName(req), getOperatorId(req), null);
+    logAudit('Thrift HSM connected to ' + thriftHsm.thriftConfig.host + ':' + thriftHsm.thriftConfig.port, 'SYSTEM',
+      'Direct Thrift connection established', getOperatorName(req), getOperatorId(req), req.ip);
+    res.json({ success: true, data: { connected: true, host: thriftHsm.thriftConfig.host, port: thriftHsm.thriftConfig.port } });
+  });
+});
+
+// POST /vending/thrift-disconnect — Disconnect from PrismToken
+router.post('/thrift-disconnect', authenticateToken, function(req, res) {
+  thriftHsm.disconnect();
+  logPrismVendOperation('thrift-disconnect', null, null, { connected: false }, 'success', null, null, getOperatorName(req), getOperatorId(req), null);
+  logAudit('Thrift HSM disconnected', 'SYSTEM', 'Direct Thrift connection closed', getOperatorName(req), getOperatorId(req), req.ip);
+  res.json({ success: true, data: { connected: false } });
+});
+
+// POST /vending/thrift-ping — Ping the HSM via Thrift
+router.post('/thrift-ping', authenticateToken, function(req, res) {
+  var startTime = Date.now();
+  thriftHsm.ping(function(err, result) {
+    var durationMs = Date.now() - startTime;
+    if (err) {
+      logPrismVendOperation('thrift-ping', null, null, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), durationMs);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    logPrismVendOperation('thrift-ping', null, null, result, 'success', null, null, getOperatorName(req), getOperatorId(req), durationMs);
+    res.json({ success: true, data: result });
+  });
+});
+
+// POST /vending/thrift-signin — Sign in to PrismToken to get accessToken
+router.post('/thrift-signin', authenticateToken, function(req, res) {
+  var b = req.body;
+  // Allow overriding credentials from request
+  if (b.username !== undefined) thriftHsm.thriftConfig.username = b.username;
+  if (b.password !== undefined) thriftHsm.thriftConfig.password = b.password;
+  if (b.realm !== undefined) thriftHsm.thriftConfig.realm = b.realm || 'local';
+
+  thriftHsm.signIn(function(err) {
+    if (err) {
+      logPrismVendOperation('thrift-signin', null, { username: thriftHsm.thriftConfig.username }, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), null);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    logPrismVendOperation('thrift-signin', null, { username: thriftHsm.thriftConfig.username }, { authenticated: true }, 'success', null, null, getOperatorName(req), getOperatorId(req), null);
+    logAudit('Thrift HSM signed in as ' + thriftHsm.thriftConfig.username, 'SYSTEM',
+      'PrismToken Thrift auth successful', getOperatorName(req), getOperatorId(req), req.ip);
+    res.json({ success: true, data: { authenticated: true, tokenExpiry: thriftHsm.thriftConfig.tokenExpiry } });
+  });
+});
+
+// GET /vending/thrift-hsm-info — Get full HSM status (getStatus) via Thrift
+router.get('/thrift-hsm-info', authenticateToken, function(req, res) {
+  var startTime = Date.now();
+  thriftHsm.getStatus(function(err, result) {
+    var durationMs = Date.now() - startTime;
+    if (err) {
+      logPrismVendOperation('thrift-getStatus', null, null, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), durationMs);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    logPrismVendOperation('thrift-getStatus', null, null, { moduleId: result.moduleId, txCounter: result.txCounter }, 'success', null, null, getOperatorName(req), getOperatorId(req), durationMs);
+    res.json({ success: true, data: result });
+  });
+});
+
+// POST /vending/thrift-issue-credit — Issue credit token directly via Thrift
+router.post('/thrift-issue-credit', authenticateToken, function(req, res) {
+  var b = req.body;
+  var meterParams = {
+    drn: b.drn || b.meterPAN || '',
+    ea: b.ea || 7,
+    tct: b.tct || 2,
+    sgc: b.sgc || 999907,
+    krn: b.krn || 2,
+    ti: b.ti || 1,
+    ken: b.ken || 255
+  };
+  var subclass = parseInt(b.subclass) || 0;
+  var transferAmount = parseFloat(b.transferAmount || b.amount || 0);
+  var meterId = meterParams.drn;
+
+  if (!meterId) {
+    return res.status(400).json({ success: false, error: 'DRN (drn or meterPAN) is required' });
+  }
+  if (transferAmount <= 0) {
+    return res.status(400).json({ success: false, error: 'transferAmount must be > 0' });
+  }
+
+  var startTime = Date.now();
+  thriftHsm.issueCreditToken(meterParams, subclass, transferAmount, function(err, result) {
+    var durationMs = Date.now() - startTime;
+    if (err) {
+      logPrismVendOperation('thrift-credit', meterId, { subclass: subclass, transferAmount: transferAmount }, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), durationMs);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    logPrismVendOperation('thrift-credit', meterId, { subclass: subclass, transferAmount: transferAmount }, result, 'success', result.messageId, null, getOperatorName(req), getOperatorId(req), durationMs);
+    logAudit('Thrift credit token issued for ' + meterId, 'CREATE',
+      'Amount: ' + transferAmount + ', Tokens: ' + result.numTokens, getOperatorName(req), getOperatorId(req), req.ip);
+    res.json({ success: true, data: result });
+  });
+});
+
+// POST /vending/thrift-issue-engineering — Issue engineering token directly via Thrift
+router.post('/thrift-issue-engineering', authenticateToken, function(req, res) {
+  var b = req.body;
+  var meterParams = {
+    drn: b.drn || b.meterPAN || '',
+    ea: b.ea || 7,
+    tct: b.tct || 2,
+    sgc: b.sgc || 999907,
+    krn: b.krn || 2,
+    ti: b.ti || 1,
+    ken: b.ken || 255
+  };
+  var subclass = parseInt(b.subclass);
+  var transferAmount = parseFloat(b.transferAmount || b.amount || 0);
+  var meterId = meterParams.drn;
+
+  if (!meterId) {
+    return res.status(400).json({ success: false, error: 'DRN is required' });
+  }
+  if (isNaN(subclass)) {
+    return res.status(400).json({ success: false, error: 'Engineering subclass is required (0/1/5/6/7)' });
+  }
+
+  var startTime = Date.now();
+  thriftHsm.issueMseToken(meterParams, subclass, transferAmount, function(err, result) {
+    var durationMs = Date.now() - startTime;
+    if (err) {
+      logPrismVendOperation('thrift-engineering', meterId, { subclass: subclass, transferAmount: transferAmount }, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), durationMs);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    logPrismVendOperation('thrift-engineering', meterId, { subclass: subclass, transferAmount: transferAmount }, result, 'success', result.messageId, null, getOperatorName(req), getOperatorId(req), durationMs);
+    logAudit('Thrift engineering token issued for ' + meterId, 'CREATE',
+      'Subclass: ' + subclass + ', Amount: ' + transferAmount, getOperatorName(req), getOperatorId(req), req.ip);
+    res.json({ success: true, data: result });
+  });
+});
+
+// POST /vending/thrift-issue-keychange — Issue key change tokens directly via Thrift
+router.post('/thrift-issue-keychange', authenticateToken, function(req, res) {
+  var b = req.body;
+  var meterParams = {
+    drn: b.drn || b.meterPAN || '',
+    ea: b.ea || 7,
+    tct: b.tct || 2,
+    sgc: b.sgc || 999907,
+    krn: b.krn || 2,
+    ti: b.ti || 1,
+    ken: b.ken || 255
+  };
+  var newConfig = {
+    toSgc: b.toSgc,
+    toKrn: b.toKrn,
+    toTi: b.toTi
+  };
+  var meterId = meterParams.drn;
+
+  if (!meterId) {
+    return res.status(400).json({ success: false, error: 'DRN is required' });
+  }
+  if (!newConfig.toSgc || !newConfig.toKrn || !newConfig.toTi) {
+    return res.status(400).json({ success: false, error: 'toSgc, toKrn, and toTi are required' });
+  }
+
+  var startTime = Date.now();
+  thriftHsm.issueKeyChangeTokens(meterParams, newConfig, function(err, result) {
+    var durationMs = Date.now() - startTime;
+    if (err) {
+      logPrismVendOperation('thrift-keychange', meterId, { sgc: meterParams.sgc, toSgc: newConfig.toSgc, toKrn: newConfig.toKrn }, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), durationMs);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    logPrismVendOperation('thrift-keychange', meterId, { sgc: meterParams.sgc, toSgc: newConfig.toSgc, toKrn: newConfig.toKrn }, result, 'success', result.messageId, null, getOperatorName(req), getOperatorId(req), durationMs);
+    logAudit('Thrift key change tokens issued for ' + meterId, 'CREATE',
+      'SGC: ' + meterParams.sgc + ' -> ' + newConfig.toSgc, getOperatorName(req), getOperatorId(req), req.ip);
+    res.json({ success: true, data: result });
+  });
+});
+
+// POST /vending/thrift-verify — Verify a token via Thrift
+router.post('/thrift-verify', authenticateToken, function(req, res) {
+  var b = req.body;
+  var meterParams = {
+    drn: b.drn || b.meterPAN || '',
+    ea: b.ea || 7,
+    tct: b.tct || 2,
+    sgc: b.sgc || 999907,
+    krn: b.krn || 2,
+    ti: b.ti || 1,
+    ken: b.ken || 255
+  };
+  var tokenDec = b.tokenDec || b.token || '';
+  var meterId = meterParams.drn;
+
+  if (!meterId) {
+    return res.status(400).json({ success: false, error: 'DRN is required' });
+  }
+  if (!tokenDec || String(tokenDec).replace(/[^0-9]/g, '').length !== 20) {
+    return res.status(400).json({ success: false, error: 'A valid 20-digit token is required' });
+  }
+
+  var startTime = Date.now();
+  thriftHsm.verifyToken(meterParams, tokenDec, function(err, result) {
+    var durationMs = Date.now() - startTime;
+    if (err) {
+      logPrismVendOperation('thrift-verify', meterId, { tokenDec: tokenDec.substring(0, 8) + '...' }, null, 'error', null, err.message, getOperatorName(req), getOperatorId(req), durationMs);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+    logPrismVendOperation('thrift-verify', meterId, { tokenDec: tokenDec.substring(0, 8) + '...' }, { verified: result.verified }, 'success', null, null, getOperatorName(req), getOperatorId(req), durationMs);
+    res.json({ success: true, data: result });
+  });
+});
+
+// PUT /vending/thrift-config — Update Thrift connection config without connecting
+router.put('/thrift-config', authenticateToken, function(req, res) {
+  var b = req.body;
+  if (b.host !== undefined) thriftHsm.thriftConfig.host = b.host || null;
+  if (b.port !== undefined) thriftHsm.thriftConfig.port = parseInt(b.port) || 9443;
+  if (b.username !== undefined) thriftHsm.thriftConfig.username = b.username || null;
+  if (b.password !== undefined) thriftHsm.thriftConfig.password = b.password || null;
+  if (b.realm !== undefined) thriftHsm.thriftConfig.realm = b.realm || 'local';
+  if (b.sessionTimeoutSec !== undefined) thriftHsm.thriftConfig.sessionTimeoutSec = parseInt(b.sessionTimeoutSec) || 300;
+
+  logAudit('Thrift HSM config updated', 'UPDATE',
+    'Host: ' + thriftHsm.thriftConfig.host + ', Port: ' + thriftHsm.thriftConfig.port,
+    getOperatorName(req), getOperatorId(req), req.ip);
+
+  res.json({
+    success: true,
+    data: {
+      host: thriftHsm.thriftConfig.host,
+      port: thriftHsm.thriftConfig.port,
+      username: thriftHsm.thriftConfig.username ? '***' : null,
+      realm: thriftHsm.thriftConfig.realm,
+      connected: thriftHsm.thriftConfig.connected,
+      sessionTimeoutSec: thriftHsm.thriftConfig.sessionTimeoutSec
+    }
   });
 });
 

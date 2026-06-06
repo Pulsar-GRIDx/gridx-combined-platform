@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   Typography,
@@ -11,6 +11,7 @@ import {
   Alert,
   IconButton,
   Tooltip,
+  Chip,
   useTheme,
 } from "@mui/material";
 import {
@@ -20,6 +21,8 @@ import {
   RestoreOutlined,
   ContentCopyOutlined,
   SearchOutlined,
+  CheckCircleOutlined,
+  WarningAmber,
 } from "@mui/icons-material";
 import { tokens } from "../theme";
 import Header from "../components/Header";
@@ -97,6 +100,27 @@ export default function Engineering() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
 
+  // HSM connection status
+  const [hsmStatus, setHsmStatus] = useState(null);
+
+  useEffect(() => {
+    const fetchHsmStatus = () => {
+      const token = sessionStorage.getItem("token");
+      if (!token) return;
+      fetch("/cb/vending/prismvend-check", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((r) => r.json())
+        .then((r) => { if (r.success) setHsmStatus(r.data); })
+        .catch(() => {});
+    };
+    fetchHsmStatus();
+    const interval = setInterval(fetchHsmStatus, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const hsmOffline = hsmStatus?.connected !== true;
+
   // Card 1: Engineering Token
   const [engMeter, setEngMeter] = useState("");
   const [engTokenType, setEngTokenType] = useState("");
@@ -171,6 +195,32 @@ export default function Engineering() {
         title="ENGINEERING TOKENS"
         subtitle="Generate Specialized STS Tokens"
       />
+
+      {/* HSM Connection Status Banner */}
+      {hsmStatus && hsmStatus.connected === true && (
+        <Box display="flex" alignItems="center" gap="8px" mb="10px" px="10px" py="6px"
+          sx={{ backgroundColor: "rgba(76,206,172,0.08)", borderRadius: "6px", border: `1px solid ${colors.greenAccent[700]}` }}>
+          <CheckCircleOutlined sx={{ color: colors.greenAccent[500], fontSize: 20 }} />
+          <Chip label="HSM Connected" size="small" sx={{ backgroundColor: colors.greenAccent[900], color: colors.greenAccent[500], fontWeight: 600, fontSize: "0.75rem" }} />
+          {hsmStatus.txCreditsRemaining != null && (
+            <Typography variant="caption" color={colors.grey[300]}>
+              TX Credits: <strong style={{ color: colors.greenAccent[400] }}>{hsmStatus.txCreditsRemaining.toLocaleString()}</strong>
+            </Typography>
+          )}
+        </Box>
+      )}
+      {hsmStatus && hsmStatus.connected !== true && (
+        <Box display="flex" alignItems="center" gap="8px" mb="10px" px="12px" py="10px"
+          sx={{ backgroundColor: "rgba(219,79,74,0.1)", borderRadius: "6px", border: "1px solid #db4f4a55" }}>
+          <WarningAmber sx={{ color: "#db4f4a", fontSize: 22 }} />
+          <Typography variant="body2" sx={{ color: "#db4f4a", fontWeight: 600 }}>
+            HSM Not Connected
+          </Typography>
+          <Typography variant="caption" color={colors.grey[300]} sx={{ ml: 1 }}>
+            Engineering token generation is disabled until the HSM connection is established.
+          </Typography>
+        </Box>
+      )}
 
       <Box
         display="grid"
@@ -267,7 +317,7 @@ export default function Engineering() {
             <Button
               variant="contained"
               fullWidth
-              disabled={!engMeter || !engTokenType}
+              disabled={!engMeter || !engTokenType || hsmOffline}
               onClick={() => setEngToken(generateToken())}
               sx={{
                 py: "10px",
@@ -371,7 +421,7 @@ export default function Engineering() {
             <Button
               variant="contained"
               fullWidth
-              disabled={!freeMeter || !freeKwh || !freeReason}
+              disabled={!freeMeter || !freeKwh || !freeReason || hsmOffline}
               onClick={() => setFreeToken(generateToken())}
               sx={{
                 py: "10px",
@@ -509,7 +559,7 @@ export default function Engineering() {
             <Button
               variant="contained"
               fullWidth
-              disabled={!keyMeter || !keyNewRevision}
+              disabled={!keyMeter || !keyNewRevision || hsmOffline}
               onClick={() => setKeyToken(generateToken())}
               sx={{
                 py: "10px",
@@ -669,7 +719,7 @@ export default function Engineering() {
             <Button
               variant="contained"
               fullWidth
-              disabled={!replOriginal}
+              disabled={!replOriginal || hsmOffline}
               onClick={() => setReplToken(generateToken())}
               sx={{
                 py: "10px",

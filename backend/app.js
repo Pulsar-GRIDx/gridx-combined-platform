@@ -78,7 +78,7 @@ const vendingRoutes = require('./vending/vendingRoutes');
 const integrationRoutes = require('./vending/integrationRoutes');
 const customerAuthRoutes = require('./routes/customerAuthRoutes');
 const tamperRoutes = require('./routes/tamperRoutes');
-const vsmRoutes = require('./routes/vsmRoutes');
+// const vsmRoutes = require('./routes/vsmRoutes'); // VSM removed — production HSM configured in hsmService
 const meterValidationRoutes = require('./routes/meterValidationRoutes');
 const energyAnalyticsRoutes = require('./routes/energyAnalyticsRoutes');
 const authorizedNumbersRoutes = require('./meter/authorizedNumbersRoutes');
@@ -171,7 +171,7 @@ apiRouter.use('/', groupControlRoutes);
 apiRouter.use('/', geyserControlRoutes);
 apiRouter.use('/vending', vendingRoutes);
 apiRouter.use('/', tamperRoutes);
-apiRouter.use('/', vsmRoutes);
+// apiRouter.use('/', vsmRoutes); // VSM removed
 apiRouter.use('/summary', summaryRoutes);
 apiRouter.use('/energy-analytics', energyAnalyticsRoutes);
 // Meter config commands (auth number, sleep mode, base URL, status)

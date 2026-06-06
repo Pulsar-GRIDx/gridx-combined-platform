@@ -91,7 +91,7 @@ function WeeklyChart({ lastWeek, currentWeek, unit, colors }) {
       <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>Weekly Comparison</Typography>
       <ResponsiveContainer width="100%" height={400}>
         <BarChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.4} />
+          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"}  />
           <XAxis dataKey="day" stroke={colors.grey[300]} tick={{ fontSize: 11 }} />
           <YAxis stroke={colors.grey[300]} tick={{ fontSize: 11 }} tickFormatter={(v) => `${v}`} />
           <Tooltip contentStyle={{ backgroundColor: colors.primary[400], border: `1px solid ${colors.grey[700]}`, color: colors.grey[100] }}
@@ -117,7 +117,7 @@ function YearlyChart({ lastYear, currentYear, unit, colors }) {
       <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={1}>Yearly Comparison</Typography>
       <ResponsiveContainer width="100%" height={400}>
         <BarChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.4} />
+          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"}  />
           <XAxis dataKey="month" stroke={colors.grey[300]} tick={{ fontSize: 11 }} />
           <YAxis stroke={colors.grey[300]} tick={{ fontSize: 11 }} />
           <Tooltip contentStyle={{ backgroundColor: colors.primary[400], border: `1px solid ${colors.grey[700]}`, color: colors.grey[100] }}
@@ -151,7 +151,7 @@ function AreaBarChart({ title, data, unit, timePeriod, setTimePeriod, colors, na
       </Box>
       <ResponsiveContainer width="100%" height={400}>
         <BarChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 60 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={colors.grey[700]} opacity={0.4} />
+          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"}  />
           <XAxis dataKey="label" stroke={colors.grey[300]} tick={{ fontSize: 10, angle: -25, textAnchor: "end" }} interval={0} height={80} />
           <YAxis stroke={colors.grey[300]} tick={{ fontSize: 11 }} />
           <Tooltip contentStyle={{ backgroundColor: colors.primary[400], border: `1px solid ${colors.grey[700]}`, color: colors.grey[100] }}
@@ -178,6 +178,7 @@ function availabilityColor(pct) {
 export default function Analysis() {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
+  const isDark = theme.palette.mode === "dark";
   const navigate = useNavigate();
   const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(true);

@@ -154,6 +154,9 @@ export default function Customers() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
 
+  // HSM status map: { meterNo: { registered, sgc, krn, ti } }
+  const [hsmStatusMap, setHsmStatusMap] = useState({});
+
   // Snackbar
   const [snack, setSnack] = useState({ open: false, msg: "", severity: "success" });
 
@@ -163,6 +166,23 @@ export default function Customers() {
       if (r.success && r.data?.length > 0) setCustomers(r.data);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
+
+  // Fetch HSM registration status for GridX customers
+  useEffect(() => {
+    if (customers.length === 0) return;
+    const drns = customers.map((c) => c.meterNo).filter(Boolean);
+    if (drns.length === 0) return;
+    const token = sessionStorage.getItem("token");
+    if (!token) return;
+    fetch("/cb/vending/meters-hsm-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ drns }),
+    })
+      .then((r) => r.json())
+      .then((r) => { if (r.success) setHsmStatusMap(r.data || {}); })
+      .catch(() => {});
+  }, [customers]);
 
   // Fetch Non-GridX customers
   const fetchNonGridx = () => {
@@ -448,6 +468,7 @@ export default function Customers() {
                   <TableCell sx={headerCellSx}>Tariff</TableCell>
                   <TableCell sx={headerCellSx} align="right">Arrears</TableCell>
                   <TableCell sx={headerCellSx}>Status</TableCell>
+                  <TableCell sx={headerCellSx}>HSM</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -484,11 +505,26 @@ export default function Customers() {
                         fontWeight: 600, fontSize: "0.7rem",
                       }} />
                     </TableCell>
+                    <TableCell sx={bodyCellSx}>
+                      {hsmStatusMap[c.meterNo]?.registered ? (
+                        <Chip label="Registered" size="small" sx={{
+                          backgroundColor: colors.greenAccent[900],
+                          color: colors.greenAccent[500],
+                          fontWeight: 600, fontSize: "0.65rem",
+                        }} />
+                      ) : (
+                        <Chip label="Unregistered" size="small" sx={{
+                          backgroundColor: colors.primary[300],
+                          color: colors.grey[400],
+                          fontWeight: 600, fontSize: "0.65rem",
+                        }} />
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 4, color: colors.grey[400] }}>
+                    <TableCell colSpan={8} align="center" sx={{ py: 4, color: colors.grey[400] }}>
                       No customers match the current filters.
                     </TableCell>
                   </TableRow>

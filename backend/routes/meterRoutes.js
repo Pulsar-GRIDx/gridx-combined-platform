@@ -60,8 +60,22 @@ router.get("/energy-time-periods",  authenticateToken,energyController.getEnergy
 
 router.get('/yearly/currentAndLastYearMonthEnergyTotal' , authenticateToken,energyController.getMonthlyEnergyForCurrentAndLastYear);
 
-// CurrentAndLastWeek With the day starting on Monday
-router.get('/weekly/currentAndLastWeekEnergyTotal' , authenticateToken,energyController.getWeeklyEnergyForCurrentAndLastWeek);
+// CurrentAndLastWeek With the day starting on Monday — cached (slow query ~15s)
+let _weeklyCache = { data: null, ts: 0 };
+const WEEKLY_CACHE_TTL = 300000; // 5 min
+router.get('/weekly/currentAndLastWeekEnergyTotal', authenticateToken, (req, res, next) => {
+  if (_weeklyCache.data && Date.now() - _weeklyCache.ts < WEEKLY_CACHE_TTL) {
+    return res.json(_weeklyCache.data);
+  }
+  const origJson = res.json.bind(res);
+  res.json = (body) => { _weeklyCache = { data: body, ts: Date.now() }; origJson(body); };
+  energyController.getWeeklyEnergyForCurrentAndLastWeek(req, res, next);
+});
+// Pre-warm weekly cache on startup
+setTimeout(() => {
+  const mockRes = { json: (body) => { _weeklyCache = { data: body, ts: Date.now() }; } };
+  energyController.getWeeklyEnergyForCurrentAndLastWeek({}, mockRes, () => {});
+}, 3000);
 
 // Get hourly power consumption
 router.get('/hourlyPowerConsumption',  authenticateToken,energyController.getHourlyPowerConsumption);

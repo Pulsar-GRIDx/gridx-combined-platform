@@ -1,4 +1,4 @@
-import { Box, IconButton, useTheme } from "@mui/material";
+import { Box, IconButton, Typography, useTheme } from "@mui/material";
 import { useContext } from "react";
 import { ColorModeContext, tokens } from "../theme";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
@@ -6,13 +6,13 @@ import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import Tooltip from "@mui/material/Tooltip";
 import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
 import { useNavigate } from "react-router-dom";
-import { bgBlur } from "../css";
 
 const Topbar = () => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
   const colorMode = useContext(ColorModeContext);
   const navigate = useNavigate();
+  const isDark = theme.palette.mode === "dark";
 
   const handleLogout = () => {
     navigate("/login");
@@ -23,38 +23,52 @@ const Topbar = () => {
   return (
     <Box
       sx={{
-        boxShadow: "none",
-        position: "fixed",
-        ...bgBlur({ color: theme.palette.background.default }),
-        width: "100%",
+        position: "sticky",
+        top: 0,
         zIndex: theme.zIndex.appBar + 1,
+        bgcolor: isDark ? "#0F172A" : "#FFFFFF",
+        borderBottom: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`,
       }}
       display="flex"
-      justifyContent="flex-start"
-      p={2}
-      pl={4}
+      justifyContent="flex-end"
+      alignItems="center"
+      px={3}
+      py={1}
     >
-      <Box display="flex" gap="4px">
-        <Tooltip title={theme.palette.mode === "dark" ? "Light Mode" : "Dark Mode"}>
+      <Box display="flex" alignItems="center" gap="2px">
+        <Tooltip title={isDark ? "Light Mode" : "Dark Mode"}>
           <IconButton
             onClick={colorMode.toggleColorMode}
             sx={{
-              color: colors.grey[300],
-              "&:hover": { bgcolor: "rgba(255,255,255,0.06)" },
+              color: isDark ? colors.grey[300] : "#6B7280",
+              borderRadius: "8px",
+              p: "8px",
+              "&:hover": {
+                bgcolor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+              },
             }}
           >
-            {theme.palette.mode === "dark" ? <LightModeOutlinedIcon /> : <DarkModeOutlinedIcon />}
+            {isDark ? (
+              <LightModeOutlinedIcon sx={{ fontSize: 20 }} />
+            ) : (
+              <DarkModeOutlinedIcon sx={{ fontSize: 20 }} />
+            )}
           </IconButton>
         </Tooltip>
         <Tooltip title="Log Out">
           <IconButton
             onClick={handleLogout}
             sx={{
-              color: colors.grey[300],
-              "&:hover": { bgcolor: "rgba(219,79,74,0.1)", color: "#db4f4a" },
+              color: isDark ? colors.grey[300] : "#6B7280",
+              borderRadius: "8px",
+              p: "8px",
+              "&:hover": {
+                bgcolor: "rgba(239,68,68,0.08)",
+                color: "#EF4444",
+              },
             }}
           >
-            <LogoutOutlinedIcon />
+            <LogoutOutlinedIcon sx={{ fontSize: 20 }} />
           </IconButton>
         </Tooltip>
       </Box>

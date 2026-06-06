@@ -394,7 +394,7 @@ function NetMeteringTab({ drn }) {
         {hourlyChartData.length > 0 ? (
           <ResponsiveContainer width="100%" height={240}>
             <AreaChart data={hourlyChartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? colors.grey[700] : "#f0f0f0"} />
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} />
               <XAxis dataKey="x" tick={{ fontSize: 9, fill: isDark ? "#64748b" : "#94a3b8" }} />
               <YAxis tick={{ fontSize: 10, fill: isDark ? "#64748b" : "#94a3b8" }} />
               <RechartsTooltip contentStyle={tooltipStyle} formatter={(v, name) => [`${Math.abs(v).toFixed(3)} kWh`, v >= 0 ? "Import" : "Export"]} />
@@ -410,7 +410,7 @@ function NetMeteringTab({ drn }) {
         {hourlyChartData.length > 0 ? (
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={hourlyChartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? colors.grey[700] : "#f0f0f0"} />
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} />
               <XAxis dataKey="x" tick={{ fontSize: 9, fill: isDark ? "#64748b" : "#94a3b8" }} />
               <YAxis tick={{ fontSize: 10, fill: isDark ? "#64748b" : "#94a3b8" }} />
               <RechartsTooltip contentStyle={tooltipStyle} />
@@ -428,7 +428,7 @@ function NetMeteringTab({ drn }) {
         {dailyChartData.length > 0 ? (
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={dailyChartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? colors.grey[700] : "#f0f0f0"} />
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} />
               <XAxis dataKey="label" tick={{ fontSize: 9, fill: isDark ? "#64748b" : "#94a3b8" }} angle={-45} textAnchor="end" height={60} />
               <YAxis tick={{ fontSize: 10, fill: isDark ? "#64748b" : "#94a3b8" }} />
               <RechartsTooltip contentStyle={tooltipStyle} />
@@ -643,7 +643,7 @@ export default function MeterProfile() {
   /* ---------- Google Maps loader (must match libraries used in Map.jsx) ---------- */
   const { isLoaded: mapsLoaded } = useJsApiLoader({
     googleMapsApiKey: "AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk",
-    libraries: ["drawing"],
+    libraries: ["geometry"],
   });
 
   /* ---------- API data state ---------- */

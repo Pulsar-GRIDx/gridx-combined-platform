@@ -89,6 +89,17 @@ execute(`ALTER TABLE LoadControlActions MODIFY COLUMN action_type
   ENUM('mains_off', 'mains_on', 'geyser_off', 'geyser_on', 'calibrate_auto', 'calibrate_verify', 'calibrate_exercise') NOT NULL`)
   .catch(() => { /* ignore if already correct */ });
 
+// Add schedule, calibration, power_limit columns if they don't exist
+['schedule TEXT', 'calibration TEXT', 'power_limit INT DEFAULT 0'].forEach(function(col) {
+  var colName = col.split(' ')[0];
+  execute("SELECT " + colName + " FROM LoadControlGroups LIMIT 1")
+    .catch(function() {
+      execute("ALTER TABLE LoadControlGroups ADD COLUMN " + col)
+        .then(function() { console.log('[GroupControl] Added column: ' + colName); })
+        .catch(function() { /* already exists */ });
+    });
+});
+
 // ─── GET ALL GROUPS ─────────────────────────────────────────
 router.get('/loadcontrol/groups', authenticateToken, async (req, res) => {
   try {
@@ -99,6 +110,11 @@ router.get('/loadcontrol/groups', authenticateToken, async (req, res) => {
       GROUP BY g.id
       ORDER BY g.created_at DESC
     `);
+    // Parse JSON fields for each group
+    groups.forEach(function(g) {
+      try { g.schedule = g.schedule ? JSON.parse(g.schedule) : null; } catch(e) { g.schedule = null; }
+      try { g.calibration = g.calibration ? JSON.parse(g.calibration) : null; } catch(e) { g.calibration = null; }
+    });
     res.json({ success: true, data: groups });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -125,6 +141,9 @@ router.get('/loadcontrol/groups/:id', authenticateToken, async (req, res) => {
       WHERE gm.group_id = ?
     `, [req.params.id]);
 
+    // Parse JSON fields
+    try { group.schedule = group.schedule ? JSON.parse(group.schedule) : null; } catch(e) { group.schedule = null; }
+    try { group.calibration = group.calibration ? JSON.parse(group.calibration) : null; } catch(e) { group.calibration = null; }
     res.json({ success: true, data: { ...group, members } });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -151,10 +170,24 @@ router.post('/loadcontrol/groups', authenticateToken, async (req, res) => {
 // ─── UPDATE GROUP ───────────────────────────────────────────
 router.put('/loadcontrol/groups/:id', authenticateToken, async (req, res) => {
   try {
-    const { name, description, control_type, is_active } = req.body;
+    var updates = [];
+    var params = [];
+    var fields = ['name', 'description', 'control_type', 'is_active', 'schedule', 'calibration', 'power_limit'];
+    fields.forEach(function(f) {
+      if (req.body[f] !== undefined) {
+        var val = req.body[f];
+        if (typeof val === 'object') val = JSON.stringify(val);
+        updates.push(f + ' = ?');
+        params.push(val);
+      }
+    });
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+    params.push(req.params.id);
     await execute(
-      `UPDATE LoadControlGroups SET name = ?, description = ?, control_type = ?, is_active = ? WHERE id = ?`,
-      [name, description, control_type, is_active !== undefined ? is_active : 1, req.params.id]
+      'UPDATE LoadControlGroups SET ' + updates.join(', ') + ' WHERE id = ?',
+      params
     );
     res.json({ success: true, message: 'Group updated' });
   } catch (err) {
