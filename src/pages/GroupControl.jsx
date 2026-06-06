@@ -649,7 +649,20 @@ export default function GroupControl() {
                     </Typography>
                   )}
                   {isSelected && (
-                    <Box mt={0.75}>
+                    <Box mt={0.75} display="flex" flexDirection="column" gap={0.5}>
+                      <Button
+                        size="small"
+                        fullWidth
+                        onClick={(e) => { e.stopPropagation(); navigate(`/load-control/area/${encodeURIComponent(area.name)}`); }}
+                        sx={{
+                          textTransform: "none", fontSize: 10, py: "2px",
+                          borderRadius: "4px", color: "#8B5CF6",
+                          bgcolor: isDark ? "rgba(139,92,246,0.08)" : "#F5F3FF",
+                          "&:hover": { bgcolor: isDark ? "rgba(139,92,246,0.15)" : "#EDE9FE" },
+                        }}
+                      >
+                        View Area
+                      </Button>
                       {hasConfig ? (
                         <Button
                           size="small"
@@ -670,7 +683,15 @@ export default function GroupControl() {
                           fullWidth
                           variant="contained"
                           startIcon={<AddOutlined sx={{ fontSize: 12 }} />}
-                          onClick={(e) => { e.stopPropagation(); setShowCreate(true); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const ctx = selectedArea || (selectedSidebarSubstation ? substations.find(s => (s.id || s.name) === selectedSidebarSubstation)?.name : null);
+                            if (ctx) {
+                              setNewName(ctx);
+                              setNewDesc("Load control configuration for " + ctx + " area - manage meter switching and scheduling");
+                            }
+                            setShowCreate(true);
+                          }}
                           sx={{
                             textTransform: "none", fontSize: 10, py: "2px",
                             borderRadius: "4px", bgcolor: "#2563EB",
@@ -852,7 +873,14 @@ export default function GroupControl() {
                 size="small"
                 variant="contained"
                 startIcon={<AddOutlined sx={{ fontSize: 14 }} />}
-                onClick={() => setShowCreate(true)}
+                onClick={() => {
+                  const ctx = selectedArea || (selectedSidebarSubstation ? substations.find(s => (s.id || s.name) === selectedSidebarSubstation)?.name : null);
+                  if (ctx) {
+                    setNewName(ctx);
+                    setNewDesc("Load control configuration for " + ctx + " - manage meter switching and scheduling");
+                  }
+                  setShowCreate(true);
+                }}
                 sx={{
                   mt: 1.5,
                   textTransform: "none",

@@ -31,6 +31,7 @@ import NetMetering from "./pages/NetMetering";
 import DataUsage from "./pages/DataUsage";
 import SubstationProfile from "./pages/SubstationProfile";
 import SystemAnalysis from "./pages/SystemAnalysis";
+import AreaProfile from "./pages/AreaProfile";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -64,6 +65,7 @@ function App() {
               <Route path="newmeterdash" element={<NewMeterDash />} />
               <Route path="load-control" element={<GroupControl />} />
               <Route path="load-control/group/:groupId" element={<GroupDetail />} />
+              <Route path="load-control/area/:areaName" element={<AreaProfile />} />
               <Route path="integrations" element={<Integrations />} />
               <Route path="installers" element={<Installers />} />
               <Route path="tamper-detection" element={<TamperDetection />} />
