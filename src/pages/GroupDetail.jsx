@@ -433,6 +433,33 @@ export default function GroupDetail() {
                 color: scheduleEnabled ? "#10B981" : (isDark ? "#64748B" : "#9CA3AF"),
               }}
             />
+            <Switch
+              checked={scheduleEnabled}
+              onChange={async (e) => {
+                const newVal = e.target.checked;
+                setScheduleEnabled(newVal);
+                try {
+                  await groupControlAPI.updateGroup(groupId, {
+                    schedule: {
+                      enabled: newVal,
+                      action: scheduleAction,
+                      periods: schedulePeriods,
+                      startDate: scheduleStartDate,
+                      endDate: scheduleEndDate || null,
+                    }
+                  });
+                  setSnackbar({ open: true, message: newVal ? "Schedule enabled" : "Schedule disabled", severity: "success" });
+                } catch (err) {
+                  setScheduleEnabled(!newVal);
+                  setSnackbar({ open: true, message: "Failed to toggle schedule: " + err.message, severity: "error" });
+                }
+              }}
+              size="small"
+              sx={{
+                "& .MuiSwitch-switchBase.Mui-checked": { color: "#2563EB" },
+                "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#2563EB" },
+              }}
+            />
           </Box>
           {scheduleEnabled && (
             <Box>

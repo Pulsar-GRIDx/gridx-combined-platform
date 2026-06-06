@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Box, Typography, useTheme, Grid, CircularProgress, Chip,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Tab, Tabs, Select, MenuItem,
+  Select, MenuItem,
   TextField, Button, Snackbar, Alert, FormControl, InputLabel,
   IconButton, InputAdornment, Tooltip,
 } from "@mui/material";
@@ -61,17 +61,39 @@ function timeAgo(val) {
   return Math.floor(hrs / 24) + "d ago";
 }
 
-function SummaryCard({ colors, label, value, icon, color, subtitle }) {
+function SummaryCard({ colors, isDark, label, value, icon, color, subtitle }) {
   var Icon = icon;
+  var cardBg = isDark ? colors.primary[400] : "#FFFFFF";
+  var cardBorder = "1px solid " + (isDark ? "#1E293B" : "#E5E7EB");
   return (
-    <Box sx={{ backgroundColor: colors.primary[400], borderRadius: "8px", p: "16px 20px", display: "flex", alignItems: "center", gap: "14px", flex: 1, minWidth: "180px" }}>
-      <Box sx={{ width: 44, height: 44, borderRadius: "10px", bgcolor: color + "18", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Icon sx={{ color: color, fontSize: 22 }} />
+    <Box sx={{
+      bgcolor: cardBg,
+      border: cardBorder,
+      borderRadius: "12px",
+      borderLeft: "4px solid " + color,
+      p: "18px 22px",
+      display: "flex",
+      alignItems: "center",
+      gap: "16px",
+      flex: 1,
+      minWidth: "200px",
+    }}>
+      <Box sx={{
+        width: 48,
+        height: 48,
+        borderRadius: "12px",
+        background: "linear-gradient(135deg, " + color + "22, " + color + "08)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+      }}>
+        <Icon sx={{ color: color, fontSize: 24 }} />
       </Box>
       <Box>
-        <Typography fontSize="22px" fontWeight="700" color={colors.grey[100]}>{value}</Typography>
-        <Typography fontSize="12px" color={colors.grey[400]}>{label}</Typography>
-        {subtitle && <Typography fontSize="10px" color={colors.grey[500]}>{subtitle}</Typography>}
+        <Typography variant="h4" sx={{ fontSize: "24px", fontWeight: 800, color: colors.grey[100], lineHeight: 1.2 }}>{value}</Typography>
+        <Typography sx={{ fontSize: "12px", fontWeight: 600, color: colors.grey[400], mt: "2px" }}>{label}</Typography>
+        {subtitle && <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>{subtitle}</Typography>}
       </Box>
     </Box>
   );
@@ -438,13 +460,13 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
     <>
       {/* ===== HERO SUMMARY ROW ===== */}
       <Box display="flex" gap="14px" mb="20px" flexWrap="wrap">
-        <SummaryCard colors={colors} label="Net Metered Customers" value={totalMeters} icon={ElectricMeterOutlinedIcon} color={COLOR_DELIVERED}
+        <SummaryCard colors={colors} isDark={isDark} label="Net Metered Customers" value={totalMeters} icon={ElectricMeterOutlinedIcon} color={COLOR_DELIVERED}
           subtitle={consumingMeters + " consuming, " + feedingMeters + " feeding in"} />
-        <SummaryCard colors={colors} label="Today's Grid Supply" value={toKwh(todayDelivered) + " kWh"} icon={ElectricBoltIcon} color={COLOR_DELIVERED}
+        <SummaryCard colors={colors} isDark={isDark} label="Today's Grid Supply" value={toKwh(todayDelivered) + " kWh"} icon={ElectricBoltIcon} color={COLOR_DELIVERED}
           subtitle={"Revenue: " + fmtCurrency(todayRevenue)} />
-        <SummaryCard colors={colors} label="Today's Solar Feed-in" value={toKwh(todayReceived) + " kWh"} icon={SolarPowerIcon} color={COLOR_RECEIVED}
+        <SummaryCard colors={colors} isDark={isDark} label="Today's Solar Feed-in" value={toKwh(todayReceived) + " kWh"} icon={SolarPowerIcon} color={COLOR_RECEIVED}
           subtitle={"Feed-in credit: " + fmtCurrency(todayFeedIn)} />
-        <SummaryCard colors={colors} label="Net Revenue" value={fmtCurrency(netRevenue)} icon={AttachMoneyIcon} color={netRevenue >= 0 ? COLOR_REVENUE : COLOR_COST}
+        <SummaryCard colors={colors} isDark={isDark} label="Net Revenue" value={fmtCurrency(netRevenue)} icon={AttachMoneyIcon} color={netRevenue >= 0 ? COLOR_REVENUE : COLOR_COST}
           subtitle={netRevenue >= 0 ? "Positive margin" : "Feed-in exceeds sales"} />
       </Box>
 
@@ -560,30 +582,48 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
           <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>After feed-in credits</Typography>
         </Box>
       </Box>
-      {/* Weekly Chart — BarChart, full width */}
-      <Box sx={{ ...sectionCardSx, mb: 0 }}>
-        <ResponsiveContainer width="100%" height={320}>
-          <BarChart data={weeklyData} barGap={4}>
-            <defs>
-              <linearGradient id="barGradDelivered" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={COLOR_DELIVERED} stopOpacity={1} />
-                <stop offset="100%" stopColor={COLOR_DELIVERED} stopOpacity={0.6} />
-              </linearGradient>
-              <linearGradient id="barGradReceived" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={COLOR_RECEIVED} stopOpacity={1} />
-                <stop offset="100%" stopColor={COLOR_RECEIVED} stopOpacity={0.6} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} />
-            <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
-              label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
-            <RechartsTooltip contentStyle={tooltipStyle} />
-            <Bar dataKey="delivered" fill="url(#barGradDelivered)" name="Grid Supply (kWh)" radius={[6, 6, 0, 0]} maxBarSize={48} />
-            <Bar dataKey="received" fill="url(#barGradReceived)" name="Solar Feed-in (kWh)" radius={[6, 6, 0, 0]} maxBarSize={48} />
-            <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "12px" }} />
-          </BarChart>
-        </ResponsiveContainer>
+      {/* Weekly Charts — Energy + Revenue side by side */}
+      <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+        <Box sx={{ ...sectionCardSx, mb: 0 }}>
+          <Typography sx={{ fontSize: "13px", fontWeight: 700, color: colors.grey[100], mb: "12px" }}>Energy (kWh)</Typography>
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={weeklyData} barGap={4}>
+              <defs>
+                <linearGradient id="barGradDelivered" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLOR_DELIVERED} stopOpacity={1} />
+                  <stop offset="100%" stopColor={COLOR_DELIVERED} stopOpacity={0.6} />
+                </linearGradient>
+                <linearGradient id="barGradReceived" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLOR_RECEIVED} stopOpacity={1} />
+                  <stop offset="100%" stopColor={COLOR_RECEIVED} stopOpacity={0.6} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
+                label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
+              <RechartsTooltip contentStyle={tooltipStyle} />
+              <Bar dataKey="delivered" fill="url(#barGradDelivered)" name="Grid Supply (kWh)" radius={[6, 6, 0, 0]} maxBarSize={48} />
+              <Bar dataKey="received" fill="url(#barGradReceived)" name="Solar Feed-in (kWh)" radius={[6, 6, 0, 0]} maxBarSize={48} />
+              <Legend wrapperStyle={{ fontSize: "10px", paddingTop: "12px" }} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+        <Box sx={{ ...sectionCardSx, mb: 0 }}>
+          <Typography sx={{ fontSize: "13px", fontWeight: 700, color: colors.grey[100], mb: "12px" }}>Revenue (N$)</Typography>
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={weeklyData} barGap={4}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
+                label={{ value: "N$", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
+              <RechartsTooltip contentStyle={tooltipStyle} formatter={function(value, name) { return ["N$ " + Number(value).toFixed(2), name]; }} />
+              <Bar dataKey="revenue" fill={COLOR_REVENUE} name="Sales Revenue (N$)" radius={[6, 6, 0, 0]} maxBarSize={48} />
+              <Bar dataKey="feedInCost" fill={COLOR_COST} name="Feed-in Credits Paid (N$)" radius={[6, 6, 0, 0]} maxBarSize={48} />
+              <Legend wrapperStyle={{ fontSize: "10px", paddingTop: "12px" }} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
       </Box>
 
       {/* ===== DIVIDER ===== */}
@@ -632,30 +672,48 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
           <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>After feed-in credits</Typography>
         </Box>
       </Box>
-      {/* Monthly Chart — BarChart, full width */}
-      <Box sx={{ ...sectionCardSx, mb: 0 }}>
-        <ResponsiveContainer width="100%" height={320}>
-          <BarChart data={monthlyChartData} barGap={2}>
-            <defs>
-              <linearGradient id="barGradMonthDel" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={COLOR_DELIVERED} stopOpacity={1} />
-                <stop offset="100%" stopColor={COLOR_DELIVERED} stopOpacity={0.55} />
-              </linearGradient>
-              <linearGradient id="barGradMonthRec" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={COLOR_RECEIVED} stopOpacity={1} />
-                <stop offset="100%" stopColor={COLOR_RECEIVED} stopOpacity={0.55} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 9, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} interval={0} />
-            <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
-              label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
-            <RechartsTooltip contentStyle={tooltipStyle} />
-            <Bar dataKey="delivered" fill="url(#barGradMonthDel)" name="Grid Supply (kWh)" radius={[4, 4, 0, 0]} maxBarSize={20} />
-            <Bar dataKey="received" fill="url(#barGradMonthRec)" name="Solar Feed-in (kWh)" radius={[4, 4, 0, 0]} maxBarSize={20} />
-            <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "12px" }} />
-          </BarChart>
-        </ResponsiveContainer>
+      {/* Monthly Charts — Energy + Revenue side by side */}
+      <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+        <Box sx={{ ...sectionCardSx, mb: 0 }}>
+          <Typography sx={{ fontSize: "13px", fontWeight: 700, color: colors.grey[100], mb: "12px" }}>Energy (kWh)</Typography>
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={monthlyChartData} barGap={2}>
+              <defs>
+                <linearGradient id="barGradMonthDel" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLOR_DELIVERED} stopOpacity={1} />
+                  <stop offset="100%" stopColor={COLOR_DELIVERED} stopOpacity={0.55} />
+                </linearGradient>
+                <linearGradient id="barGradMonthRec" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLOR_RECEIVED} stopOpacity={1} />
+                  <stop offset="100%" stopColor={COLOR_RECEIVED} stopOpacity={0.55} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 9, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} interval={0} />
+              <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
+                label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
+              <RechartsTooltip contentStyle={tooltipStyle} />
+              <Bar dataKey="delivered" fill="url(#barGradMonthDel)" name="Grid Supply (kWh)" radius={[4, 4, 0, 0]} maxBarSize={20} />
+              <Bar dataKey="received" fill="url(#barGradMonthRec)" name="Solar Feed-in (kWh)" radius={[4, 4, 0, 0]} maxBarSize={20} />
+              <Legend wrapperStyle={{ fontSize: "10px", paddingTop: "12px" }} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+        <Box sx={{ ...sectionCardSx, mb: 0 }}>
+          <Typography sx={{ fontSize: "13px", fontWeight: 700, color: colors.grey[100], mb: "12px" }}>Revenue (N$)</Typography>
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={monthlyChartData} barGap={2}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 9, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} interval={0} />
+              <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
+                label={{ value: "N$", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
+              <RechartsTooltip contentStyle={tooltipStyle} formatter={function(value, name) { return ["N$ " + Number(value).toFixed(2), name]; }} />
+              <Bar dataKey="revenue" fill={COLOR_REVENUE} name="Sales Revenue (N$)" radius={[4, 4, 0, 0]} maxBarSize={20} />
+              <Bar dataKey="feedInCost" fill={COLOR_COST} name="Feed-in Credits Paid (N$)" radius={[4, 4, 0, 0]} maxBarSize={20} />
+              <Legend wrapperStyle={{ fontSize: "10px", paddingTop: "12px" }} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
       </Box>
 
       {/* ===== DIVIDER ===== */}
@@ -707,30 +765,48 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
           </Typography>
         </Box>
       </Box>
-      {/* Yearly Chart — BarChart, full width */}
-      <Box sx={{ ...sectionCardSx, mb: "16px" }}>
-        <ResponsiveContainer width="100%" height={320}>
-          <BarChart data={yearlyChartData} barGap={6}>
-            <defs>
-              <linearGradient id="barGradYearDel" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={COLOR_DELIVERED} stopOpacity={1} />
-                <stop offset="100%" stopColor={COLOR_DELIVERED} stopOpacity={0.5} />
-              </linearGradient>
-              <linearGradient id="barGradYearRec" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={COLOR_RECEIVED} stopOpacity={1} />
-                <stop offset="100%" stopColor={COLOR_RECEIVED} stopOpacity={0.5} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} />
-            <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
-              label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
-            <RechartsTooltip contentStyle={tooltipStyle} />
-            <Bar dataKey="delivered" fill="url(#barGradYearDel)" name="Grid Supply (kWh)" radius={[8, 8, 0, 0]} maxBarSize={56} />
-            <Bar dataKey="received" fill="url(#barGradYearRec)" name="Solar Feed-in (kWh)" radius={[8, 8, 0, 0]} maxBarSize={56} />
-            <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "12px" }} />
-          </BarChart>
-        </ResponsiveContainer>
+      {/* Yearly Charts — Energy + Revenue side by side */}
+      <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", mb: "16px" }}>
+        <Box sx={{ ...sectionCardSx, mb: 0 }}>
+          <Typography sx={{ fontSize: "13px", fontWeight: 700, color: colors.grey[100], mb: "12px" }}>Energy (kWh)</Typography>
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={yearlyChartData} barGap={6}>
+              <defs>
+                <linearGradient id="barGradYearDel" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLOR_DELIVERED} stopOpacity={1} />
+                  <stop offset="100%" stopColor={COLOR_DELIVERED} stopOpacity={0.5} />
+                </linearGradient>
+                <linearGradient id="barGradYearRec" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={COLOR_RECEIVED} stopOpacity={1} />
+                  <stop offset="100%" stopColor={COLOR_RECEIVED} stopOpacity={0.5} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
+                label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
+              <RechartsTooltip contentStyle={tooltipStyle} />
+              <Bar dataKey="delivered" fill="url(#barGradYearDel)" name="Grid Supply (kWh)" radius={[8, 8, 0, 0]} maxBarSize={56} />
+              <Bar dataKey="received" fill="url(#barGradYearRec)" name="Solar Feed-in (kWh)" radius={[8, 8, 0, 0]} maxBarSize={56} />
+              <Legend wrapperStyle={{ fontSize: "10px", paddingTop: "12px" }} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
+        <Box sx={{ ...sectionCardSx, mb: 0 }}>
+          <Typography sx={{ fontSize: "13px", fontWeight: 700, color: colors.grey[100], mb: "12px" }}>Revenue (N$)</Typography>
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart data={yearlyChartData} barGap={6}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#D1D5DB"} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.grey[400] }} axisLine={{ stroke: isDark ? "#475569" : "#9CA3AF" }} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} axisLine={false} tickLine={false}
+                label={{ value: "N$", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
+              <RechartsTooltip contentStyle={tooltipStyle} formatter={function(value, name) { return ["N$ " + Number(value).toFixed(2), name]; }} />
+              <Bar dataKey="revenue" fill={COLOR_REVENUE} name="Sales Revenue (N$)" radius={[8, 8, 0, 0]} maxBarSize={56} />
+              <Bar dataKey="feedInCost" fill={COLOR_COST} name="Feed-in Credits Paid (N$)" radius={[8, 8, 0, 0]} maxBarSize={56} />
+              <Legend wrapperStyle={{ fontSize: "10px", paddingTop: "12px" }} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Box>
       </Box>
 
       {/* ===== TARIFF FOOTER ===== */}
@@ -1038,7 +1114,6 @@ export default function NetMetering() {
   var [dashData, setDashData] = useState(null);
   var [activeMeters, setActiveMeters] = useState([]);
   var [lastUpdated, setLastUpdated] = useState(null);
-  var [activeTab, setActiveTab] = useState(0);
   var [allPeriodData, setAllPeriodData] = useState({ daily: [], thisweek: [], thisyear: [], yearly: [] });
 
   var fetchDashboard = useCallback(async function(showLoading) {
@@ -1071,13 +1146,6 @@ export default function NetMetering() {
     return function() { clearInterval(interval); };
   }, [fetchDashboard]);
 
-  var tabLabels = ["Fleet Dashboard", "Active Meters", "Configuration"];
-  var tabSubtitles = [
-    "Utility-wide net metering analytics - grid supply vs solar feed-in",
-    "All net metered customers - live status and energy flow",
-    "Billing mode configuration per customer meter",
-  ];
-
   if (loading) {
     return (
       <Box m="20px">
@@ -1089,19 +1157,8 @@ export default function NetMetering() {
 
   return (
     <Box m="20px">
-      <Header title="NET METERING" subtitle={tabSubtitles[activeTab]} />
-      <Tabs value={activeTab} onChange={function(_, v) { setActiveTab(v); }}
-        sx={{
-          mb: "20px",
-          "& .MuiTab-root": { color: colors.grey[300], textTransform: "none", fontWeight: 600, fontSize: "14px", "&.Mui-selected": { color: COLOR_DELIVERED } },
-          "& .MuiTabs-indicator": { backgroundColor: COLOR_DELIVERED, height: "3px", borderRadius: "3px 3px 0 0" },
-        }}>
-        {tabLabels.map(function(label) { return <Tab key={label} label={label} />; })}
-      </Tabs>
-
-      {activeTab === 0 && <FleetDashboardTab colors={colors} isDark={isDark} dashData={dashData} activeMeters={activeMeters} lastUpdated={lastUpdated} allPeriodData={allPeriodData} fetchDashboard={fetchDashboard} />}
-      {activeTab === 1 && <ActiveMetersTab colors={colors} isDark={isDark} activeMeters={activeMeters} fetchDashboard={fetchDashboard} lastUpdated={lastUpdated} />}
-      {activeTab === 2 && <ConfigurationTab colors={colors} isDark={isDark} activeMeters={activeMeters} />}
+      <Header title="NET METERING" subtitle="Utility-wide net metering analytics - grid supply vs solar feed-in" />
+      <FleetDashboardTab colors={colors} isDark={isDark} dashData={dashData} activeMeters={activeMeters} lastUpdated={lastUpdated} allPeriodData={allPeriodData} fetchDashboard={fetchDashboard} />
     </Box>
   );
 }
