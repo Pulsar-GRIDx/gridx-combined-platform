@@ -692,13 +692,13 @@ export default function GroupControl() {
           pr: 0,
           display: "flex",
           flexDirection: "column",
-          height: 710, // map controls + map height
-          overflowY: "auto",
-          "&::-webkit-scrollbar": { width: 4 },
-          "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 },
+          height: 710,
         }}>
-          {/* Areas Section */}
-          <Box sx={{ px: 1.5, pt: 1.5, pb: 1 }}>
+          {/* Areas Section — scrolls independently */}
+          <Box sx={{ px: 1.5, pt: 1.5, pb: 1, flex: 1, minHeight: 0, overflowY: "auto",
+            "&::-webkit-scrollbar": { width: 4 },
+            "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 },
+          }}>
             <Box display="flex" alignItems="center" gap={0.75} mb={1}>
               <Typography
                 variant="caption"
@@ -872,8 +872,11 @@ export default function GroupControl() {
           {/* Divider */}
           <Box sx={{ mx: 1.5, my: 1, borderTop: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}` }} />
 
-          {/* Substations Section */}
-          <Box sx={{ px: 1.5, pb: 1, flex: 1 }}>
+          {/* Substations Section — scrolls independently */}
+          <Box sx={{ px: 1.5, pb: 1, flex: 1, minHeight: 0, overflowY: "auto",
+            "&::-webkit-scrollbar": { width: 4 },
+            "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 },
+          }}>
             <Box display="flex" alignItems="center" gap={0.75} mb={1}>
               <Typography
                 variant="caption"
@@ -1229,9 +1232,9 @@ export default function GroupControl() {
                   key={line.id}
                   path={[line.from, line.to]}
                   options={{
-                    strokeColor: line.type === "substation" ? "#3b82f6" : "#64748B",
-                    strokeOpacity: line.type === "substation" ? 0.4 : 0.3,
-                    strokeWeight: line.type === "substation" ? 2 : 1,
+                    strokeColor: line.color || (line.type === "substation" ? "#3b82f6" : "#64748B"),
+                    strokeOpacity: 0.85,
+                    strokeWeight: line.weight || (line.type === "substation" ? 3 : 2.5),
                     clickable: false,
                   }}
                 />
