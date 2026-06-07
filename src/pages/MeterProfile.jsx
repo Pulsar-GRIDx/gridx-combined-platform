@@ -875,24 +875,7 @@ export default function MeterProfile() {
     if (tab !== 4) return;
     const fetchPowerChart = async () => {
       try {
-        // Try 15-min summary first (96 points = 24h at 15-min intervals)
-        const p15 = await meterAPI.getPower15min(drn);
-        const arr = Array.isArray(p15) ? p15 : p15?.data || [];
-        if (arr.length > 0) {
-          setPowerChartData(arr.map(r => ({
-            time: r.time || "",
-            active_power: parseFloat(r.power || r.active_power || 0),
-            voltage: parseFloat(r.voltage || 0),
-            current: parseFloat(r.current || 0),
-            power_factor: parseFloat(r.pf || r.power_factor || 0),
-            reactive_power: parseFloat(r.reactive_power || 0),
-            apparent_power: parseFloat(r.apparent_power || 0),
-            frequency: parseFloat(r.frequency || 0),
-            temperature: parseFloat(r.temperature || 0),
-          })));
-          return;
-        }
-        // Fallback: fetch today's raw power readings
+        // Fetch today's raw power readings (has ALL fields including temperature)
         const now = new Date();
         const y = now.getFullYear();
         const m = String(now.getMonth() + 1).padStart(2, "0");
@@ -900,16 +883,17 @@ export default function MeterProfile() {
         const raw = await meterAPI.getPowerByDate(drn, y, m, d);
         const rows = Array.isArray(raw) ? raw : raw?.data || [];
         setPowerChartData(rows.map(r => {
-          const dt = new Date(r.created_at || r.createdAt || r.timestamp);
+          const dt = new Date(r.date_time || r.created_at || r.createdAt || r.timestamp);
+          const freq = parseFloat(r.frequency || 0);
           return {
             time: dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             active_power: parseFloat(r.active_power || 0),
             voltage: parseFloat(r.voltage || 0),
-            current: parseFloat(r.current || r.current_val || 0),
+            current: parseFloat(r.current || 0),
             power_factor: parseFloat(r.power_factor || 0),
             reactive_power: parseFloat(r.reactive_power || 0),
             apparent_power: parseFloat(r.apparent_power || 0),
-            frequency: parseFloat(r.frequency || 0),
+            frequency: freq < 10 ? freq * 100 : freq,
             temperature: parseFloat(r.temperature || 0),
           };
         }).filter(r => r.time));
@@ -959,17 +943,18 @@ export default function MeterProfile() {
     powerData?.reactive_power ?? mockMeter?.power?.reactivePower ?? 0;
   const apparentPower =
     powerData?.apparent_power ?? mockMeter?.power?.apparentPower ?? 0;
-  const frequency = powerData?.frequency ?? mockMeter?.power?.frequency ?? 0;
+  const rawFreq = parseFloat(powerData?.frequency ?? mockMeter?.power?.frequency ?? 0);
+  const frequency = rawFreq < 10 ? rawFreq * 100 : rawFreq;
   const powerFactor =
     powerData?.power_factor ?? mockMeter?.power?.powerFactor ?? 0;
   const temperature =
     powerData?.temperature ?? mockMeter?.power?.temperature ?? 0;
 
-  // Energy
+  // Energy (stored in Wh/VARh, convert to kWh/kVARh)
   const activeEnergy =
-    energyData?.active_energy ?? mockMeter?.energy?.activeEnergy ?? 0;
+    (parseFloat(energyData?.active_energy ?? mockMeter?.energy?.activeEnergy ?? 0)) / 1000;
   const reactiveEnergy =
-    energyData?.reactive_energy ?? mockMeter?.energy?.reactiveEnergy ?? 0;
+    (parseFloat(energyData?.reactive_energy ?? mockMeter?.energy?.reactiveEnergy ?? 0)) / 1000;
   const units = energyData?.units ?? mockMeter?.energy?.units ?? 0;
   const tamperState =
     energyData?.tamper_state ?? mockMeter?.energy?.tamperState ?? "Normal";
@@ -1692,12 +1677,12 @@ export default function MeterProfile() {
               </Typography>
               <InfoRow
                 label="Active Energy"
-                value={`${fmt(activeEnergy)} kWh`}
+                value={`${Number(activeEnergy).toFixed(2)} kWh`}
                 color={colors.greenAccent[500]}
               />
               <InfoRow
                 label="Reactive Energy"
-                value={`${fmt(reactiveEnergy)} kVARh`}
+                value={`${Number(reactiveEnergy).toFixed(2)} kVARh`}
               />
               <InfoRow label="Units" value={units} />
               <InfoRow
