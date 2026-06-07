@@ -1,26 +1,26 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box, Typography, Chip, TextField, InputAdornment, IconButton, CircularProgress,
-  useTheme, Button, Select, MenuItem, FormControl, Collapse, Dialog, DialogTitle,
+  useTheme, Button, Select, MenuItem, FormControl, Dialog, DialogTitle,
   DialogContent, DialogActions, Radio, RadioGroup, FormControlLabel, Alert,
 } from "@mui/material";
 import {
   SearchOutlined, ArrowBackOutlined, ElectricMeterOutlined, WifiOutlined,
   WifiOffOutlined, WarningAmberOutlined, AccountTreeOutlined, TransformOutlined,
-  ExpandMore, ChevronRight, FiberManualRecord, OpenInNewOutlined, RefreshOutlined,
+  ExpandMore, ExpandLess, FiberManualRecord, OpenInNewOutlined, RefreshOutlined,
   BoltOutlined, AddOutlined, EditOutlined, DeleteOutlined, LinkOutlined,
-  DeviceHubOutlined, ErrorOutlined,
+  DeviceHubOutlined, ErrorOutlined, ChevronRight,
 } from "@mui/icons-material";
 import { tokens } from "../theme";
 
 const NS = {
-  main_station: { color: "#2563EB", bg: "rgba(37,99,235,0.12)", icon: <BoltOutlined sx={{ fontSize: 16 }} />, shape: "square" },
-  substation: { color: "#3B82F6", bg: "rgba(59,130,246,0.10)", icon: <AccountTreeOutlined sx={{ fontSize: 16 }} />, shape: "square" },
-  feeder: { color: "#14B8A6", bg: "rgba(20,184,166,0.10)", icon: <DeviceHubOutlined sx={{ fontSize: 14 }} />, shape: "diamond" },
-  distribution: { color: "#F59E0B", bg: "rgba(245,158,11,0.10)", icon: <AccountTreeOutlined sx={{ fontSize: 14 }} />, shape: "diamond" },
-  transformer: { color: "#EA580C", bg: "rgba(234,88,12,0.10)", icon: <TransformOutlined sx={{ fontSize: 14 }} />, shape: "diamond" },
-  meter: { color: "#10B981", bg: "rgba(16,185,129,0.10)", icon: <ElectricMeterOutlined sx={{ fontSize: 14 }} />, shape: "circle" },
+  main_station: { color: "#2563EB", icon: <BoltOutlined sx={{ fontSize: 14 }} /> },
+  substation: { color: "#3B82F6", icon: <AccountTreeOutlined sx={{ fontSize: 14 }} /> },
+  feeder: { color: "#06B6D4", icon: <DeviceHubOutlined sx={{ fontSize: 13 }} /> },
+  distribution: { color: "#F59E0B", icon: <AccountTreeOutlined sx={{ fontSize: 13 }} /> },
+  transformer: { color: "#F97316", icon: <TransformOutlined sx={{ fontSize: 13 }} /> },
+  meter: { color: "#10B981", icon: <ElectricMeterOutlined sx={{ fontSize: 13 }} /> },
 };
 const SC = { online: "#10B981", offline: "#EF4444", warning: "#F59E0B", critical: "#DC2626" };
 const TL = { main_station: "Main Station", substation: "Substation", feeder: "Feeder", distribution: "Distribution Node", transformer: "Transformer", meter: "Meter" };
@@ -30,72 +30,48 @@ const btnPrimary = { textTransform: "none", fontSize: 12, borderRadius: "8px", b
 function buildPath(nodes, id) {
   const p = []; let c = nodes.find((n) => n.id === id);
   while (c) { p.unshift(c.node_name || c.node_id); c = c.parent_id ? nodes.find((n) => n.id === c.parent_id) : null; }
-  return p.join(" → ");
+  return p.join(" > ");
 }
 function flattenTree(node) { const r = [node]; (node.children || []).forEach((c) => r.push(...flattenTree(c))); return r; }
 
 function buildTopologyTree(data) {
   const { meters, substations, nodes } = data;
-
-  /* Build manual assignment map from GridHierarchy: DRN -> parent node db id */
   const manualAssignments = {};
-  (nodes || []).forEach((n) => {
-    if (n.node_type === "meter" && n.parent_id) {
-      manualAssignments[n.node_id] = n.parent_id;
-    }
-  });
-  /* Also build a lookup for non-meter hierarchy nodes by db id */
+  (nodes || []).forEach((n) => { if (n.node_type === "meter" && n.parent_id) manualAssignments[n.node_id] = n.parent_id; });
   const hierNodeById = {};
   (nodes || []).forEach((n) => { if (n.node_type !== "meter") hierNodeById[n.id] = n; });
 
-  /* Root */
-  const root = {
-    id: "main", name: "Windhoek Grid", type: "main_station",
-    status: "online", children: [], expanded: true,
-  };
+  const root = { id: "main", name: "Windhoek Grid", type: "main_station", status: "online", children: [], expanded: true };
 
-  /* Add substations as children of root */
   const subNodeMap = {};
   (substations || []).forEach((sub) => {
     const subNode = {
       id: "sub-" + sub.id, name: sub.name || "Substation " + sub.id,
-      type: sub.type === "distribution" ? "distribution" : "substation",
-      lat: sub.lat, lng: sub.lng, district: sub.district,
-      status: "online", children: [], expanded: false,
-      dbId: sub.id, substationId: sub.id,
+      type: "substation", lat: sub.lat, lng: sub.lng, district: sub.district,
+      status: "online", children: [], expanded: false, dbId: sub.id, substationId: sub.id,
     };
+    /* Create a distribution node under this substation */
+    const distNode = {
+      id: "dist-" + sub.id, name: (sub.district || sub.name || "Area") + " Distribution",
+      type: "distribution", lat: sub.lat, lng: sub.lng, status: "online",
+      children: [], expanded: false, parentSubId: sub.id,
+    };
+    subNode.children.push(distNode);
     root.children.push(subNode);
-    subNodeMap[sub.id] = subNode;
+    subNodeMap[sub.id] = { subNode, distNode };
   });
 
-  /* Also add any non-meter GridHierarchy nodes that are NOT already represented as substations */
-  const hierTreeNodes = {};
+  /* Link hierarchy nodes */
   (nodes || []).forEach((n) => {
     if (n.node_type === "meter") return;
-    /* Check if this hierarchy node matches an existing substation by name */
-    const matchingSub = root.children.find((s) => s.name === n.node_name || s.name === n.node_id);
-    if (matchingSub) {
-      /* Link the hierarchy db id to the substation tree node */
-      matchingSub.dbId = n.id;
-      matchingSub.code = n.node_code;
-      matchingSub.capacityRating = n.capacity_rating;
-      matchingSub.voltageLevel = n.voltage_level;
-      matchingSub.description = n.description;
-      hierTreeNodes[n.id] = matchingSub;
-    } else {
-      /* New hierarchy node — add to root */
-      const hn = {
-        id: "h-" + n.id, dbId: n.id, name: n.node_name || n.node_id, code: n.node_code,
-        type: n.node_type, lat: parseFloat(n.lat) || null, lng: parseFloat(n.lng) || null,
-        status: n.status || "online", capacityRating: n.capacity_rating, voltageLevel: n.voltage_level,
-        description: n.description, children: [], expanded: false,
-      };
-      root.children.push(hn);
-      hierTreeNodes[n.id] = hn;
+    const matchEntry = Object.values(subNodeMap).find((e) => e.subNode.name === n.node_name || e.subNode.name === n.node_id);
+    if (matchEntry) {
+      matchEntry.subNode.dbId = n.id; matchEntry.subNode.code = n.node_code;
+      matchEntry.subNode.capacityRating = n.capacity_rating; matchEntry.subNode.voltageLevel = n.voltage_level;
+      matchEntry.subNode.description = n.description; matchEntry.distNode.dbId = matchEntry.distNode.dbId || n.id;
     }
   });
 
-  /* Helper: build a meter tree node */
   const mkMeter = (m) => {
     const lat = parseFloat(m.Lat), lng = parseFloat(m.Longitude);
     return {
@@ -107,35 +83,33 @@ function buildTopologyTree(data) {
     };
   };
 
-  /* Map meters — manual assignments first, then distance-based auto-map */
   const mappedDrns = new Set();
-
-  /* Pass 1: manual assignments from GridHierarchy */
+  /* Pass 1: manual assignments */
   (meters || []).forEach((m) => {
     if (!manualAssignments[m.DRN]) return;
     const parentDbId = manualAssignments[m.DRN];
-    const parentNode = hierTreeNodes[parentDbId] || root.children.find((s) => s.dbId === parentDbId);
-    if (parentNode) {
-      parentNode.children.push(mkMeter(m));
-      mappedDrns.add(m.DRN);
-    }
+    /* Find matching dist node or sub node */
+    let placed = false;
+    Object.values(subNodeMap).forEach(({ subNode, distNode }) => {
+      if (subNode.dbId === parentDbId || distNode.dbId === parentDbId) {
+        distNode.children.push(mkMeter(m)); placed = true;
+      }
+    });
+    if (placed) mappedDrns.add(m.DRN);
   });
 
-  /* Pass 2: auto-map remaining meters by distance to nearest substation (<0.02 degrees) */
+  /* Pass 2: auto-map by distance */
   (meters || []).forEach((m) => {
     if (mappedDrns.has(m.DRN)) return;
     const mLat = parseFloat(m.Lat), mLng = parseFloat(m.Longitude);
     if (isNaN(mLat) || isNaN(mLng)) return;
     let nearest = null, minDist = Infinity;
-    root.children.forEach((sub) => {
-      if (!sub.lat || !sub.lng) return;
-      const d = Math.sqrt(Math.pow(mLat - sub.lat, 2) + Math.pow(mLng - sub.lng, 2));
-      if (d < 0.02 && d < minDist) { minDist = d; nearest = sub; }
+    Object.values(subNodeMap).forEach(({ subNode, distNode }) => {
+      if (!subNode.lat || !subNode.lng) return;
+      const d = Math.sqrt(Math.pow(mLat - subNode.lat, 2) + Math.pow(mLng - subNode.lng, 2));
+      if (d < 0.02 && d < minDist) { minDist = d; nearest = distNode; }
     });
-    if (nearest) {
-      nearest.children.push(mkMeter(m));
-      mappedDrns.add(m.DRN);
-    }
+    if (nearest) { nearest.children.push(mkMeter(m)); mappedDrns.add(m.DRN); }
   });
 
   /* Unmapped meters */
@@ -146,64 +120,117 @@ function buildTopologyTree(data) {
       status: "warning", children: orphans.map(mkMeter), expanded: true,
     });
   }
-
   return root;
 }
 
-/* TreeNode */
-function TreeNode({ node, depth, expanded, toggleExpand, selectedNode, setSelectedNode, isDark, colors, filter }) {
-  const has = node.children && node.children.length > 0, isExp = expanded.has(node.id), isSel = selectedNode?.id === node.id;
-  const st = NS[node.type] || NS.meter, sc = SC[node.status] || "#64748B";
+/* ---- NodeCard ---- */
+function NodeCard({ node, onClick, onToggle, isExpanded, isDark, colors, isSelected }) {
+  const tc = NS[node.type] || NS.meter;
+  const meterColor = node.status === "online" ? "#10B981" : "#EF4444";
+  const borderC = node.type === "meter" ? meterColor : tc.color;
   const hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
-  const fc = useMemo(() => {
-    if (!has) return []; if (!filter) return node.children;
-    return node.children.filter((c) => flattenTree(c).some((n) =>
-      (n.name || "").toLowerCase().includes(filter) || (n.customerName || "").toLowerCase().includes(filter) ||
-      (n.drn || "").toLowerCase().includes(filter) || (n.area || "").toLowerCase().includes(filter)));
-  }, [has, node.children, filter]);
-  if (filter && fc.length === 0 && ![(node.name||""), (node.customerName||""), (node.drn||""), (node.area||"")].some((v) => v.toLowerCase().includes(filter))) return null;
+  const hasKids = node.children && node.children.length > 0;
   return (
-    <Box>
-      <Box onClick={() => setSelectedNode(node)} sx={{ display: "flex", alignItems: "center", gap: 1,
-        pl: `${depth * 28 + 8}px`, pr: 1.5, py: "7px", cursor: "pointer", borderRadius: "8px", mb: "2px",
-        bgcolor: isSel ? (isDark ? "rgba(37,99,235,0.12)" : "rgba(37,99,235,0.06)") : "transparent",
-        border: isSel ? `1px solid ${isDark ? "rgba(37,99,235,0.3)" : "rgba(37,99,235,0.2)"}` : "1px solid transparent",
-        transition: "all 0.15s", "&:hover": { bgcolor: isDark ? "rgba(37,99,235,0.06)" : "rgba(37,99,235,0.03)" } }}>
-        {has ? <IconButton size="small" onClick={(e) => { e.stopPropagation(); toggleExpand(node.id); }}
-          sx={{ width: 22, height: 22, color: lc }}>{isExp ? <ExpandMore sx={{ fontSize: 16 }} /> : <ChevronRight sx={{ fontSize: 16 }} />}</IconButton> : <Box sx={{ width: 22 }} />}
-        <Box sx={{ width: 28, height: 28, borderRadius: st.shape === "circle" ? "50%" : "6px",
-          transform: st.shape === "diamond" ? "rotate(45deg)" : "none", display: "flex", alignItems: "center",
-          justifyContent: "center", bgcolor: st.bg, border: `1.5px solid ${st.color}`, flexShrink: 0 }}>
-          <Box sx={{ transform: st.shape === "diamond" ? "rotate(-45deg)" : "none", display: "flex" }}>{st.icon}</Box>
-        </Box>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Box display="flex" alignItems="center" gap={0.75}>
-            <Typography fontSize="13px" fontWeight={node.type === "main_station" ? 700 : 600} color={hc} noWrap
-              sx={{ fontFamily: node.type === "meter" ? "monospace" : "inherit" }}>{node.name}</Typography>
-            {node.customerName && <Typography fontSize="11px" color={lc} noWrap>{node.customerName}</Typography>}
-          </Box>
-          <Box display="flex" alignItems="center" gap={0.5} mt="1px">
-            <Chip label={TL[node.type] || node.type} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: st.bg, color: st.color, "& .MuiChip-label": { px: "5px" } }} />
-            {node.area && <Typography fontSize="10px" color={lc}>&middot; {node.area}</Typography>}
-            {has && <Typography fontSize="10px" color={lc}>&middot; {node.children.length}</Typography>}
-          </Box>
-        </Box>
-        <FiberManualRecord sx={{ fontSize: 10, color: sc, flexShrink: 0 }} />
+    <Box onClick={onClick} sx={{
+      p: "8px 12px", borderRadius: "8px", cursor: "pointer", minWidth: node.type === "meter" ? 140 : 160,
+      maxWidth: 200, bgcolor: isDark ? colors.primary[400] : "#FFF",
+      border: `2px solid ${isSelected ? borderC : borderC + "40"}`,
+      boxShadow: isSelected ? `0 0 0 2px ${borderC}30` : "none",
+      transition: "all 0.15s", "&:hover": { borderColor: borderC, boxShadow: `0 2px 8px ${borderC}20` },
+    }}>
+      <Box display="flex" alignItems="center" gap={0.5}>
+        <FiberManualRecord sx={{ fontSize: 8, color: borderC, flexShrink: 0 }} />
+        <Typography fontSize={11} fontWeight={600} color={hc} noWrap sx={{ flex: 1, fontFamily: node.type === "meter" ? "monospace" : "inherit" }}>
+          {node.name}
+        </Typography>
+        {hasKids && (
+          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onToggle(); }}
+            sx={{ width: 18, height: 18, color: lc, p: 0 }}>
+            {isExpanded ? <ExpandLess sx={{ fontSize: 14 }} /> : <ChevronRight sx={{ fontSize: 14 }} />}
+          </IconButton>
+        )}
       </Box>
-      {has && <Collapse in={isExp} timeout={200}><Box sx={{ ml: `${depth * 28 + 19}px`, borderLeft: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}` }}>
-        {fc.map((ch) => <TreeNode key={ch.id} node={ch} depth={depth + 1} expanded={expanded} toggleExpand={toggleExpand}
-          selectedNode={selectedNode} setSelectedNode={setSelectedNode} isDark={isDark} colors={colors} filter={filter} />)}
-      </Box></Collapse>}
+      {node.customerName && <Typography fontSize={9} color={lc} noWrap>{node.customerName}</Typography>}
+      <Box display="flex" alignItems="center" gap={0.5} mt={0.3}>
+        <Chip label={(TL[node.type] || node.type).replace("Node", "").trim()} size="small"
+          sx={{ height: 16, fontSize: 8, fontWeight: 600, bgcolor: borderC + "18", color: borderC, "& .MuiChip-label": { px: "4px" } }} />
+        {hasKids && <Typography fontSize={9} color={lc}>{node.children.length} children</Typography>}
+      </Box>
     </Box>
   );
 }
 
-/* Shared dialog field */
+/* ---- HorizontalNode (recursive) ---- */
+function HorizontalNode({ node, level, onSelect, expanded, onToggle, isDark, colors, selectedNode, filter }) {
+  const hasKids = node.children && node.children.length > 0;
+  const isExp = expanded.has(node.id);
+  const lineColor = isDark ? "#334155" : "#D1D5DB";
+
+  /* Filtering */
+  const fc = useMemo(() => {
+    if (!hasKids) return [];
+    if (!filter) return node.children;
+    return node.children.filter((c) => flattenTree(c).some((n) =>
+      (n.name || "").toLowerCase().includes(filter) || (n.customerName || "").toLowerCase().includes(filter) ||
+      (n.drn || "").toLowerCase().includes(filter) || (n.area || "").toLowerCase().includes(filter)));
+  }, [hasKids, node.children, filter]);
+
+  if (filter && fc.length === 0 && ![(node.name || ""), (node.customerName || ""), (node.drn || ""), (node.area || "")].some((v) => v.toLowerCase().includes(filter))) return null;
+
+  const childCount = fc.length;
+
+  return (
+    <Box sx={{ display: "flex", alignItems: "flex-start" }}>
+      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+        <NodeCard node={node} onClick={() => onSelect(node)} onToggle={() => onToggle(node.id)}
+          isExpanded={isExp} isDark={isDark} colors={colors} isSelected={selectedNode?.id === node.id} />
+      </Box>
+
+      {hasKids && isExp && childCount > 0 && (
+        <Box sx={{ display: "flex", alignItems: "center" }}>
+          {/* Horizontal line from parent to vertical spine */}
+          <Box sx={{ width: 32, height: "2px", bgcolor: lineColor, flexShrink: 0, alignSelf: "center", mt: "20px" }} />
+
+          {/* Children column with vertical spine */}
+          <Box sx={{ display: "flex", flexDirection: "column", gap: "6px", position: "relative", py: "4px" }}>
+            {/* Vertical spine connecting children */}
+            {childCount > 1 && (
+              <Box sx={{
+                position: "absolute", left: 0, width: "2px", bgcolor: lineColor,
+                top: "20px", bottom: `calc(100% - ${childCount > 0 ? "20px" : "0px"} - (100% - 20px) / ${childCount} * ${childCount - 1})`,
+              }}>
+                {/* Use a simpler approach: top of first child center to bottom of last child center */}
+              </Box>
+            )}
+            {childCount > 1 && (
+              <Box sx={{
+                position: "absolute", left: 0, width: "2px", bgcolor: lineColor,
+                top: "20px",
+                height: `calc(100% - 40px)`,
+              }} />
+            )}
+
+            {fc.map((child, idx) => (
+              <Box key={child.id} sx={{ display: "flex", alignItems: "flex-start" }}>
+                {/* Horizontal twig to child */}
+                <Box sx={{ width: 16, height: "2px", bgcolor: lineColor, flexShrink: 0, mt: "20px" }} />
+                <HorizontalNode node={child} level={level + 1} onSelect={onSelect} expanded={expanded}
+                  onToggle={onToggle} isDark={isDark} colors={colors} selectedNode={selectedNode} filter={filter} />
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+/* ---- Shared dialog field ---- */
 function DField({ label, children, isDark, colors }) {
   return <Box><Typography fontSize="11px" color={isDark ? colors.grey[300] : "#6B7280"} mb={0.5} fontWeight={600}>{label}</Typography>{children}</Box>;
 }
 
-/* Add Distribution Dialog */
+/* ---- Add Distribution Dialog ---- */
 function AddDlg({ open, onClose, onCreated, allNodes, isDark, colors, token }) {
   const [nt, setNt] = useState("substation"), [nm, setNm] = useState(""), [cd, setCd] = useState("");
   const [pid, setPid] = useState(""), [lt, setLt] = useState(""), [lg, setLg] = useState("");
@@ -211,8 +238,8 @@ function AddDlg({ open, onClose, onCreated, allNodes, isDark, colors, token }) {
   const [saving, setSaving] = useState(false), [err, setErr] = useState("");
   const bg = isDark ? colors.primary[400] : "#FFF", hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
   const pOpts = useMemo(() => (allNodes || []).filter((n) => n.node_type !== "meter").map((n) => ({ id: n.id, label: buildPath(allNodes, n.id) || n.node_name })), [allNodes]);
-  const selPath = useMemo(() => { if (!pid) return ""; const p = allNodes.find((n) => n.id === parseInt(pid)); return p ? buildPath(allNodes, p.id) + " → " + nm : ""; }, [pid, allNodes, nm]);
-  const types = [["main_station","Main Station"],["substation","Substation"],["feeder","Feeder"],["distribution","Distribution Node"],["transformer","Transformer"]];
+  const selPath = useMemo(() => { if (!pid) return ""; const p = allNodes.find((n) => n.id === parseInt(pid)); return p ? buildPath(allNodes, p.id) + " > " + nm : ""; }, [pid, allNodes, nm]);
+  const types = [["main_station", "Main Station"], ["substation", "Substation"], ["feeder", "Feeder"], ["distribution", "Distribution Node"], ["transformer", "Transformer"]];
   const reset = () => { setNt("substation"); setNm(""); setCd(""); setPid(""); setLt(""); setLg(""); setCap(""); setVol(""); setDesc(""); setErr(""); onClose(); };
   const save = async () => {
     if (!nm.trim()) { setErr("Name is required"); return; } setSaving(true); setErr("");
@@ -244,7 +271,7 @@ function AddDlg({ open, onClose, onCreated, allNodes, isDark, colors, token }) {
           <DField label="Latitude" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={lt} onChange={(e) => setLt(e.target.value)} placeholder="-22.5597" sx={inputSx} /></DField>
           <DField label="Longitude" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={lg} onChange={(e) => setLg(e.target.value)} placeholder="17.0832" sx={inputSx} /></DField>
         </Box>
-        {["substation","transformer","distribution"].includes(nt) && <Box display="flex" gap={1.5}>
+        {["substation", "transformer", "distribution"].includes(nt) && <Box display="flex" gap={1.5}>
           <DField label="Capacity Rating" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={cap} onChange={(e) => setCap(e.target.value)} placeholder="e.g. 500 kVA" sx={inputSx} /></DField>
           <DField label="Voltage Level" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={vol} onChange={(e) => setVol(e.target.value)} placeholder="e.g. 11 kV" sx={inputSx} /></DField>
         </Box>}
@@ -259,75 +286,107 @@ function AddDlg({ open, onClose, onCreated, allNodes, isDark, colors, token }) {
   );
 }
 
-/* Assign Meter Dialog */
-function AssignDlg({ open, onClose, onAssigned, meterDrn, allNodes, tree, isDark, colors, token }) {
-  const [sel, setSel] = useState(""), [sq, setSq] = useState(""), [saving, setSaving] = useState(false), [err, setErr] = useState(""), [curA, setCurA] = useState(null);
+/* ---- Assign Dialog (context-aware: meter->distribution, distribution->substation) ---- */
+function AssignDlg({ open, onClose, onAssigned, meterDrn, assignNode, allNodes, tree, isDark, colors, token }) {
+  const [sel, setSel] = useState(""), [sq, setSq] = useState(""), [saving, setSaving] = useState(false), [err, setErr] = useState(""), [curPath, setCurPath] = useState("");
   const bg = isDark ? colors.primary[400] : "#FFF", hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
+  const isMeter = !!meterDrn;
+  const title = isMeter ? "Assign Meter to Distribution" : (assignNode ? "Assign Distribution to Substation" : "Assign");
 
-  /* Find current assignment — check both hierarchy and tree */
+  /* Find current assignment path */
   useEffect(() => {
-    if (!meterDrn || !tree) { setCurA(null); return; }
-    /* Search tree for where this meter currently lives */
-    let found = null;
-    const search = (node, parent) => {
-      if (node.type === "meter" && node.drn === meterDrn && parent) { found = parent.name; return; }
-      (node.children || []).forEach((ch) => search(ch, node));
+    if (!tree) { setCurPath(""); return; }
+    const target = meterDrn || (assignNode?.id);
+    if (!target) { setCurPath(""); return; }
+    let found = "";
+    const search = (node, path) => {
+      const fullPath = path ? path + " > " + node.name : node.name;
+      if (isMeter && node.type === "meter" && node.drn === meterDrn) { found = path; return; }
+      if (!isMeter && node.id === target) { found = path; return; }
+      (node.children || []).forEach((ch) => search(ch, fullPath));
     };
-    search(tree, null);
-    setCurA(found);
-  }, [meterDrn, tree]);
+    search(tree, "");
+    setCurPath(found);
+  }, [meterDrn, assignNode, tree, isMeter]);
 
-  /* Build options: all substations/distribution/feeder nodes from the tree + hierarchy nodes with dbId */
+  /* Build options based on what we are assigning */
   const opts = useMemo(() => {
     if (!tree) return [];
     const result = [];
     const collect = (node, path) => {
-      if (node.type !== "meter" && node.type !== "main_station" && node.id !== "unmapped") {
-        const fullPath = path ? path + " > " + node.name : node.name;
-        result.push({
-          id: node.dbId || node.id,
-          dbId: node.dbId,
-          label: fullPath,
-          name: node.name,
-          type: node.type,
-          childCount: (node.children || []).length,
-        });
+      const fullPath = path ? path + " > " + node.name : node.name;
+      if (isMeter) {
+        /* Meters go to distribution nodes */
+        if (node.type === "distribution" && node.id !== "unmapped") {
+          /* Find parent substation name */
+          let parentSub = "";
+          const findParent = (n, p) => {
+            if (n.children?.some((c) => c.id === node.id)) { parentSub = n.name; return; }
+            (n.children || []).forEach((c) => findParent(c, n));
+          };
+          findParent(tree, null);
+          result.push({
+            id: node.dbId || node.id, dbId: node.dbId, label: node.name,
+            sublabel: parentSub ? `under ${parentSub}` : "", name: node.name,
+            type: node.type, childCount: (node.children || []).length,
+          });
+        }
+      } else {
+        /* Distribution nodes go to substations */
+        if (node.type === "substation") {
+          result.push({
+            id: node.dbId || node.id, dbId: node.dbId, label: node.name,
+            sublabel: node.district ? node.district : "", name: node.name,
+            type: node.type, childCount: (node.children || []).length,
+          });
+        }
       }
-      const nextPath = node.type === "main_station" ? "" : (path ? path + " > " + node.name : node.name);
-      (node.children || []).forEach((ch) => collect(ch, nextPath));
+      (node.children || []).forEach((ch) => collect(ch, fullPath));
     };
     collect(tree, "");
     const q = sq.toLowerCase().trim();
-    return q ? result.filter((n) => n.label.toLowerCase().includes(q) || n.name.toLowerCase().includes(q)) : result;
-  }, [tree, sq]);
+    return q ? result.filter((n) => n.label.toLowerCase().includes(q) || n.sublabel.toLowerCase().includes(q)) : result;
+  }, [tree, sq, isMeter]);
 
   const reset = () => { setSel(""); setSq(""); setErr(""); onClose(); };
   const assign = async () => {
-    if (!sel) { setErr("Select a distribution node"); return; } setSaving(true); setErr("");
+    if (!sel) { setErr("Select a target node"); return; } setSaving(true); setErr("");
     try {
       const selOpt = opts.find((o) => String(o.id) === sel);
       const parentId = selOpt?.dbId || parseInt(sel);
-      const r = await fetch("/cb/loadcontrol/grid-topology/assign-meter", { method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ drn: meterDrn, parent_id: parentId }) });
-      const j = await r.json(); if (j.success) { onAssigned(j); reset(); } else setErr(j.error || "Failed");
+      if (isMeter) {
+        const r = await fetch("/cb/loadcontrol/grid-topology/assign-meter", { method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ drn: meterDrn, parent_id: parentId }) });
+        const j = await r.json(); if (j.success) { onAssigned(j); reset(); } else setErr(j.error || "Failed");
+      } else {
+        /* For distribution node reassignment, use the edit endpoint if available */
+        const r = await fetch(`/cb/loadcontrol/grid-topology/nodes/${assignNode.dbId}`, { method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ parent_id: parentId }) });
+        const j = await r.json(); if (j.success) { onAssigned(j); reset(); } else setErr(j.error || "Failed");
+      }
     } catch (e) { setErr(e.message); } setSaving(false);
   };
+
   return (
     <Dialog open={open} onClose={reset} maxWidth="sm" fullWidth PaperProps={{ sx: { bgcolor: bg, borderRadius: "12px" } }}>
-      <DialogTitle sx={{ color: hc, fontWeight: 700, fontSize: 16, pb: 0.5 }}>Assign Meter to Distribution</DialogTitle>
+      <DialogTitle sx={{ color: hc, fontWeight: 700, fontSize: 16, pb: 0.5 }}>{title}</DialogTitle>
       <DialogContent sx={{ pt: "8px !important" }}>
-        <Typography fontSize="12px" color={lc} mb={1.5}>Assign DRN <strong style={{ fontFamily: "monospace" }}>{meterDrn}</strong> to a distribution node. One meter = one node.</Typography>
-        {curA && <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>Currently assigned to: <strong>{curA}</strong></Alert>}
+        <Typography fontSize="12px" color={lc} mb={1.5}>
+          {isMeter ? <>Assign DRN <strong style={{ fontFamily: "monospace" }}>{meterDrn}</strong> to a distribution node.</>
+            : <>Assign <strong>{assignNode?.name}</strong> to a substation.</>}
+        </Typography>
+        {curPath && <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>Currently at: <strong>{curPath}</strong></Alert>}
         {err && <Alert severity="error" sx={{ mb: 2, fontSize: 12 }}>{err}</Alert>}
-        <TextField size="small" fullWidth placeholder="Search substations, nodes..." value={sq} onChange={(e) => setSq(e.target.value)}
+        <TextField size="small" fullWidth placeholder={isMeter ? "Search distribution nodes..." : "Search substations..."} value={sq} onChange={(e) => setSq(e.target.value)}
           sx={{ mb: 1.5, ...inputSx }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined sx={{ fontSize: 16, color: lc }} /></InputAdornment> }} />
         <Box sx={{ maxHeight: 300, overflowY: "auto", border: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`, borderRadius: "8px", p: 1 }}>
           <RadioGroup value={sel} onChange={(e) => setSel(e.target.value)}>
-            {opts.length === 0 ? <Typography fontSize="12px" color={lc} textAlign="center" py={2}>No distribution nodes found. Create one first.</Typography>
+            {opts.length === 0 ? <Typography fontSize="12px" color={lc} textAlign="center" py={2}>No {isMeter ? "distribution nodes" : "substations"} found.</Typography>
               : opts.map((n) => <FormControlLabel key={n.id} value={String(n.id)} control={<Radio size="small" sx={{ py: 0.5 }} />}
-                label={<Box><Typography fontSize="12px" fontWeight={600} color={hc}>{n.label}</Typography>
-                  <Typography fontSize="10px" color={lc}>{TL[n.type] || n.type} &middot; {n.childCount} meters</Typography></Box>}
+                label={<Box><Typography fontSize="12px" fontWeight={600} color={hc}>{n.label}{n.sublabel ? <Typography component="span" fontSize="11px" color={lc}> ({n.sublabel})</Typography> : null}</Typography>
+                  <Typography fontSize="10px" color={lc}>{TL[n.type] || n.type} &middot; {n.childCount} {isMeter ? "meters" : "children"}</Typography></Box>}
                 sx={{ alignItems: "flex-start", mb: 0.5, mx: 0, borderRadius: "6px", py: 0.5, px: 1,
                   bgcolor: sel === String(n.id) ? (isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF") : "transparent" }} />)}
           </RadioGroup>
@@ -336,13 +395,13 @@ function AssignDlg({ open, onClose, onAssigned, meterDrn, allNodes, tree, isDark
       <DialogActions sx={{ px: 3, pb: 2.5 }}>
         <Button onClick={reset} sx={{ textTransform: "none", fontSize: 12, color: lc }}>Cancel</Button>
         <Button variant="contained" onClick={assign} disabled={saving || !sel} sx={btnPrimary}>
-          {saving ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : "Assign Meter"}</Button>
+          {saving ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : (isMeter ? "Assign Meter" : "Assign Node")}</Button>
       </DialogActions>
     </Dialog>
   );
 }
 
-/* Edit Node Dialog */
+/* ---- Edit Node Dialog ---- */
 function EditDlg({ open, onClose, onUpdated, node, allNodes, isDark, colors, token }) {
   const [nm, setNm] = useState(""), [cd, setCd] = useState(""), [pid, setPid] = useState("");
   const [st, setSt] = useState("online"), [cap, setCap] = useState(""), [vol, setVol] = useState(""), [desc, setDesc] = useState("");
@@ -375,7 +434,7 @@ function EditDlg({ open, onClose, onUpdated, node, allNodes, isDark, colors, tok
             {pOpts.map((p) => <MenuItem key={p.id} value={p.id}>{p.label}</MenuItem>)}</Select></DField>
         <DField label="Status" isDark={isDark} colors={colors}>
           <Select size="small" fullWidth value={st} onChange={(e) => setSt(e.target.value)} sx={{ fontSize: 13, borderRadius: "8px" }}>
-            {["online","offline","warning","critical"].map((s) => <MenuItem key={s} value={s} sx={{ textTransform: "capitalize" }}>{s}</MenuItem>)}</Select></DField>
+            {["online", "offline", "warning", "critical"].map((s) => <MenuItem key={s} value={s} sx={{ textTransform: "capitalize" }}>{s}</MenuItem>)}</Select></DField>
         <Box display="flex" gap={1.5}>
           <DField label="Capacity" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={cap} onChange={(e) => setCap(e.target.value)} sx={inputSx} /></DField>
           <DField label="Voltage" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={vol} onChange={(e) => setVol(e.target.value)} sx={inputSx} /></DField>
@@ -391,10 +450,11 @@ function EditDlg({ open, onClose, onUpdated, node, allNodes, isDark, colors, tok
   );
 }
 
-/* Detail Panel */
-function DetailPanel({ node, isDark, colors, navigate, cardBorder, onAssignMeter, onEditNode, onDeleteNode, allNodes }) {
+/* ---- Detail Panel ---- */
+function DetailPanel({ node, isDark, colors, navigate, cardBorder, onAssignMeter, onAssignNode, onEditNode, onDeleteNode, allNodes }) {
   const hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
-  const st = NS[node.type] || NS.meter, sc = SC[node.status] || "#64748B";
+  const tc = NS[node.type] || NS.meter, sc = SC[node.status] || "#64748B";
+  const borderC = node.type === "meter" ? (node.status === "online" ? "#10B981" : "#EF4444") : tc.color;
   const isMeter = node.type === "meter", isHierarchy = !isMeter && node.dbId;
   const bc = useMemo(() => (node.dbId && allNodes?.length) ? buildPath(allNodes, node.dbId) : "", [node, allNodes]);
   const details = [];
@@ -419,10 +479,10 @@ function DetailPanel({ node, isDark, colors, navigate, cardBorder, onAssignMeter
     <Box>
       <Box sx={{ px: 2.5, pt: 2.5, pb: 2, borderBottom: cardBorder }}>
         <Box display="flex" alignItems="center" gap={1.5} mb={1}>
-          <Box sx={{ width: 36, height: 36, borderRadius: st.shape === "circle" ? "50%" : "8px",
-            transform: st.shape === "diamond" ? "rotate(45deg)" : "none", display: "flex", alignItems: "center",
-            justifyContent: "center", bgcolor: st.bg, border: `2px solid ${st.color}` }}>
-            <Box sx={{ transform: st.shape === "diamond" ? "rotate(-45deg)" : "none", display: "flex" }}>{st.icon}</Box></Box>
+          <Box sx={{ width: 36, height: 36, borderRadius: "8px", display: "flex", alignItems: "center",
+            justifyContent: "center", bgcolor: borderC + "18", border: `2px solid ${borderC}` }}>
+            {tc.icon}
+          </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography fontSize="15px" fontWeight={700} color={hc} noWrap sx={{ fontFamily: isMeter ? "monospace" : "inherit" }}>{node.name}</Typography>
             <Typography fontSize="11px" color={lc}>{TL[node.type] || node.type}</Typography></Box>
@@ -449,9 +509,14 @@ function DetailPanel({ node, isDark, colors, navigate, cardBorder, onAssignMeter
             onClick={() => onAssignMeter(node.drn || node.name)}
             sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#F59E0B", color: "#F59E0B", py: "6px",
               "&:hover": { borderColor: "#D97706", bgcolor: "rgba(245,158,11,0.05)" } }}>Assign to Distribution</Button></>}
-        {!isMeter && (node.type === "substation" || node.type === "distribution" || node.type === "feeder") && node.substationId &&
+        {!isMeter && (node.type === "substation") && node.substationId &&
           <Button fullWidth variant="contained" size="small" startIcon={<OpenInNewOutlined sx={{ fontSize: 14 }} />}
             onClick={() => navigate(`/substation/${node.substationId}`)} sx={{ ...btnPrimary, py: "6px" }}>View Substation Profile</Button>}
+        {!isMeter && node.type === "distribution" && node.id !== "unmapped" &&
+          <Button fullWidth variant="outlined" size="small" startIcon={<LinkOutlined sx={{ fontSize: 14 }} />}
+            onClick={() => onAssignNode(node)}
+            sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#3B82F6", color: "#3B82F6", py: "6px",
+              "&:hover": { borderColor: "#2563EB", bgcolor: "rgba(59,130,246,0.05)" } }}>Assign to Substation</Button>}
         {!isMeter && node.type !== "main_station" && <Button fullWidth variant="outlined" size="small" startIcon={<LinkOutlined sx={{ fontSize: 14 }} />}
           onClick={() => onAssignMeter(null)} sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#10B981", color: "#10B981", py: "6px",
             "&:hover": { borderColor: "#059669", bgcolor: "rgba(16,185,129,0.05)" } }}>Assign Meters</Button>}
@@ -484,6 +549,7 @@ export default function GridTopology() {
   const [expanded, setExpanded] = useState(new Set(["main"])), [selectedNode, setSelectedNode] = useState(null);
   const [search, setSearch] = useState(""), [statusFilter, setStatusFilter] = useState("all");
   const [addOpen, setAddOpen] = useState(false), [assignOpen, setAssignOpen] = useState(false), [assignDrn, setAssignDrn] = useState("");
+  const [assignNode, setAssignNode] = useState(null);
   const [editOpen, setEditOpen] = useState(false), [editNode, setEditNode] = useState(null);
   const cardBg = isDark ? colors.primary[400] : "#FFFFFF", cardBorder = `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`;
   const hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
@@ -507,12 +573,13 @@ export default function GridTopology() {
     if (!tree) return null; if (statusFilter === "all" && !filterQuery) return tree;
     const fn = (node) => { const fc = (node.children || []).map(fn).filter(Boolean);
       const sm = statusFilter === "all" || node.status === statusFilter;
-      const qm = !filterQuery || [(node.name||""), (node.customerName||""), (node.drn||""), (node.area||"")].some((v) => v.toLowerCase().includes(filterQuery));
+      const qm = !filterQuery || [(node.name || ""), (node.customerName || ""), (node.drn || ""), (node.area || "")].some((v) => v.toLowerCase().includes(filterQuery));
       return (sm && qm) || fc.length > 0 ? { ...node, children: fc } : null; };
     return fn(tree);
   }, [tree, statusFilter, filterQuery]);
 
-  const handleAssign = useCallback((drn) => { setAssignDrn(drn || ""); setAssignOpen(true); }, []);
+  const handleAssignMeter = useCallback((drn) => { setAssignDrn(drn || ""); setAssignNode(null); setAssignOpen(true); }, []);
+  const handleAssignNode = useCallback((n) => { setAssignDrn(""); setAssignNode(n); setAssignOpen(true); }, []);
   const handleEdit = useCallback((n) => { setEditNode(n); setEditOpen(true); }, []);
   const handleDelete = useCallback(async (n) => { if (!n.dbId || !window.confirm(`Delete "${n.name}"? Children will be re-parented.`)) return;
     try { const r = await fetch(`/cb/loadcontrol/grid-topology/nodes/${n.dbId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
@@ -543,7 +610,7 @@ export default function GridTopology() {
           <IconButton onClick={() => navigate("/load-control")} sx={{ color: lc, border: cardBorder, borderRadius: "10px", width: 36, height: 36, mr: 1.5 }}>
             <ArrowBackOutlined sx={{ fontSize: 18 }} /></IconButton>
           <Box><Typography variant="h4" fontWeight={700} color={hc}>Grid Topology</Typography>
-            <Typography variant="body2" color={lc} mt={0.25}>Network View &mdash; Distribution management</Typography></Box>
+            <Typography variant="body2" color={lc} mt={0.25}>Horizontal Network View &mdash; Distribution management</Typography></Box>
         </Box>
         <Box display="flex" gap={1} alignItems="center">
           <TextField size="small" placeholder="Search DRN, name, area..." value={search} onChange={(e) => setSearch(e.target.value)}
@@ -568,7 +635,7 @@ export default function GridTopology() {
       <Box sx={{ px: 3, pb: 1.5, display: "flex", gap: 1.5, alignItems: "center" }}>
         <FormControl size="small"><Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
           sx={{ height: 32, fontSize: 12, borderRadius: "8px", bgcolor: cardBg, border: cardBorder, "& fieldset": { border: "none" }, minWidth: 130 }}>
-          {["all","online","offline","warning","critical"].map((v) => <MenuItem key={v} value={v} sx={{ textTransform: "capitalize" }}>{v === "all" ? "All Status" : v}</MenuItem>)}
+          {["all", "online", "offline", "warning", "critical"].map((v) => <MenuItem key={v} value={v} sx={{ textTransform: "capitalize" }}>{v === "all" ? "All Status" : v}</MenuItem>)}
         </Select></FormControl>
         <Box sx={{ ml: "auto", display: "flex", gap: 1 }}>
           {[["Expand All", expandAll], ["Collapse All", collapseAll]].map(([l, fn]) =>
@@ -576,39 +643,51 @@ export default function GridTopology() {
         </Box>
       </Box>
 
-      {/* TREE + DETAIL */}
+      {/* HORIZONTAL NETWORK + DETAIL */}
       <Box sx={{ px: 3, pb: 4, display: "flex", gap: 2 }}>
-        <Box sx={{ flex: 1, bgcolor: cardBg, border: cardBorder, borderRadius: "12px", minHeight: 500, maxHeight: "calc(100vh - 420px)",
-          overflowY: "auto", py: 1, "&::-webkit-scrollbar": { width: 5 }, "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 } }}>
-          {filteredTree ? <TreeNode node={filteredTree} depth={0} expanded={expanded} toggleExpand={toggleExpand}
-            selectedNode={selectedNode} setSelectedNode={setSelectedNode} isDark={isDark} colors={colors} filter={filterQuery} />
-            : <Box display="flex" justifyContent="center" alignItems="center" height={400}><Typography color={lc} fontSize="13px">No nodes match the current filter</Typography></Box>}
+        {/* Scrollable network container */}
+        <Box sx={{
+          flex: 1, bgcolor: cardBg, border: cardBorder, borderRadius: "12px", minHeight: 500, maxHeight: "calc(100vh - 420px)",
+          overflow: "auto", p: 2.5,
+          "&::-webkit-scrollbar": { width: 6, height: 6 },
+          "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 },
+        }}>
+          {filteredTree ? (
+            <HorizontalNode node={filteredTree} level={0} onSelect={setSelectedNode} expanded={expanded}
+              onToggle={toggleExpand} isDark={isDark} colors={colors} selectedNode={selectedNode} filter={filterQuery} />
+          ) : (
+            <Box display="flex" justifyContent="center" alignItems="center" height={400}>
+              <Typography color={lc} fontSize="13px">No nodes match the current filter</Typography>
+            </Box>
+          )}
         </Box>
+
+        {/* Detail panel */}
         <Box sx={{ width: 340, flexShrink: 0, bgcolor: cardBg, border: cardBorder, borderRadius: "12px", minHeight: 500, maxHeight: "calc(100vh - 420px)",
           overflowY: "auto", "&::-webkit-scrollbar": { width: 5 }, "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 } }}>
           {selectedNode ? <DetailPanel node={selectedNode} isDark={isDark} colors={colors} navigate={navigate} cardBorder={cardBorder}
-            onAssignMeter={handleAssign} onEditNode={handleEdit} onDeleteNode={handleDelete} allNodes={allNodes} />
+            onAssignMeter={handleAssignMeter} onAssignNode={handleAssignNode} onEditNode={handleEdit} onDeleteNode={handleDelete} allNodes={allNodes} />
             : <Box display="flex" flexDirection="column" justifyContent="center" alignItems="center" height="100%" minHeight={400} px={3}>
               <AccountTreeOutlined sx={{ fontSize: 48, color: isDark ? colors.grey[500] : "#D1D5DB", mb: 1.5 }} />
               <Typography fontSize="13px" fontWeight={600} color={hc} mb={0.5}>Select a Node</Typography>
-              <Typography fontSize="12px" color={lc} textAlign="center">Click on any node in the tree to view its details</Typography></Box>}
+              <Typography fontSize="12px" color={lc} textAlign="center">Click on any node in the network to view its details</Typography></Box>}
         </Box>
       </Box>
 
       {/* LEGEND */}
       <Box sx={{ px: 3, pb: 3 }}><Box sx={{ bgcolor: cardBg, border: cardBorder, borderRadius: "12px", px: 3, py: 2, display: "flex", gap: 3, flexWrap: "wrap", alignItems: "center" }}>
         <Typography fontSize="11px" fontWeight={700} color={lc} textTransform="uppercase" letterSpacing="0.5px">Legend</Typography>
-        {[["Main Station","#2563EB"],["Substation","#3B82F6"],["Feeder","#14B8A6"],["Distribution","#F59E0B"],["Transformer","#EA580C"],["Meter","#10B981"]].map(([l, c]) =>
+        {[["Main Station", "#2563EB"], ["Substation", "#3B82F6"], ["Distribution", "#F59E0B"], ["Meter (online)", "#10B981"], ["Meter (offline)", "#EF4444"]].map(([l, c]) =>
           <Box key={l} display="flex" alignItems="center" gap={0.75}><Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: c }} /><Typography fontSize="11px" color={lc}>{l}</Typography></Box>)}
         <Box sx={{ borderLeft: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`, pl: 2, ml: 1 }}>
-          {[["Online","#10B981"],["Offline","#EF4444"],["Warning","#F59E0B"],["Critical","#DC2626"]].map(([l, c]) =>
+          {[["Online", "#10B981"], ["Offline", "#EF4444"], ["Warning", "#F59E0B"], ["Critical", "#DC2626"]].map(([l, c]) =>
             <Box key={l} display="inline-flex" alignItems="center" gap={0.5} mr={2}><FiberManualRecord sx={{ fontSize: 8, color: c }} /><Typography fontSize="11px" color={lc}>{l}</Typography></Box>)}
         </Box>
       </Box></Box>
 
       {/* DIALOGS */}
       <AddDlg open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => fetchTopology()} allNodes={allNodes} isDark={isDark} colors={colors} token={token} />
-      <AssignDlg open={assignOpen} onClose={() => setAssignOpen(false)} onAssigned={() => fetchTopology()} meterDrn={assignDrn} allNodes={allNodes} tree={tree} isDark={isDark} colors={colors} token={token} />
+      <AssignDlg open={assignOpen} onClose={() => setAssignOpen(false)} onAssigned={() => fetchTopology()} meterDrn={assignDrn} assignNode={assignNode} allNodes={allNodes} tree={tree} isDark={isDark} colors={colors} token={token} />
       <EditDlg open={editOpen} onClose={() => setEditOpen(false)} onUpdated={() => fetchTopology()} node={editNode} allNodes={allNodes} isDark={isDark} colors={colors} token={token} />
     </Box>
   );
