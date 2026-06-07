@@ -535,9 +535,9 @@ function DetailPanel({ node, isDark, colors, navigate, cardBorder, onAssignMeter
             onClick={() => onAssignMeter(node.drn || node.name)}
             sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#F59E0B", color: "#F59E0B", py: "6px",
               "&:hover": { borderColor: "#D97706", bgcolor: "rgba(245,158,11,0.05)" } }}>Assign to Distribution</Button></>}
-        {!isMeter && node.type === "substation" && node.substationId &&
+        {!isMeter && node.type === "substation" &&
           <Button fullWidth variant="contained" size="small" startIcon={<OpenInNewOutlined sx={{ fontSize: 14 }} />}
-            onClick={() => navigate(`/substation/${node.substationId}`)} sx={{ ...btnPrimary, py: "6px" }}>View Substation Profile</Button>}
+            onClick={() => navigate(`/load-control/area/${encodeURIComponent(node.district || node.name)}`)} sx={{ ...btnPrimary, py: "6px" }}>View Substation Profile</Button>}
         {!isMeter && node.type === "distribution" && node.district &&
           <Button fullWidth variant="contained" size="small" startIcon={<OpenInNewOutlined sx={{ fontSize: 14 }} />}
             onClick={() => navigate(`/load-control/area/${encodeURIComponent(node.district)}`)} sx={{ ...btnPrimary, py: "6px" }}>View Distribution Profile</Button>}

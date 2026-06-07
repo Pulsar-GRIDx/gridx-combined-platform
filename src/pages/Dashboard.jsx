@@ -257,6 +257,7 @@ export default function Dashboard() {
           customer: t.DRN || "-",
           meterNo: t.DRN || "-",
           amount: parseFloat(t.token_amount || 0),
+          tariffRate: parseFloat(t.tariff_rate || 2.45),
           channel: channels[parseInt(t.submission_Method)] || t.submission_Method || "-",
           token: t.token_id || "-",
           status: (t.display_msg || "").toLowerCase().includes("accept") ? "Accepted"
@@ -1195,7 +1196,7 @@ export default function Dashboard() {
                     </TimelineSeparator>
                     <TimelineContent>
                       <Typography variant="subtitle2" color={colors.greenAccent[500]}>
-                        N${Number(txn.amount || 0).toFixed(2)}
+                        N${(Number(txn.amount || 0) * (txn.tariffRate || 2.45)).toFixed(2)}
                       </Typography>
                       <Typography variant="caption" sx={{ color: colors.greenAccent[400] }}>
                         DRN:{" "}
@@ -1312,7 +1313,7 @@ export default function Dashboard() {
                 <Typography variant="caption" color={colors.grey[400]} sx={{ fontSize: "10px" }}>Accepted</Typography>
               </Box>
               <Typography variant="subtitle2" color={colors.greenAccent[500]} fontWeight="bold">
-                N$ {recentTxns.filter(t => t.status === "Accepted").reduce((s, t) => s + parseFloat(t.amount || 0), 0).toFixed(2)}
+                N$ {recentTxns.filter(t => t.status === "Accepted").reduce((s, t) => s + parseFloat(t.amount || 0) * (t.tariffRate || 2.45), 0).toFixed(2)}
               </Typography>
             </Box>
           </Box>
@@ -1376,7 +1377,7 @@ export default function Dashboard() {
 
                     {/* Amount */}
                     <Typography variant="body2" color={colors.greenAccent[500]} fontWeight={700} sx={{ fontFamily: "monospace", fontSize: "0.85rem" }}>
-                      {amt.toFixed(2)}
+                      {(amt * (txn.tariffRate || 2.45)).toFixed(2)}
                     </Typography>
 
                     {/* Channel */}
@@ -1413,7 +1414,7 @@ export default function Dashboard() {
               {recentTxns.filter(t => t.status === "Accepted").length} tokens vended
             </Typography>
             <Typography variant="subtitle2" color={colors.grey[100]} fontWeight={700}>
-              Total: N$ {recentTxns.filter(t => t.status === "Accepted").reduce((s, t) => s + parseFloat(t.amount || 0), 0).toFixed(2)}
+              Total: N$ {recentTxns.filter(t => t.status === "Accepted").reduce((s, t) => s + parseFloat(t.amount || 0) * (t.tariffRate || 2.45), 0).toFixed(2)}
             </Typography>
           </Box>
         </Box>

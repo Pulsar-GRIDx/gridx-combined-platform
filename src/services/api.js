@@ -268,6 +268,8 @@ export const meterAPI = {
   getNotifications: (drn) => get(`/notificationsByDRN/${drn}`),
   getAreaSummary: () => get('/areaSummary'),
   getDailyPower: (drn) => get(`/meterDailyPower/${drn}`),
+  getPowerByDate: (drn, year, month, day) => get(`/meterPower/getByDRNAndDate/${year}/${month}/${day}/${drn}`),
+  getPower15min: (drn) => get(`/summary/power15min/${drn}`),
 };
 
 // ===== LOAD CONTROL =====

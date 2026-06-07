@@ -101,6 +101,7 @@ import {
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
   Legend,
+  ReferenceArea,
 } from "recharts";
 import { GoogleMap, useJsApiLoader, Marker } from "@react-google-maps/api";
 import Header from "../components/Header";
@@ -869,6 +870,48 @@ export default function MeterProfile() {
     fetchHourly();
   }, [drn, tab]);
 
+  /* ---------- Fetch power chart data (15-min or by-date) when Energy Charts tab is active ---------- */
+  useEffect(() => {
+    if (tab !== 4) return;
+    const fetchPowerChart = async () => {
+      try {
+        // Try 15-min summary first (96 points = 24h at 15-min intervals)
+        const p15 = await meterAPI.getPower15min(drn);
+        const arr = Array.isArray(p15) ? p15 : p15?.data || [];
+        if (arr.length > 0) {
+          setPowerChartData(arr.map(r => ({
+            time: r.time || "",
+            active_power: parseFloat(r.power || r.active_power || 0),
+            voltage: parseFloat(r.voltage || 0),
+            current: parseFloat(r.current || 0),
+            power_factor: parseFloat(r.pf || r.power_factor || 0),
+          })));
+          return;
+        }
+        // Fallback: fetch today's raw power readings
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, "0");
+        const d = String(now.getDate()).padStart(2, "0");
+        const raw = await meterAPI.getPowerByDate(drn, y, m, d);
+        const rows = Array.isArray(raw) ? raw : raw?.data || [];
+        setPowerChartData(rows.map(r => {
+          const dt = new Date(r.created_at || r.createdAt || r.timestamp);
+          return {
+            time: dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            active_power: parseFloat(r.active_power || 0),
+            voltage: parseFloat(r.voltage || 0),
+            current: parseFloat(r.current || r.current_val || 0),
+            power_factor: parseFloat(r.power_factor || 0),
+          };
+        }).filter(r => r.time));
+      } catch (e) {
+        console.warn("Failed to fetch power chart data:", e);
+      }
+    };
+    fetchPowerChart();
+  }, [drn, tab]);
+
   /* ---------- Auto-refresh commission reports when tab 6 is active ---------- */
   useEffect(() => {
     if (tab !== 6) return;
@@ -960,6 +1003,7 @@ export default function MeterProfile() {
     (t) => t.name === (mockMeter?.billing?.tariffGroup || "Residential")
   );
   const [hourlyData, setHourlyData] = useState([]);
+  const [powerChartData, setPowerChartData] = useState([]);
 
   /* ---------- Daily power: this week vs last week ---------- */
   const weeklyPowerChart = useMemo(() => {
@@ -3308,6 +3352,84 @@ export default function MeterProfile() {
             )}
           </Box>
         </Box>
+
+        {/* ---- Power Charts Section ---- */}
+        {(() => {
+          const isDark = theme.palette.mode === "dark";
+          const pv = powerData?.voltage ?? 0;
+          const pc = powerData?.current ?? 0;
+          const pap = powerData?.active_power ?? 0;
+          const ppf = powerData?.power_factor ?? 0;
+          const statCards = [
+            { label: "Active Power", value: `${Number(pap).toFixed(1)}`, unit: "W", color: "#2563EB" },
+            { label: "Voltage", value: `${Number(pv).toFixed(1)}`, unit: "V", color: "#F59E0B" },
+            { label: "Current", value: `${Number(pc).toFixed(2)}`, unit: "A", color: "#EF4444" },
+            { label: "Power Factor", value: `${Number(ppf).toFixed(3)}`, unit: "", color: "#10B981" },
+          ];
+          return (
+            <Box mt="10px">
+              <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={2}>
+                Live Power
+              </Typography>
+              <Box display="grid" gridTemplateColumns="repeat(4, 1fr)" gap="8px" mb="10px">
+                {statCards.map((s, i) => (
+                  <Box key={i} backgroundColor={colors.primary[400]} borderRadius="4px" p="14px" textAlign="center">
+                    <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: s.color, mx: "auto", mb: 0.5 }} />
+                    <Typography variant="caption" color={colors.grey[300]}>{s.label}</Typography>
+                    <Typography variant="h5" color={colors.grey[100]} fontWeight="bold">
+                      {s.value} <span style={{ fontSize: 11, fontWeight: 400, color: colors.grey[300] }}>{s.unit}</span>
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+
+              {/* Hourly Active Power Chart */}
+              <Box backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" mb="10px" height="340px">
+                <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={2}>
+                  Active Power — Last 24 Hours
+                </Typography>
+                {powerChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="80%">
+                    <LineChart data={powerChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                      <XAxis dataKey="time" tick={{ fill: colors.grey[100], fontSize: 10 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} interval="preserveStartEnd" />
+                      <YAxis tick={{ fill: colors.grey[100], fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} unit=" W" />
+                      <RechartsTooltip contentStyle={{ background: colors.primary[400], border: `1px solid ${colors.greenAccent[700]}`, borderRadius: 4, color: colors.grey[100] }} formatter={(v) => [`${Number(v).toFixed(1)} W`]} />
+                      <Line type="monotone" dataKey="active_power" stroke="#2563EB" strokeWidth={2} dot={false} name="Active Power" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Box display="flex" alignItems="center" justifyContent="center" height="80%">
+                    <Typography variant="body2" color={colors.grey[400]}>No power history data available</Typography>
+                  </Box>
+                )}
+              </Box>
+
+              {/* Voltage Chart with Normal Range Band */}
+              <Box backgroundColor={colors.primary[400]} p="20px" borderRadius="4px" height="340px">
+                <Typography variant="h6" color={colors.grey[100]} fontWeight="bold" mb={2}>
+                  Voltage — Last 24 Hours
+                </Typography>
+                {powerChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="80%">
+                    <LineChart data={powerChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                      <XAxis dataKey="time" tick={{ fill: colors.grey[100], fontSize: 10 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} interval="preserveStartEnd" />
+                      <YAxis tick={{ fill: colors.grey[100], fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} unit=" V" domain={["dataMin - 10", "dataMax + 10"]} />
+                      <RechartsTooltip contentStyle={{ background: colors.primary[400], border: `1px solid ${colors.greenAccent[700]}`, borderRadius: 4, color: colors.grey[100] }} formatter={(v) => [`${Number(v).toFixed(1)} V`]} />
+                      <ReferenceArea y1={220} y2={240} fill="#F59E0B" fillOpacity={0.08} label={{ value: "Normal (220-240V)", fill: colors.grey[300], fontSize: 10, position: "insideTopRight" }} />
+                      <Line type="monotone" dataKey="voltage" stroke="#F59E0B" strokeWidth={2} dot={false} name="Voltage" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Box display="flex" alignItems="center" justifyContent="center" height="80%">
+                    <Typography variant="body2" color={colors.grey[400]}>No voltage history data available</Typography>
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          );
+        })()}
         </Box>
       )}
 

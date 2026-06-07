@@ -254,9 +254,8 @@ export default function GroupControl() {
       }
       if (mqttStatsRes.status === "fulfilled") {
         const stats = mqttStatsRes.value;
-        const kpis = stats?.kpis || {};
-        setLiveKW(kpis.avgPower != null ? Number(kpis.avgPower).toFixed(1) : null);
-        setTodayKWh(kpis.todayKwh != null ? Number(kpis.todayKwh).toFixed(1) : null);
+        setLiveKW(stats?.power?.avgPower != null ? Number(stats.power.avgPower).toFixed(1) : null);
+        setTodayKWh(stats?.energy?.todayKwh != null ? Number(stats.energy.todayKwh).toFixed(1) : null);
       }
       setLoading(false);
 
@@ -614,7 +613,7 @@ export default function GroupControl() {
       {/* ===== HEADER ===== */}
       <Box sx={{ px: 3, pt: 3, pb: 1 }}>
         <Typography variant="h4" fontWeight={700} color={headingColor}>
-          Group Control
+          Network Map
         </Typography>
         <Typography variant="body2" color={labelColor} mt={0.5}>
           Manage load control groups, view meter status, and send commands
@@ -1071,50 +1070,6 @@ export default function GroupControl() {
             )}
           </Box>
 
-          {/* Divider */}
-          <Box sx={{ mx: 1.5, my: 1, borderTop: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}` }} />
-
-          {/* Legend */}
-          <Box sx={{ px: 1.5, pb: 1.5 }}>
-            <Typography
-              variant="caption"
-              fontWeight={700}
-              color={labelColor}
-              letterSpacing="0.5px"
-              textTransform="uppercase"
-              display="block"
-              mb={0.75}
-              fontSize="10px"
-            >
-              Legend
-            </Typography>
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-              <Box display="flex" alignItems="center" gap={0.75}>
-                <FiberManualRecord sx={{ fontSize: 8, color: "#4cceac" }} />
-                <Typography fontSize="11px" color={labelColor}>Mains ON, Geyser ON</Typography>
-              </Box>
-              <Box display="flex" alignItems="center" gap={0.75}>
-                <FiberManualRecord sx={{ fontSize: 8, color: "#f2b705" }} />
-                <Typography fontSize="11px" color={labelColor}>Mains ON, Geyser OFF</Typography>
-              </Box>
-              <Box display="flex" alignItems="center" gap={0.75}>
-                <FiberManualRecord sx={{ fontSize: 8, color: "#db4f4a" }} />
-                <Typography fontSize="11px" color={labelColor}>Mains OFF</Typography>
-              </Box>
-              <Box display="flex" alignItems="center" gap={0.75}>
-                <FiberManualRecord sx={{ fontSize: 8, color: "#4a5568" }} />
-                <Typography fontSize="11px" color={labelColor}>Offline</Typography>
-              </Box>
-              <Box display="flex" alignItems="center" gap={0.75}>
-                <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: "#3b82f6" }} />
-                <Typography fontSize="11px" color={labelColor}>Primary Sub</Typography>
-              </Box>
-              <Box display="flex" alignItems="center" gap={0.75}>
-                <Box sx={{ width: 8, height: 8, transform: "rotate(45deg)", bgcolor: "#f59e0b" }} />
-                <Typography fontSize="11px" color={labelColor}>Distribution Sub</Typography>
-              </Box>
-            </Box>
-          </Box>
         </Box>
 
         {/* ===== MAP COLUMN ===== */}
@@ -1304,23 +1259,57 @@ export default function GroupControl() {
                         Flow: {clickedSubstation.regionData.energy.direction === "net_exporting" ? "Exporting" : "Importing"}
                       </Typography>
                     )}
-                    <Button
-                      size="small"
-                      onClick={() => { setClickedSubstation(null); navigate(`/substation/${clickedSubstation.drn || clickedSubstation.id}`); }}
-                      sx={{
-                        mt: 1,
-                        width: "100%",
-                        fontSize: "10px",
-                        textTransform: "none",
-                        bgcolor: "#2563EB",
-                        color: "#fff",
-                        py: "3px",
-                        borderRadius: "6px",
-                        "&:hover": { bgcolor: "#1D4ED8" },
-                      }}
-                    >
-                      View Substation
-                    </Button>
+                    <Box sx={{ display: "flex", gap: 0.75, mt: 1 }}>
+                      <Button
+                        size="small"
+                        onClick={() => { setClickedSubstation(null); navigate(`/load-control/area/${encodeURIComponent(clickedSubstation.district || clickedSubstation.name || clickedSubstation.id)}`); }}
+                        sx={{
+                          flex: 1,
+                          fontSize: "10px",
+                          textTransform: "none",
+                          bgcolor: "#2563EB",
+                          color: "#fff",
+                          py: "3px",
+                          borderRadius: "6px",
+                          "&:hover": { bgcolor: "#1D4ED8" },
+                        }}
+                      >
+                        View Profile
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          const subName = clickedSubstation.name || clickedSubstation.district || `Substation ${clickedSubstation.id}`;
+                          setNewName(subName);
+                          setNewDesc("Load control configuration for " + subName + " - manage meter switching and scheduling");
+                          // Pre-select nearby meters
+                          const nearby = new Set();
+                          meters.forEach(m => {
+                            const lat = parseFloat(m.Lat);
+                            const lng = parseFloat(m.Longitude);
+                            if (!isNaN(lat) && !isNaN(lng)) {
+                              const dist = Math.sqrt(Math.pow(lat - clickedSubstation.lat, 2) + Math.pow(lng - clickedSubstation.lng, 2));
+                              if (dist < 0.05) nearby.add(m.DRN);
+                            }
+                          });
+                          setSelectedMeters(nearby);
+                          setClickedSubstation(null);
+                          setShowCreate(true);
+                        }}
+                        sx={{
+                          flex: 1,
+                          fontSize: "10px",
+                          textTransform: "none",
+                          bgcolor: "#10B981",
+                          color: "#fff",
+                          py: "3px",
+                          borderRadius: "6px",
+                          "&:hover": { bgcolor: "#059669" },
+                        }}
+                      >
+                        Create Group
+                      </Button>
+                    </Box>
                   </Box>
                 </InfoWindow>
               )}
@@ -1389,7 +1378,7 @@ export default function GroupControl() {
               { color: "#db4f4a", label: "Mains OFF" },
               { color: "#4a5568", label: "Offline" },
               { color: "#3B82F6", label: "Primary Substation", shape: "square" },
-              { color: "#F59E0B", label: "Distribution", shape: "diamond" },
+              { color: "#F59E0B", label: "Distribution Node", shape: "diamond" },
             ].map(item => (
               <Box key={item.label} display="flex" alignItems="center" gap={0.5}>
                 {item.shape === "square" ? (
