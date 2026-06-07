@@ -34,20 +34,154 @@ async function request(url, options = {}) {
   return res.json();
 }
 
+// ===== IN-MEMORY CACHE LAYER =====
+const _cache = new Map();
+
+const CACHE_TTL = {
+  '/loadcontrol/meters-state': 30000,
+  '/loadcontrol/grid-topology': 60000,
+  '/loadcontrol/groups': 30000,
+  '/energy-analytics/substation-config': 60000,
+  '/energy-analytics/power-flow': 60000,
+  '/energy-analytics/regional-summary': 60000,
+  '/energy-analytics/district-stats': 60000,
+  '/energy-analytics/suburb-boundaries': 300000,
+  '/meters-information': 30000,
+  '/meters-information-basic': 30000,
+  '/meters-list': 30000,
+  '/meter-summary': 30000,
+  '/activeInactiveMeters': 30000,
+  '/totalMeters': 60000,
+  '/total-tranformers': 120000,
+  '/meterPercentageCount': 30000,
+  '/meterLocation/getAll': 60000,
+  '/transformer/getAll': 120000,
+  '/areaSummary': 60000,
+  '/energy-time-periods': 30000,
+  '/currentDayEnergy': 15000,
+  '/weeklyDataAmount': 30000,
+  '/yearly/currentAndLastYearMonthEnergyTotal': 60000,
+  '/weekly/currentAndLastWeekEnergyTotal': 60000,
+  '/hourlyPowerConsumption': 30000,
+  '/average-current-voltage': 30000,
+  '/last-apparent-power': 30000,
+  '/finance/time-periods': 30000,
+  '/finance/currentAndLastYearMonthRevenueTotal': 60000,
+  '/finance/currentAndLastWeek': 60000,
+  '/finance/hourlyRevenue': 30000,
+  '/finance/pastWeekTokens': 60000,
+  '/finance/energy-overview': 60000,
+  '/tokenAmount': 30000,
+  '/totalTokensBought': 30000,
+  '/get-system-processed-tokens': 60000,
+  '/get-all-token-entries': 60000,
+  '/hourly-token-counts': 30000,
+  '/powerIncreaseOrDecrease': 30000,
+  '/tokenAmountIncreaseOrDecrease': 30000,
+  '/vending/dashboard': 30000,
+  '/vending/tariffs/config': 60000,
+  '/vending/tariffs/groups': 60000,
+  '/vending/vendors': 60000,
+  '/vending/arrears': 30000,
+  '/vending/arrears/summary': 30000,
+  '/vending/dsm': 60000,
+  '/vending/reports/revenue-by-area': 60000,
+  '/vending/reports/meter-status': 60000,
+  '/tamper/summary': 30000,
+  '/tamper/fleet-summary': 30000,
+  '/mqtt/status': 10000,
+  '/mqtt/dashboard-stats': 15000,
+  '/mqtt/meters-health-summary': 30000,
+  '/mqtt/net-energy/dashboard': 30000,
+  '/mqtt/net-energy/active-meters': 30000,
+  '/mqtt/net-metering-configs': 60000,
+  '/systemSettings': 120000,
+  '/allAdmins': 60000,
+  '/allUsers': 60000,
+  '/integration/partners': 60000,
+  '/integration/api-stats': 30000,
+  '/postpaid/summary': 30000,
+  '/postpaid/prepaid-meters': 30000,
+  '/postpaid/postpaid-meters': 30000,
+  '/postpaid/all-meters': 30000,
+  '/postpaid/prepaid-tariff-rates': 60000,
+  '/postpaid/postpaid-tariffs': 60000,
+  '/meter-config/meter-profiles': 60000,
+  '/installers': 60000,
+};
+const DEFAULT_TTL = 20000;
+
+function getCacheTTL(url) {
+  for (const key of Object.keys(CACHE_TTL)) {
+    if (url === key || url.startsWith(key + '/') || url.startsWith(key + '?')) return CACHE_TTL[key];
+  }
+  return DEFAULT_TTL;
+}
+
+const INVALIDATION_MAP = {
+  '/loadcontrol/': ['/loadcontrol/'],
+  '/vending/': ['/vending/'],
+  '/meter': ['/meters-', '/meter', '/totalMeters', '/activeInactive', '/meterPercentage', '/meterLocation', '/areaSummary'],
+  '/postpaid/': ['/postpaid/'],
+  '/integration/': ['/integration/'],
+  '/systemSettings': ['/systemSettings'],
+  '/admin': ['/allAdmins', '/allUsers', '/adminAuth'],
+};
+
+function invalidateCache(url) {
+  for (const [prefix, patterns] of Object.entries(INVALIDATION_MAP)) {
+    if (url.includes(prefix)) {
+      for (const [cacheKey] of _cache) {
+        if (patterns.some(p => cacheKey.includes(p))) {
+          _cache.delete(cacheKey);
+        }
+      }
+      return;
+    }
+  }
+  _cache.clear();
+}
+
 function get(url) {
-  return request(url);
+  const entry = _cache.get(url);
+  const now = Date.now();
+  if (entry && now - entry.ts < entry.ttl) {
+    if (now - entry.ts > entry.ttl * 0.7) {
+      request(url).then(data => {
+        _cache.set(url, { data, ts: Date.now(), ttl: entry.ttl });
+      }).catch(() => {});
+    }
+    return Promise.resolve(entry.data);
+  }
+  return request(url).then(data => {
+    _cache.set(url, { data, ts: Date.now(), ttl: getCacheTTL(url) });
+    return data;
+  });
 }
 
 function post(url, body) {
-  return request(url, { method: 'POST', body: JSON.stringify(body) });
+  return request(url, { method: 'POST', body: JSON.stringify(body) }).then(data => {
+    invalidateCache(url);
+    return data;
+  });
 }
 
 function put(url, body) {
-  return request(url, { method: 'PUT', body: JSON.stringify(body) });
+  return request(url, { method: 'PUT', body: JSON.stringify(body) }).then(data => {
+    invalidateCache(url);
+    return data;
+  });
 }
 
 function del(url) {
-  return request(url, { method: 'DELETE' });
+  return request(url, { method: 'DELETE' }).then(data => {
+    invalidateCache(url);
+    return data;
+  });
+}
+
+export function clearApiCache() {
+  _cache.clear();
 }
 
 async function uploadFile(url, formData) {
