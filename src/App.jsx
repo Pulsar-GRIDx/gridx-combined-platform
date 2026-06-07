@@ -45,7 +45,7 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Layout />}>
-              <Route index element={<Map />} />
+              <Route index element={<GroupControl />} />
               <Route path="vending" element={<Vending />} />
               <Route path="customers" element={<Customers />} />
               <Route path="transactions" element={<Transactions />} />

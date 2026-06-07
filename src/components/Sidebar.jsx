@@ -297,9 +297,9 @@ const Sidebar = () => {
           scrollbarColor: `${isDark ? colors.grey[600] : "#D1D5DB"} transparent`,
         }}
       >
-        {/* Map (default landing page) */}
+        {/* Network Map (default landing page) */}
         <NavItem
-          title="Map"
+          title="Network Map"
           to="/"
           icon={<MapOutlinedIcon />}
           isCollapsed={isCollapsed}
@@ -340,13 +340,6 @@ const Sidebar = () => {
           icon={<AddHomeWorkIcon />}
           isCollapsed={isCollapsed}
           accentColor={colors.greenAccent[500]}
-        />
-        <NavItem
-          title="Group Control"
-          to="/load-control"
-          icon={<TuneIcon />}
-          isCollapsed={isCollapsed}
-          accentColor="#f2b705"
         />
         <NavItem
           title="Meter Profiles"
