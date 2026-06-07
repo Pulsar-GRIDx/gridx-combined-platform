@@ -293,12 +293,12 @@ export default function GroupControl() {
                 id: `dist-${dist.id}-to-sub-${nearest.id}`,
                 from: { lat: dist.lat, lng: dist.lng },
                 to: { lat: nearest.lat, lng: nearest.lng },
-                type: "substation", weight: 2.5, color: "#3b82f660",
+                type: "substation", weight: 3, color: "#3b82f680",
               });
             }
           });
 
-          // Meter → nearest distribution node lines
+          // Meter → nearest distribution node lines (every meter connects to its closest distribution)
           metersArr.forEach(m => {
             const mLat = parseFloat(m.Lat), mLng = parseFloat(m.Longitude);
             if (isNaN(mLat) || isNaN(mLng)) return;
@@ -306,14 +306,14 @@ export default function GroupControl() {
             distSubs.forEach(dist => {
               if (!dist.lat || !dist.lng) return;
               const d = Math.sqrt(Math.pow(mLat - dist.lat, 2) + Math.pow(mLng - dist.lng, 2));
-              if (d < 0.03 && d < minD) { minD = d; nearest = dist; }
+              if (d < minD) { minD = d; nearest = dist; }
             });
             if (nearest) {
               lines.push({
                 id: `meter-${m.DRN}-to-dist-${nearest.id}`,
                 from: { lat: nearest.lat, lng: nearest.lng },
                 to: { lat: mLat, lng: mLng },
-                type: "meter", weight: 1, color: "#64748B40",
+                type: "meter", weight: 1.5, color: "#64748B50",
               });
             }
           });

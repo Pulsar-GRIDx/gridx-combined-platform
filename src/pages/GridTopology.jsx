@@ -160,7 +160,7 @@ function buildTopologyTree(data) {
     Object.values(distNodeMap).forEach((dn) => {
       if (!dn.lat || !dn.lng) return;
       const d = Math.sqrt(Math.pow(mLat - dn.lat, 2) + Math.pow(mLng - dn.lng, 2));
-      if (d < 0.03 && d < minDist) { minDist = d; nearestDist = dn; }
+      if (d < minDist) { minDist = d; nearestDist = dn; }
     });
     if (nearestDist) {
       nearestDist.children.push(mkMeter(m));
