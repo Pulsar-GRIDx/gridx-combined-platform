@@ -43,6 +43,7 @@ import {
   WaterDropOutlined,
   PolylineOutlined,
   ClearOutlined,
+  AccountTreeOutlined,
 } from "@mui/icons-material";
 import {
   GoogleMap,
@@ -518,6 +519,32 @@ export default function GroupControl() {
             </Box>
           </Box>
         ))}
+      </Box>
+
+      {/* ===== NETWORK VIEW BUTTON ===== */}
+      <Box sx={{ px: 3, pb: 1.5 }}>
+        <Button
+          variant="outlined"
+          startIcon={<AccountTreeOutlined />}
+          onClick={() => navigate('/grid-topology')}
+          sx={{
+            textTransform: "none",
+            fontSize: 13,
+            fontWeight: 600,
+            borderRadius: "10px",
+            borderColor: isDark ? "#374151" : "#D1D5DB",
+            color: isDark ? colors.grey[100] : "#374151",
+            py: "7px",
+            px: 2.5,
+            "&:hover": {
+              borderColor: "#2563EB",
+              bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF",
+              color: "#2563EB",
+            },
+          }}
+        >
+          Network View
+        </Button>
       </Box>
 
       {/* ===== MAP AREA WITH SIDEBARS ===== */}

@@ -32,6 +32,7 @@ import DataUsage from "./pages/DataUsage";
 import SubstationProfile from "./pages/SubstationProfile";
 import SystemAnalysis from "./pages/SystemAnalysis";
 import AreaProfile from "./pages/AreaProfile";
+import GridTopology from "./pages/GridTopology";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -74,6 +75,7 @@ function App() {
               <Route path="net-metering" element={<NetMetering />} />
               <Route path="data-usage" element={<DataUsage />} />
               <Route path="system-analysis" element={<SystemAnalysis />} />
+              <Route path="grid-topology" element={<GridTopology />} />
             </Route>
           </Routes>
         </AuthProvider>

@@ -433,4 +433,102 @@ router.post('/loadcontrol/randomize', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── GRID TOPOLOGY ────────────────────────────────────────────
+
+// Ensure topology tables exist
+execute(`CREATE TABLE IF NOT EXISTS GridHierarchy (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  node_type ENUM('main_station','substation','feeder','transformer','meter') NOT NULL,
+  node_id VARCHAR(50) NOT NULL,
+  node_name VARCHAR(200),
+  parent_id INT,
+  parent_node_id VARCHAR(50),
+  lat DECIMAL(10,6),
+  lng DECIMAL(10,6),
+  status ENUM('online','offline','warning','critical') DEFAULT 'online',
+  metadata TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_node (node_type, node_id),
+  INDEX idx_parent (parent_id),
+  INDEX idx_type (node_type),
+  INDEX idx_status (status)
+)`).catch(() => {});
+
+// GET /loadcontrol/grid-topology — Returns the full grid hierarchy
+router.get('/loadcontrol/grid-topology', authenticateToken, async (req, res) => {
+  try {
+    // Get all hierarchy nodes
+    const nodes = await queryAll('SELECT * FROM GridHierarchy ORDER BY node_type, node_name');
+
+    // Get meters from MeterLocationInfoTable + MeterProfileReal
+    const meters = await queryAll(`
+      SELECT ml.DRN, ml.LocationName, ml.Lat, ml.Longitude, ml.Status, ml.Suburb,
+             CONCAT(mpr.Name, ' ', mpr.Surname) as customerName,
+             mpr.City, mpr.Region, mpr.tariff_type
+      FROM MeterLocationInfoTable ml
+      LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
+      WHERE ml.DRN != 'TEST'
+    `);
+
+    // Get substations from energy analytics
+    const substations = await queryAll('SELECT * FROM SubstationConfig').catch(() => []);
+
+    // Get transformers
+    const transformers = await queryAll('SELECT * FROM TransformerInformation').catch(() => []);
+
+    // Build topology tree
+    // Auto-map meters to nearest transformer/substation if not in GridHierarchy
+    const topology = {
+      nodes: nodes || [],
+      meters: meters || [],
+      substations: substations || [],
+      transformers: transformers || [],
+      stats: {
+        totalMeters: (meters || []).length,
+        onlineMeters: (meters || []).filter(m => m.Status == '1' || m.Status == 1).length,
+        offlineMeters: (meters || []).filter(m => m.Status != '1' && m.Status != 1).length,
+        totalSubstations: (substations || []).length,
+        totalTransformers: (transformers || []).length,
+      }
+    };
+
+    res.json({ success: true, data: topology });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /loadcontrol/grid-topology/assign — Assign a meter/device to a parent node
+router.post('/loadcontrol/grid-topology/assign', authenticateToken, async (req, res) => {
+  try {
+    const { nodeType, nodeId, nodeName, parentNodeId, lat, lng } = req.body;
+    if (!nodeType || !nodeId) return res.status(400).json({ error: 'nodeType and nodeId required' });
+
+    await execute(
+      `INSERT INTO GridHierarchy (node_type, node_id, node_name, parent_node_id, lat, lng)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE node_name=VALUES(node_name), parent_node_id=VALUES(parent_node_id), lat=VALUES(lat), lng=VALUES(lng)`,
+      [nodeType, nodeId, nodeName || nodeId, parentNodeId || null, lat || null, lng || null]
+    );
+
+    res.json({ success: true, message: 'Node assigned' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /loadcontrol/grid-topology/orphans — Find unmapped devices
+router.get('/loadcontrol/grid-topology/orphans', authenticateToken, async (req, res) => {
+  try {
+    const allMeters = await queryAll(`SELECT DRN FROM MeterLocationInfoTable WHERE DRN != 'TEST'`);
+    const mappedMeters = await queryAll(`SELECT node_id FROM GridHierarchy WHERE node_type = 'meter'`);
+    const mappedSet = new Set((mappedMeters || []).map(m => m.node_id));
+    const orphans = (allMeters || []).filter(m => !mappedSet.has(m.DRN));
+    res.json({ success: true, data: orphans, count: orphans.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
