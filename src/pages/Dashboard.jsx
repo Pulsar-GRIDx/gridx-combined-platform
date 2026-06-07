@@ -552,9 +552,9 @@ export default function Dashboard() {
           justifyContent="center"
         >
           <StatBox
-            title={`${kpis.peakPower ? kpis.peakPower.toFixed(0) : "0"} W`}
+            title={`${kpis.avgPower ? kpis.avgPower.toFixed(0) : "0"} W`}
             subtitle="Current System Load"
-            progress={String(Math.min(1, (kpis.peakPower || 0) / 10000))}
+            progress={String(Math.min(1, (kpis.avgPower || 0) / 10000))}
             increase={kpis.reportingMeters ? `${kpis.reportingMeters} meter${kpis.reportingMeters > 1 ? "s" : ""} reporting` : ""}
             link="/"
             icon={
@@ -1276,9 +1276,9 @@ export default function Dashboard() {
         >
           <StatBox
             title={fmt(kpis.todayTokens)}
-            subtitle="Tokens Processed Today"
+            subtitle="Accepted Tokens Today"
             progress={kpis.todayTokens > 0 ? String(Math.min(1, kpis.todayTokens / 100)) : "0"}
-            increase="accepted + rejected"
+            increase="accepted only"
             link="/"
             icon={
               <PowerOutlinedIcon
