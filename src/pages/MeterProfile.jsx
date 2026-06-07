@@ -885,6 +885,10 @@ export default function MeterProfile() {
             voltage: parseFloat(r.voltage || 0),
             current: parseFloat(r.current || 0),
             power_factor: parseFloat(r.pf || r.power_factor || 0),
+            reactive_power: parseFloat(r.reactive_power || 0),
+            apparent_power: parseFloat(r.apparent_power || 0),
+            frequency: parseFloat(r.frequency || 0),
+            temperature: parseFloat(r.temperature || 0),
           })));
           return;
         }
@@ -903,6 +907,10 @@ export default function MeterProfile() {
             voltage: parseFloat(r.voltage || 0),
             current: parseFloat(r.current || r.current_val || 0),
             power_factor: parseFloat(r.power_factor || 0),
+            reactive_power: parseFloat(r.reactive_power || 0),
+            apparent_power: parseFloat(r.apparent_power || 0),
+            frequency: parseFloat(r.frequency || 0),
+            temperature: parseFloat(r.temperature || 0),
           };
         }).filter(r => r.time));
       } catch (e) {
@@ -3426,6 +3434,119 @@ export default function MeterProfile() {
                     <Typography variant="body2" color={colors.grey[400]}>No voltage history data available</Typography>
                   </Box>
                 )}
+              </Box>
+
+              {/* ---- Additional Telemetry Charts (2-column grid) ---- */}
+              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, mt: 2 }}>
+                {/* Current Chart */}
+                <Box sx={{ bgcolor: colors.primary[400], borderRadius: "12px", p: 2 }}>
+                  <Typography variant="subtitle2" color={colors.grey[100]} fontWeight="bold" mb={1}>Current — Last 24 Hours</Typography>
+                  {powerChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={powerChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                        <XAxis dataKey="time" tick={{ fill: colors.grey[100], fontSize: 10 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fill: colors.grey[100], fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} unit=" A" />
+                        <RechartsTooltip contentStyle={{ background: colors.primary[400], border: `1px solid ${colors.greenAccent[700]}`, borderRadius: 4, color: colors.grey[100] }} formatter={(v) => [`${Number(v).toFixed(2)} A`]} />
+                        <Line type="monotone" dataKey="current" stroke="#06B6D4" strokeWidth={2} dot={false} name="Current" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Box display="flex" alignItems="center" justifyContent="center" height={220}><Typography variant="body2" color={colors.grey[400]}>No data</Typography></Box>
+                  )}
+                </Box>
+
+                {/* Reactive Power Chart */}
+                <Box sx={{ bgcolor: colors.primary[400], borderRadius: "12px", p: 2 }}>
+                  <Typography variant="subtitle2" color={colors.grey[100]} fontWeight="bold" mb={1}>Reactive Power — Last 24 Hours</Typography>
+                  {powerChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={powerChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                        <XAxis dataKey="time" tick={{ fill: colors.grey[100], fontSize: 10 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fill: colors.grey[100], fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} unit=" VAR" />
+                        <RechartsTooltip contentStyle={{ background: colors.primary[400], border: `1px solid ${colors.greenAccent[700]}`, borderRadius: 4, color: colors.grey[100] }} formatter={(v) => [`${Number(v).toFixed(1)} VAR`]} />
+                        <Line type="monotone" dataKey="reactive_power" stroke="#8B5CF6" strokeWidth={2} dot={false} name="Reactive Power" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Box display="flex" alignItems="center" justifyContent="center" height={220}><Typography variant="body2" color={colors.grey[400]}>No data</Typography></Box>
+                  )}
+                </Box>
+
+                {/* Apparent Power Chart */}
+                <Box sx={{ bgcolor: colors.primary[400], borderRadius: "12px", p: 2 }}>
+                  <Typography variant="subtitle2" color={colors.grey[100]} fontWeight="bold" mb={1}>Apparent Power — Last 24 Hours</Typography>
+                  {powerChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={powerChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                        <XAxis dataKey="time" tick={{ fill: colors.grey[100], fontSize: 10 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fill: colors.grey[100], fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} unit=" VA" />
+                        <RechartsTooltip contentStyle={{ background: colors.primary[400], border: `1px solid ${colors.greenAccent[700]}`, borderRadius: 4, color: colors.grey[100] }} formatter={(v) => [`${Number(v).toFixed(1)} VA`]} />
+                        <Line type="monotone" dataKey="apparent_power" stroke="#EC4899" strokeWidth={2} dot={false} name="Apparent Power" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Box display="flex" alignItems="center" justifyContent="center" height={220}><Typography variant="body2" color={colors.grey[400]}>No data</Typography></Box>
+                  )}
+                </Box>
+
+                {/* Power Factor Chart */}
+                <Box sx={{ bgcolor: colors.primary[400], borderRadius: "12px", p: 2 }}>
+                  <Typography variant="subtitle2" color={colors.grey[100]} fontWeight="bold" mb={1}>Power Factor — Last 24 Hours</Typography>
+                  {powerChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={powerChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                        <XAxis dataKey="time" tick={{ fill: colors.grey[100], fontSize: 10 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fill: colors.grey[100], fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} domain={[0, 1.1]} />
+                        <RechartsTooltip contentStyle={{ background: colors.primary[400], border: `1px solid ${colors.greenAccent[700]}`, borderRadius: 4, color: colors.grey[100] }} formatter={(v) => [`${Number(v).toFixed(3)}`]} />
+                        <ReferenceArea y1={0.85} y2={1.0} fill="#10B981" fillOpacity={0.08} label={{ value: "Normal (0.85-1.0)", fill: colors.grey[300], fontSize: 10, position: "insideTopRight" }} />
+                        <Line type="monotone" dataKey="power_factor" stroke="#10B981" strokeWidth={2} dot={false} name="Power Factor" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Box display="flex" alignItems="center" justifyContent="center" height={220}><Typography variant="body2" color={colors.grey[400]}>No data</Typography></Box>
+                  )}
+                </Box>
+
+                {/* Frequency Chart */}
+                <Box sx={{ bgcolor: colors.primary[400], borderRadius: "12px", p: 2 }}>
+                  <Typography variant="subtitle2" color={colors.grey[100]} fontWeight="bold" mb={1}>Frequency — Last 24 Hours</Typography>
+                  {powerChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={powerChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                        <XAxis dataKey="time" tick={{ fill: colors.grey[100], fontSize: 10 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fill: colors.grey[100], fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} unit=" Hz" domain={["dataMin - 1", "dataMax + 1"]} />
+                        <RechartsTooltip contentStyle={{ background: colors.primary[400], border: `1px solid ${colors.greenAccent[700]}`, borderRadius: 4, color: colors.grey[100] }} formatter={(v) => [`${Number(v).toFixed(2)} Hz`]} />
+                        <ReferenceArea y1={49.5} y2={50.5} fill="#F97316" fillOpacity={0.08} label={{ value: "Normal (49.5-50.5 Hz)", fill: colors.grey[300], fontSize: 10, position: "insideTopRight" }} />
+                        <Line type="monotone" dataKey="frequency" stroke="#F97316" strokeWidth={2} dot={false} name="Frequency" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Box display="flex" alignItems="center" justifyContent="center" height={220}><Typography variant="body2" color={colors.grey[400]}>No data</Typography></Box>
+                  )}
+                </Box>
+
+                {/* Temperature Chart */}
+                <Box sx={{ bgcolor: colors.primary[400], borderRadius: "12px", p: 2 }}>
+                  <Typography variant="subtitle2" color={colors.grey[100]} fontWeight="bold" mb={1}>Temperature — Last 24 Hours</Typography>
+                  {powerChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={powerChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                        <XAxis dataKey="time" tick={{ fill: colors.grey[100], fontSize: 10 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fill: colors.grey[100], fontSize: 11 }} axisLine={{ stroke: "rgba(255,255,255,0.1)" }} tickLine={false} unit=" °C" />
+                        <RechartsTooltip contentStyle={{ background: colors.primary[400], border: `1px solid ${colors.greenAccent[700]}`, borderRadius: 4, color: colors.grey[100] }} formatter={(v) => [`${Number(v).toFixed(1)} °C`]} />
+                        <Line type="monotone" dataKey="temperature" stroke="#EF4444" strokeWidth={2} dot={false} name="Temperature" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Box display="flex" alignItems="center" justifyContent="center" height={220}><Typography variant="body2" color={colors.grey[400]}>No data</Typography></Box>
+                  )}
+                </Box>
               </Box>
             </Box>
           );

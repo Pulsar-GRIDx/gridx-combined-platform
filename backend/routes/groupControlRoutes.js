@@ -498,6 +498,20 @@ router.get('/loadcontrol/history', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── FAST NETWORK MAP SUMMARY (pre-aggregated from SummaryNetworkMap) ──
+router.get('/loadcontrol/network-summary', authenticateToken, async (req, res) => {
+  try {
+    var rows = await queryAll('SELECT kpi_key, kpi_value, kpi_json FROM SummaryNetworkMap');
+    var result = {};
+    rows.forEach(function(r) {
+      result[r.kpi_key] = { value: parseFloat(r.kpi_value) || 0, data: r.kpi_json };
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
 // ─── GET ALL METERS WITH MAINS+GEYSER STATE (for map) ───────
 router.get('/loadcontrol/meters-state', authenticateToken, function(req, res) {
   getCachedMetersState(function(err, meters) {

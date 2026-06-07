@@ -39,6 +39,7 @@ const _cache = new Map();
 
 const CACHE_TTL = {
   '/loadcontrol/meters-state': 30000,
+  '/loadcontrol/network-summary': 10000,
   '/loadcontrol/grid-topology': 60000,
   '/loadcontrol/groups': 30000,
   '/energy-analytics/substation-config': 60000,
@@ -499,6 +500,7 @@ export const groupControlAPI = {
   execute: (data) => post('/loadcontrol/execute', data),
   getHistory: () => get('/loadcontrol/history'),
   getMetersState: () => get('/loadcontrol/meters-state'),
+  getNetworkSummary: () => get('/loadcontrol/network-summary'),
   randomize: (data) => post('/loadcontrol/randomize', data),
 };
 
