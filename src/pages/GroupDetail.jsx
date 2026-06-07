@@ -46,6 +46,8 @@ import {
   CloseOutlined,
   ScheduleOutlined,
   AutorenewOutlined,
+  TimerOutlined,
+  LockOutlined,
 } from "@mui/icons-material";
 import {
   GoogleMap,
@@ -132,6 +134,19 @@ export default function GroupDetail() {
   const [calPeriod, setCalPeriod] = useState("weekly");
   const [calPreferredTime, setCalPreferredTime] = useState("02:00");
 
+  // Restoration modes
+  const [autoRestoreEnabled, setAutoRestoreEnabled] = useState(false);
+  const [disconnectThreshold, setDisconnectThreshold] = useState(5000);
+  const [restoreThreshold, setRestoreThreshold] = useState(3000);
+  const [hysteresis, setHysteresis] = useState(500);
+
+  const [timedRestoreEnabled, setTimedRestoreEnabled] = useState(false);
+  const [restorationDelay, setRestorationDelay] = useState(30);
+  const [reconnectThreshold, setReconnectThreshold] = useState(3500);
+  const [retryInterval, setRetryInterval] = useState(10);
+
+  const [externalRestoreEnabled, setExternalRestoreEnabled] = useState(false);
+
   const { isLoaded } = useJsApiLoader({ googleMapsApiKey: GOOGLE_MAPS_KEY, libraries: LIBRARIES });
 
   /* Fetch group data */
@@ -161,6 +176,23 @@ export default function GroupDetail() {
           setCalRoutineEnabled(true);
           if (d.calibration.period) setCalPeriod(d.calibration.period);
           if (d.calibration.preferredTime) setCalPreferredTime(d.calibration.preferredTime);
+        }
+        if (d.restoration) {
+          if (d.restoration.automatic?.enabled) {
+            setAutoRestoreEnabled(true);
+            setDisconnectThreshold(d.restoration.automatic.disconnectThreshold || 5000);
+            setRestoreThreshold(d.restoration.automatic.restoreThreshold || 3000);
+            setHysteresis(d.restoration.automatic.hysteresis || 500);
+          }
+          if (d.restoration.timed?.enabled) {
+            setTimedRestoreEnabled(true);
+            setRestorationDelay(d.restoration.timed.restorationDelay || 30);
+            setReconnectThreshold(d.restoration.timed.reconnectThreshold || 3500);
+            setRetryInterval(d.restoration.timed.retryInterval || 10);
+          }
+          if (d.restoration.external?.enabled) {
+            setExternalRestoreEnabled(true);
+          }
         }
       }
       if (metersRes.status === "fulfilled") {
@@ -1243,6 +1275,215 @@ export default function GroupDetail() {
               </Box>
             )}
           </Box>
+        </Box>
+      </Box>
+
+      {/* ===== RESTORATION MODES ===== */}
+      <Box sx={{ px: 3, pb: 2 }}>
+        <Typography variant="h6" fontWeight={600} color={headingColor} mb={1.5}>
+          Restoration Modes
+        </Typography>
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 2 }}>
+
+          {/* Automatic Restoration */}
+          <Box sx={{ bgcolor: cardBg, border: cardBorder, borderRadius: "12px", p: "20px" }}>
+            <Box display="flex" alignItems="center" gap={1.5} mb={1}>
+              <Box sx={{ width: 36, height: 36, borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: isDark ? "rgba(16,185,129,0.1)" : "#ECFDF5" }}>
+                <AutorenewOutlined sx={{ fontSize: 20, color: "#10B981" }} />
+              </Box>
+              <Box flex={1}>
+                <Typography variant="subtitle2" fontWeight={600} color={headingColor}>Automatic Restoration</Typography>
+                <Typography variant="caption" color={labelColor} fontSize={11}>Automatically reconnect load when demand drops below threshold</Typography>
+              </Box>
+            </Box>
+            <FormControlLabel
+              control={
+                <Switch checked={autoRestoreEnabled} onChange={(e) => setAutoRestoreEnabled(e.target.checked)} size="small"
+                  sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: "#10B981" }, "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#10B981" } }} />
+              }
+              label={<Typography variant="caption" color={labelColor}>{autoRestoreEnabled ? "Enabled" : "Disabled"}</Typography>}
+              sx={{ mb: 1 }}
+            />
+            {autoRestoreEnabled && (
+              <Box>
+                <TextField label="Disconnect Threshold" type="number" value={disconnectThreshold}
+                  onChange={(e) => setDisconnectThreshold(Number(e.target.value))} size="small" fullWidth
+                  helperText="Load disconnects when demand exceeds this value"
+                  InputProps={{ endAdornment: <InputAdornment position="end">W</InputAdornment> }}
+                  sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { fontSize: 13 }, "& .MuiFormHelperText-root": { fontSize: 10, color: labelColor } }} />
+                <TextField label="Restore Threshold" type="number" value={restoreThreshold}
+                  onChange={(e) => setRestoreThreshold(Number(e.target.value))} size="small" fullWidth
+                  helperText="Load reconnects when demand falls below this value"
+                  InputProps={{ endAdornment: <InputAdornment position="end">W</InputAdornment> }}
+                  sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { fontSize: 13 }, "& .MuiFormHelperText-root": { fontSize: 10, color: labelColor } }} />
+                <TextField label="Hysteresis Value" type="number" value={hysteresis}
+                  onChange={(e) => setHysteresis(Number(e.target.value))} size="small" fullWidth
+                  helperText="Prevents relay chattering by adding a buffer zone"
+                  InputProps={{ endAdornment: <InputAdornment position="end">W</InputAdornment> }}
+                  sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { fontSize: 13 }, "& .MuiFormHelperText-root": { fontSize: 10, color: labelColor } }} />
+                {restoreThreshold >= disconnectThreshold && (
+                  <Typography variant="caption" sx={{ color: "#EF4444", display: "block", mb: 1.5 }}>
+                    Restore threshold must be lower than disconnect threshold
+                  </Typography>
+                )}
+                <Box sx={{ bgcolor: isDark ? "rgba(16,185,129,0.06)" : "#F0FDF4", borderRadius: "8px", p: 1.5, mb: 1.5 }}>
+                  <Typography variant="caption" color={labelColor} fontSize={10} fontWeight={600} textTransform="uppercase" letterSpacing="0.5px">Current State</Typography>
+                  <Typography variant="body2" color={headingColor} fontSize={12} mt={0.5}>Load State: Connected</Typography>
+                  <Typography variant="body2" color={headingColor} fontSize={12}>Mode: Automatic</Typography>
+                  <Typography variant="body2" color={headingColor} fontSize={12}>Hysteresis: {hysteresis}W</Typography>
+                </Box>
+                <Button fullWidth variant="contained"
+                  disabled={restoreThreshold >= disconnectThreshold}
+                  onClick={async () => {
+                    try {
+                      await groupControlAPI.updateGroup(groupId, {
+                        restoration: {
+                          automatic: { enabled: autoRestoreEnabled, disconnectThreshold, restoreThreshold, hysteresis },
+                          timed: { enabled: timedRestoreEnabled, restorationDelay, reconnectThreshold, retryInterval },
+                          external: { enabled: externalRestoreEnabled },
+                        }
+                      });
+                      setSnackbar({ open: true, message: "Automatic restoration config saved", severity: "success" });
+                    } catch (err) {
+                      setSnackbar({ open: true, message: "Save failed: " + err.message, severity: "error" });
+                    }
+                  }}
+                  sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", bgcolor: "#10B981", "&:hover": { bgcolor: "#059669" } }}>
+                  Save
+                </Button>
+              </Box>
+            )}
+          </Box>
+
+          {/* Timed Restoration */}
+          <Box sx={{ bgcolor: cardBg, border: cardBorder, borderRadius: "12px", p: "20px" }}>
+            <Box display="flex" alignItems="center" gap={1.5} mb={1}>
+              <Box sx={{ width: 36, height: 36, borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: isDark ? "rgba(37,99,235,0.1)" : "#EFF6FF" }}>
+                <TimerOutlined sx={{ fontSize: 20, color: "#2563EB" }} />
+              </Box>
+              <Box flex={1}>
+                <Typography variant="subtitle2" fontWeight={600} color={headingColor}>Timed Restoration</Typography>
+                <Typography variant="caption" color={labelColor} fontSize={11}>Restore load after a configurable delay period</Typography>
+              </Box>
+            </Box>
+            <FormControlLabel
+              control={
+                <Switch checked={timedRestoreEnabled} onChange={(e) => setTimedRestoreEnabled(e.target.checked)} size="small"
+                  sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: "#2563EB" }, "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#2563EB" } }} />
+              }
+              label={<Typography variant="caption" color={labelColor}>{timedRestoreEnabled ? "Enabled" : "Disabled"}</Typography>}
+              sx={{ mb: 1 }}
+            />
+            {timedRestoreEnabled && (
+              <Box>
+                <TextField label="Restoration Delay" type="number" value={restorationDelay}
+                  onChange={(e) => setRestorationDelay(Number(e.target.value))} size="small" fullWidth
+                  helperText="Wait this long before attempting restoration"
+                  InputProps={{ endAdornment: <InputAdornment position="end">min</InputAdornment> }}
+                  sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { fontSize: 13 }, "& .MuiFormHelperText-root": { fontSize: 10, color: labelColor } }} />
+                <TextField label="Reconnect Threshold" type="number" value={reconnectThreshold}
+                  onChange={(e) => setReconnectThreshold(Number(e.target.value))} size="small" fullWidth
+                  helperText="Only reconnect if demand is below this value"
+                  InputProps={{ endAdornment: <InputAdornment position="end">W</InputAdornment> }}
+                  sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { fontSize: 13 }, "& .MuiFormHelperText-root": { fontSize: 10, color: labelColor } }} />
+                <TextField label="Retry Interval" type="number" value={retryInterval}
+                  onChange={(e) => setRetryInterval(Number(e.target.value))} size="small" fullWidth
+                  helperText="If demand still too high, retry after this interval"
+                  InputProps={{ endAdornment: <InputAdornment position="end">min</InputAdornment> }}
+                  sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { fontSize: 13 }, "& .MuiFormHelperText-root": { fontSize: 10, color: labelColor } }} />
+                <Box sx={{ bgcolor: isDark ? "rgba(37,99,235,0.06)" : "#F0F9FF", borderRadius: "8px", p: 1.5, mb: 1.5, border: `1px solid ${isDark ? "rgba(37,99,235,0.15)" : "#BFDBFE"}` }}>
+                  <Typography variant="caption" color={labelColor} fontSize={10} fontWeight={600} textTransform="uppercase" letterSpacing="0.5px">Timer Status</Typography>
+                  <Typography variant="body2" color={headingColor} fontSize={12} mt={0.5}>Next restoration attempt: --</Typography>
+                </Box>
+                <Button fullWidth variant="contained"
+                  onClick={async () => {
+                    try {
+                      await groupControlAPI.updateGroup(groupId, {
+                        restoration: {
+                          automatic: { enabled: autoRestoreEnabled, disconnectThreshold, restoreThreshold, hysteresis },
+                          timed: { enabled: timedRestoreEnabled, restorationDelay, reconnectThreshold, retryInterval },
+                          external: { enabled: externalRestoreEnabled },
+                        }
+                      });
+                      setSnackbar({ open: true, message: "Timed restoration config saved", severity: "success" });
+                    } catch (err) {
+                      setSnackbar({ open: true, message: "Save failed: " + err.message, severity: "error" });
+                    }
+                  }}
+                  sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", bgcolor: "#2563EB", "&:hover": { bgcolor: "#1D4ED8" } }}>
+                  Save
+                </Button>
+              </Box>
+            )}
+          </Box>
+
+          {/* External Restoration (Manual) */}
+          <Box sx={{ bgcolor: cardBg, border: cardBorder, borderRadius: "12px", p: "20px" }}>
+            <Box display="flex" alignItems="center" gap={1.5} mb={1}>
+              <Box sx={{ width: 36, height: 36, borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: isDark ? "rgba(239,68,68,0.1)" : "#FEF2F2" }}>
+                <LockOutlined sx={{ fontSize: 20, color: "#EF4444" }} />
+              </Box>
+              <Box flex={1}>
+                <Typography variant="subtitle2" fontWeight={600} color={headingColor}>External Restoration (Manual)</Typography>
+                <Typography variant="caption" color={labelColor} fontSize={11}>Load remains off until explicit restoration command is received</Typography>
+              </Box>
+            </Box>
+            <FormControlLabel
+              control={
+                <Switch checked={externalRestoreEnabled} onChange={(e) => setExternalRestoreEnabled(e.target.checked)} size="small"
+                  sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: "#EF4444" }, "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: "#EF4444" } }} />
+              }
+              label={<Typography variant="caption" color={labelColor}>{externalRestoreEnabled ? "Enabled" : "Disabled"}</Typography>}
+              sx={{ mb: 1 }}
+            />
+            {externalRestoreEnabled && (
+              <Box>
+                <Box sx={{ bgcolor: isDark ? "rgba(239,68,68,0.06)" : "#FEF2F2", borderRadius: "8px", p: 1.5, mb: 1.5, border: `1px solid ${isDark ? "rgba(239,68,68,0.15)" : "#FECACA"}` }}>
+                  <Typography variant="caption" color={isDark ? "#FCA5A5" : "#B91C1C"} fontSize={11} lineHeight={1.5}>
+                    Automatic reconnection is DISABLED in this mode. Load will remain disconnected regardless of demand conditions until a LOAD_ON command is received.
+                  </Typography>
+                </Box>
+                <Box display="flex" gap={1.5} mb={1.5}>
+                  <Button variant="contained" size="small" fullWidth
+                    onClick={() => handleExecute("mains_on", "LOAD ON (Manual Restoration)")}
+                    disabled={groupMembers.length === 0}
+                    sx={{ textTransform: "none", fontWeight: 600, fontSize: 12, borderRadius: "8px", bgcolor: "#10B981", "&:hover": { bgcolor: "#059669" }, py: 1 }}>
+                    LOAD ON
+                  </Button>
+                  <Button variant="contained" size="small" fullWidth
+                    onClick={() => handleExecute("mains_off", "LOAD OFF (Manual Lockout)")}
+                    disabled={groupMembers.length === 0}
+                    sx={{ textTransform: "none", fontWeight: 600, fontSize: 12, borderRadius: "8px", bgcolor: "#EF4444", "&:hover": { bgcolor: "#DC2626" }, py: 1 }}>
+                    LOAD OFF
+                  </Button>
+                </Box>
+                <Box sx={{ bgcolor: isDark ? "rgba(100,116,139,0.08)" : "#F9FAFB", borderRadius: "8px", p: 1.5, mb: 1.5 }}>
+                  <Typography variant="caption" color={labelColor} fontSize={10} fontWeight={600} textTransform="uppercase" letterSpacing="0.5px">Current Lockout Status</Typography>
+                  <Typography variant="body2" color={headingColor} fontSize={12} mt={0.5}>Lockout: INACTIVE -- Load is connected</Typography>
+                  <Typography variant="caption" color={labelColor} fontSize={11} display="block" mt={0.5}>Last Command: No commands issued</Typography>
+                </Box>
+                <Button fullWidth variant="contained"
+                  onClick={async () => {
+                    try {
+                      await groupControlAPI.updateGroup(groupId, {
+                        restoration: {
+                          automatic: { enabled: autoRestoreEnabled, disconnectThreshold, restoreThreshold, hysteresis },
+                          timed: { enabled: timedRestoreEnabled, restorationDelay, reconnectThreshold, retryInterval },
+                          external: { enabled: externalRestoreEnabled },
+                        }
+                      });
+                      setSnackbar({ open: true, message: "External restoration config saved", severity: "success" });
+                    } catch (err) {
+                      setSnackbar({ open: true, message: "Save failed: " + err.message, severity: "error" });
+                    }
+                  }}
+                  sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", bgcolor: "#EF4444", "&:hover": { bgcolor: "#DC2626" } }}>
+                  Save
+                </Button>
+              </Box>
+            )}
+          </Box>
+
         </Box>
       </Box>
 
