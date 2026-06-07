@@ -641,6 +641,19 @@ router.post('/calibrate/:drn', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /clear-tamper/:drn — send clear tamper command to a meter
+router.post('/clear-tamper/:drn', authenticateToken, async (req, res) => {
+  try {
+    const DRN = req.params.drn;
+    const { user } = req.body;
+    mqttHandler.publishCommand(DRN, { type: 'clear_tamper' }, 1);
+    console.log(`[ClearTamper] Command sent to ${DRN} by ${user || 'Admin'}`);
+    res.json({ success: true, message: `Clear tamper command sent to ${DRN}`, mqtt_sent: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /calibration-log/:drn — get calibration history for a meter
 router.get('/calibration-log/:drn', authenticateToken, async (req, res) => {
   try {

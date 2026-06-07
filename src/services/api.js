@@ -386,6 +386,7 @@ export const meterConfigAPI = {
   getAuthorizedNumbers: (drn) => get(`/meterAuthorizedNumbers/${drn}`),
   // Calibration
   calibrate: (drn, action) => post(`/calibrate/${drn}`, { action }),
+  clearTamper: (drn, user) => post(`/clear-tamper/${drn}`, { user: user || 'Admin' }),
   getCalibrationLog: (drn) => get(`/calibration-log/${drn}`),
 };
 

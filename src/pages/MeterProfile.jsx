@@ -59,6 +59,7 @@ import {
   ContentCopyOutlined,
   SendOutlined,
   RestartAltOutlined,
+  GppBadOutlined,
   LockResetOutlined,
   WaterDropOutlined,
   ArrowBackOutlined,
@@ -1141,6 +1142,10 @@ export default function MeterProfile() {
         case "restart_meter":
           await meterConfigAPI.resetMeter(drn, reason, userName);
           setSnackbar({ open: true, message: "Restart Meter command sent", severity: "success" });
+          break;
+        case "clear_tamper":
+          await meterConfigAPI.clearTamper(drn, userName);
+          setSnackbar({ open: true, message: "Clear Tamper command sent", severity: "success" });
           break;
         case "mains_on":
           await meterConfigAPI.setMainsControl(drn, 1);
@@ -2973,6 +2978,11 @@ export default function MeterProfile() {
                 onClick={() => setConfirmDialog({ open: true, type: "config_restart", action: "restart_meter" })}
                 sx={{ textTransform: "none", justifyContent: "flex-start", color: "#db4f4a", borderColor: "#db4f4a" }}>
                 Restart Meter
+              </Button>
+              <Button variant="outlined" startIcon={<GppBadOutlined />} disabled={commandLoading}
+                onClick={() => setConfirmDialog({ open: true, type: "config_clear_tamper", action: "clear_tamper" })}
+                sx={{ textTransform: "none", justifyContent: "flex-start", color: "#f97316", borderColor: "#f97316" }}>
+                Clear Tamper
               </Button>
             </Box>
           </Box>
@@ -5347,7 +5357,7 @@ export default function MeterProfile() {
       >
         <DialogTitle>
           {confirmDialog.type?.startsWith("config_")
-            ? `Confirm ${confirmDialog.action === "reset_ble" ? "Reset BLE PIN" : confirmDialog.action === "clear_auth" ? "Clear Authorized Numbers" : confirmDialog.action === "calibrate_auto" ? "Auto-Calibration" : "Restart Meter"}`
+            ? `Confirm ${confirmDialog.action === "reset_ble" ? "Reset BLE PIN" : confirmDialog.action === "clear_auth" ? "Clear Authorized Numbers" : confirmDialog.action === "calibrate_auto" ? "Auto-Calibration" : confirmDialog.action === "clear_tamper" ? "Clear Tamper" : "Restart Meter"}`
             : `Confirm ${confirmDialog.type?.replace("_state", "").replace("mains", "Mains").replace("heater", "Heater")} ${confirmDialog.action === "enable" ? "Enable" : confirmDialog.action === "disable" ? "Disable" : confirmDialog.action === "on" ? "Turn ON" : "Turn OFF"}`
           }
         </DialogTitle>
