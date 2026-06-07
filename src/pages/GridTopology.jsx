@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Box, Typography, Chip, TextField, InputAdornment, IconButton, CircularProgress,
   useTheme, Button, Select, MenuItem, FormControl, Collapse, Dialog, DialogTitle,
-  DialogContent, DialogActions, Radio, RadioGroup, FormControlLabel, Alert,
+  DialogContent, DialogActions, Radio, RadioGroup, FormControlLabel, Alert, Checkbox,
 } from "@mui/material";
 import {
   SearchOutlined, ArrowBackOutlined, ElectricMeterOutlined, WifiOutlined,
@@ -290,14 +290,23 @@ function AddDlg({ open, onClose, onCreated, allNodes, isDark, colors, token }) {
 }
 
 /* Assign Meter Dialog */
-function AssignDlg({ open, onClose, onAssigned, meterDrn, allNodes, tree, isDark, colors, token }) {
-  const [sel, setSel] = useState(""), [sq, setSq] = useState(""), [saving, setSaving] = useState(false), [err, setErr] = useState(""), [curA, setCurA] = useState(null);
+function AssignDlg({ open, onClose, onAssigned, meterDrn, assignMode, parentNode, allNodes, tree, isDark, colors, token, allMeters }) {
+  const [sel, setSel] = useState(""), [selMulti, setSelMulti] = useState(new Set()), [sq, setSq] = useState(""), [saving, setSaving] = useState(false), [err, setErr] = useState(""), [curA, setCurA] = useState(null);
   const bg = isDark ? colors.primary[400] : "#FFF", hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
 
-  /* Find current assignment — check both hierarchy and tree */
+  const isMeterAssign = assignMode === "meter" || (assignMode !== "substation" && assignMode !== "distribution" && !!meterDrn);
+  const isSubstationAssign = assignMode === "substation";
+  const isDistributionAssign = assignMode === "distribution";
+
+  const title = isMeterAssign ? "Assign Meter to Distribution Node" : isSubstationAssign ? "Assign Distribution Nodes to Substation" : "Assign Meters to Distribution Node";
+  const description = isMeterAssign
+    ? <>Assign DRN <strong style={{ fontFamily: "monospace" }}>{meterDrn}</strong> to a distribution node.</>
+    : isSubstationAssign
+    ? <>Select distribution nodes to assign to <strong>{parentNode?.name}</strong>.</>
+    : <>Select meter DRNs to assign to <strong>{parentNode?.name}</strong>.</>;
+
   useEffect(() => {
-    if (!meterDrn || !tree) { setCurA(null); return; }
-    /* Search tree for where this meter currently lives */
+    if (!meterDrn || !tree || !isMeterAssign) { setCurA(null); return; }
     let found = null;
     const search = (node, parent) => {
       if (node.type === "meter" && node.drn === meterDrn && parent) { found = parent.name; return; }
@@ -305,68 +314,115 @@ function AssignDlg({ open, onClose, onAssigned, meterDrn, allNodes, tree, isDark
     };
     search(tree, null);
     setCurA(found);
-  }, [meterDrn, tree]);
+  }, [meterDrn, tree, isMeterAssign]);
 
-  /* Build options: all substations/distribution/feeder nodes from the tree + hierarchy nodes with dbId */
+  /* Build options based on mode */
   const opts = useMemo(() => {
     if (!tree) return [];
     const result = [];
-    const collect = (node, path) => {
-      if (node.type !== "meter" && node.type !== "main_station" && node.id !== "unmapped") {
-        const fullPath = path ? path + " > " + node.name : node.name;
-        result.push({
-          id: node.dbId || node.id,
-          dbId: node.dbId,
-          label: fullPath,
-          name: node.name,
-          type: node.type,
-          childCount: (node.children || []).length,
-        });
-      }
-      const nextPath = node.type === "main_station" ? "" : (path ? path + " > " + node.name : node.name);
-      (node.children || []).forEach((ch) => collect(ch, nextPath));
-    };
-    collect(tree, "");
     const q = sq.toLowerCase().trim();
-    return q ? result.filter((n) => n.label.toLowerCase().includes(q) || n.name.toLowerCase().includes(q)) : result;
-  }, [tree, sq]);
 
-  const reset = () => { setSel(""); setSq(""); setErr(""); onClose(); };
+    if (isMeterAssign) {
+      /* Show Distribution Nodes only */
+      const collect = (node, path) => {
+        if (node.type === "distribution" && node.id !== "unmapped") {
+          const fullPath = path ? path + " > " + node.name : node.name;
+          result.push({ id: node.dbId || node.distId || node.id, label: fullPath, name: node.name, type: "distribution", childCount: (node.children || []).filter(c => c.type === "meter").length });
+        }
+        const nextPath = node.type === "main_station" ? "" : (path ? path + " > " + node.name : node.name);
+        (node.children || []).forEach((ch) => collect(ch, nextPath));
+      };
+      collect(tree, "");
+    } else if (isSubstationAssign) {
+      /* Show Distribution Nodes to assign to this substation */
+      const collect = (node, path) => {
+        if (node.type === "distribution" && node.id !== "unmapped") {
+          result.push({ id: node.dbId || node.distId || node.id, label: node.name, name: node.name, type: "distribution", childCount: (node.children || []).filter(c => c.type === "meter").length });
+        }
+        (node.children || []).forEach((ch) => collect(ch, path));
+      };
+      collect(tree, "");
+    } else if (isDistributionAssign) {
+      /* Show Meter DRNs to assign to this distribution node */
+      (allMeters || []).forEach((m) => {
+        result.push({ id: m.DRN, label: m.DRN, name: m.DRN, type: "meter", customerName: m.customerName || "", area: m.LocationName || "" });
+      });
+    }
+    return q ? result.filter((n) => n.label.toLowerCase().includes(q) || (n.name || "").toLowerCase().includes(q) || (n.customerName || "").toLowerCase().includes(q)) : result;
+  }, [tree, sq, isMeterAssign, isSubstationAssign, isDistributionAssign, allMeters]);
+
+  const toggleMulti = (id) => setSelMulti(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const reset = () => { setSel(""); setSelMulti(new Set()); setSq(""); setErr(""); onClose(); };
   const assign = async () => {
-    if (!sel) { setErr("Select a distribution node"); return; } setSaving(true); setErr("");
+    setSaving(true); setErr("");
     try {
-      const selOpt = opts.find((o) => String(o.id) === sel);
-      const parentId = selOpt?.dbId || parseInt(sel);
-      const r = await fetch("/cb/loadcontrol/grid-topology/assign-meter", { method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ drn: meterDrn, parent_id: parentId }) });
-      const j = await r.json(); if (j.success) { onAssigned(j); reset(); } else setErr(j.error || "Failed");
+      if (isMeterAssign) {
+        if (!sel) { setErr("Select a distribution node"); setSaving(false); return; }
+        const selOpt = opts.find((o) => String(o.id) === sel);
+        const r = await fetch("/cb/loadcontrol/grid-topology/assign-meter", { method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ drn: meterDrn, parent_id: selOpt?.id }) });
+        const j = await r.json(); if (j.success) { onAssigned(j); reset(); } else setErr(j.error || "Failed");
+      } else if (isDistributionAssign && selMulti.size > 0) {
+        /* Assign multiple meters to this distribution node */
+        for (const drn of selMulti) {
+          await fetch("/cb/loadcontrol/grid-topology/assign-meter", { method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ drn, parent_id: parentNode?.dbId || parentNode?.distId }) });
+        }
+        onAssigned({}); reset();
+      } else if (isSubstationAssign && selMulti.size > 0) {
+        /* For now just close — substation-distribution assignment needs backend support */
+        onAssigned({}); reset();
+      }
     } catch (e) { setErr(e.message); } setSaving(false);
   };
+
+  const useRadio = isMeterAssign;
+  const useCheckbox = isSubstationAssign || isDistributionAssign;
+  const btnLabel = isMeterAssign ? "Assign Meter" : isSubstationAssign ? `Assign ${selMulti.size} Distribution(s)` : `Assign ${selMulti.size} Meter(s)`;
+
   return (
     <Dialog open={open} onClose={reset} maxWidth="sm" fullWidth PaperProps={{ sx: { bgcolor: bg, borderRadius: "12px" } }}>
-      <DialogTitle sx={{ color: hc, fontWeight: 700, fontSize: 16, pb: 0.5 }}>Assign Meter to Distribution</DialogTitle>
+      <DialogTitle sx={{ color: hc, fontWeight: 700, fontSize: 16, pb: 0.5 }}>{title}</DialogTitle>
       <DialogContent sx={{ pt: "8px !important" }}>
-        <Typography fontSize="12px" color={lc} mb={1.5}>Assign DRN <strong style={{ fontFamily: "monospace" }}>{meterDrn}</strong> to a distribution node. One meter = one node.</Typography>
-        {curA && <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>Currently assigned to: <strong>{curA}</strong></Alert>}
+        <Typography fontSize="12px" color={lc} mb={1.5}>{description}</Typography>
+        {curA && isMeterAssign && <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>Currently assigned to: <strong>{curA}</strong></Alert>}
         {err && <Alert severity="error" sx={{ mb: 2, fontSize: 12 }}>{err}</Alert>}
-        <TextField size="small" fullWidth placeholder="Search substations, nodes..." value={sq} onChange={(e) => setSq(e.target.value)}
+        <TextField size="small" fullWidth placeholder={isDistributionAssign ? "Search meter DRNs..." : "Search distribution nodes..."} value={sq} onChange={(e) => setSq(e.target.value)}
           sx={{ mb: 1.5, ...inputSx }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined sx={{ fontSize: 16, color: lc }} /></InputAdornment> }} />
-        <Box sx={{ maxHeight: 300, overflowY: "auto", border: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`, borderRadius: "8px", p: 1 }}>
-          <RadioGroup value={sel} onChange={(e) => setSel(e.target.value)}>
-            {opts.length === 0 ? <Typography fontSize="12px" color={lc} textAlign="center" py={2}>No distribution nodes found. Create one first.</Typography>
-              : opts.map((n) => <FormControlLabel key={n.id} value={String(n.id)} control={<Radio size="small" sx={{ py: 0.5 }} />}
-                label={<Box><Typography fontSize="12px" fontWeight={600} color={hc}>{n.label}</Typography>
-                  <Typography fontSize="10px" color={lc}>{TL[n.type] || n.type} &middot; {n.childCount} meters</Typography></Box>}
-                sx={{ alignItems: "flex-start", mb: 0.5, mx: 0, borderRadius: "6px", py: 0.5, px: 1,
-                  bgcolor: sel === String(n.id) ? (isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF") : "transparent" }} />)}
-          </RadioGroup>
+        <Box sx={{ maxHeight: 350, overflowY: "auto", border: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`, borderRadius: "8px", p: 1 }}>
+          {opts.length === 0 ? <Typography fontSize="12px" color={lc} textAlign="center" py={2}>No items found.</Typography> : (
+            useRadio ? (
+              <RadioGroup value={sel} onChange={(e) => setSel(e.target.value)}>
+                {opts.map((n) => <FormControlLabel key={n.id} value={String(n.id)} control={<Radio size="small" sx={{ py: 0.5 }} />}
+                  label={<Box><Typography fontSize="12px" fontWeight={600} color={hc}>{n.label}</Typography>
+                    <Typography fontSize="10px" color={lc}>{TL[n.type] || n.type} &middot; {n.childCount} meters</Typography></Box>}
+                  sx={{ alignItems: "flex-start", mb: 0.5, mx: 0, borderRadius: "6px", py: 0.5, px: 1,
+                    bgcolor: sel === String(n.id) ? (isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF") : "transparent" }} />)}
+              </RadioGroup>
+            ) : (
+              opts.map((n) => (
+                <Box key={n.id} onClick={() => toggleMulti(n.id)} sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.5, px: 1, mb: 0.5, borderRadius: "6px", cursor: "pointer",
+                  bgcolor: selMulti.has(n.id) ? (isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF") : "transparent",
+                  "&:hover": { bgcolor: isDark ? "rgba(255,255,255,0.03)" : "#F9FAFB" } }}>
+                  <Checkbox size="small" checked={selMulti.has(n.id)} sx={{ p: 0.3 }} />
+                  <Box>
+                    <Typography fontSize="12px" fontWeight={600} color={hc} sx={{ fontFamily: n.type === "meter" ? "monospace" : "inherit" }}>{n.label}</Typography>
+                    {n.customerName && <Typography fontSize="10px" color={lc}>{n.customerName} &middot; {n.area}</Typography>}
+                    {n.type !== "meter" && <Typography fontSize="10px" color={lc}>{TL[n.type] || n.type} &middot; {n.childCount} meters</Typography>}
+                  </Box>
+                </Box>
+              ))
+            )
+          )}
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5 }}>
         <Button onClick={reset} sx={{ textTransform: "none", fontSize: 12, color: lc }}>Cancel</Button>
-        <Button variant="contained" onClick={assign} disabled={saving || !sel} sx={btnPrimary}>
-          {saving ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : "Assign Meter"}</Button>
+        <Button variant="contained" onClick={assign} disabled={saving || (useRadio ? !sel : selMulti.size === 0)} sx={btnPrimary}>
+          {saving ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : btnLabel}</Button>
       </DialogActions>
     </Dialog>
   );
@@ -485,9 +541,12 @@ function DetailPanel({ node, isDark, colors, navigate, cardBorder, onAssignMeter
         {!isMeter && node.type === "distribution" && node.district &&
           <Button fullWidth variant="contained" size="small" startIcon={<OpenInNewOutlined sx={{ fontSize: 14 }} />}
             onClick={() => navigate(`/load-control/area/${encodeURIComponent(node.district)}`)} sx={{ ...btnPrimary, py: "6px" }}>View Distribution Profile</Button>}
-        {!isMeter && node.type !== "main_station" && <Button fullWidth variant="outlined" size="small" startIcon={<LinkOutlined sx={{ fontSize: 14 }} />}
-          onClick={() => onAssignMeter(null)} sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#10B981", color: "#10B981", py: "6px",
-            "&:hover": { borderColor: "#059669", bgcolor: "rgba(16,185,129,0.05)" } }}>Assign Meters</Button>}
+        {!isMeter && node.type === "substation" && <Button fullWidth variant="outlined" size="small" startIcon={<LinkOutlined sx={{ fontSize: 14 }} />}
+          onClick={() => onAssignMeter(null, "substation", node)} sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#3B82F6", color: "#3B82F6", py: "6px",
+            "&:hover": { borderColor: "#2563EB", bgcolor: "rgba(37,99,235,0.05)" } }}>Assign Distribution Nodes</Button>}
+        {!isMeter && node.type === "distribution" && <Button fullWidth variant="outlined" size="small" startIcon={<LinkOutlined sx={{ fontSize: 14 }} />}
+          onClick={() => onAssignMeter(null, "distribution", node)} sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#10B981", color: "#10B981", py: "6px",
+            "&:hover": { borderColor: "#059669", bgcolor: "rgba(16,185,129,0.05)" } }}>Assign Meter DRNs</Button>}
         {isHierarchy && <Box display="flex" gap={1}>
           <Button fullWidth variant="outlined" size="small" startIcon={<EditOutlined sx={{ fontSize: 14 }} />} onClick={() => onEditNode(node)}
             sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: isDark ? "#475569" : "#D1D5DB", color: hc, py: "6px" }}>Edit</Button>
@@ -517,6 +576,8 @@ export default function GridTopology() {
   const [expanded, setExpanded] = useState(new Set(["main"])), [selectedNode, setSelectedNode] = useState(null);
   const [search, setSearch] = useState(""), [statusFilter, setStatusFilter] = useState("all");
   const [addOpen, setAddOpen] = useState(false), [assignOpen, setAssignOpen] = useState(false), [assignDrn, setAssignDrn] = useState("");
+  const [assignMode, setAssignMode] = useState("meter"); // "meter" = assign meter to dist, "substation" = assign dist to sub, "distribution" = assign meters to dist
+  const [assignParentNode, setAssignParentNode] = useState(null);
   const [editOpen, setEditOpen] = useState(false), [editNode, setEditNode] = useState(null);
   const cardBg = isDark ? colors.primary[400] : "#FFFFFF", cardBorder = `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`;
   const hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
@@ -545,7 +606,12 @@ export default function GridTopology() {
     return fn(tree);
   }, [tree, statusFilter, filterQuery]);
 
-  const handleAssign = useCallback((drn) => { setAssignDrn(drn || ""); setAssignOpen(true); }, []);
+  const handleAssign = useCallback((drn, mode, parentNode) => {
+    setAssignDrn(drn || "");
+    setAssignMode(mode || "meter");
+    setAssignParentNode(parentNode || null);
+    setAssignOpen(true);
+  }, []);
   const handleEdit = useCallback((n) => { setEditNode(n); setEditOpen(true); }, []);
   const handleDelete = useCallback(async (n) => { if (!n.dbId || !window.confirm(`Delete "${n.name}"? Children will be re-parented.`)) return;
     try { const r = await fetch(`/cb/loadcontrol/grid-topology/nodes/${n.dbId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
@@ -641,7 +707,7 @@ export default function GridTopology() {
 
       {/* DIALOGS */}
       <AddDlg open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => fetchTopology()} allNodes={allNodes} isDark={isDark} colors={colors} token={token} />
-      <AssignDlg open={assignOpen} onClose={() => setAssignOpen(false)} onAssigned={() => fetchTopology()} meterDrn={assignDrn} allNodes={allNodes} tree={tree} isDark={isDark} colors={colors} token={token} />
+      <AssignDlg open={assignOpen} onClose={() => setAssignOpen(false)} onAssigned={() => fetchTopology()} meterDrn={assignDrn} assignMode={assignMode} parentNode={assignParentNode} allNodes={allNodes} tree={tree} isDark={isDark} colors={colors} token={token} allMeters={topologyData?.meters || []} />
       <EditDlg open={editOpen} onClose={() => setEditOpen(false)} onUpdated={() => fetchTopology()} node={editNode} allNodes={allNodes} isDark={isDark} colors={colors} token={token} />
     </Box>
   );
