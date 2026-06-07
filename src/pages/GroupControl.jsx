@@ -84,7 +84,7 @@ const LIGHT_MAP_STYLES = [
   { featureType: "transit", stylers: [{ visibility: "off" }] },
 ];
 
-/* Simple dot marker */
+/* Simple dot marker (used for drawing points) */
 function makeDotIcon(color, size = 14) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
     <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2 - 1}" fill="${color}" stroke="white" stroke-width="1.5"/>
@@ -94,6 +94,60 @@ function makeDotIcon(color, size = 14) {
     scaledSize: { width: size, height: size, equals: () => false },
     anchor: { x: size / 2, y: size / 2, equals: () => false },
   };
+}
+
+/* Colored meter marker with glow effect */
+function makeMarkerIcon(fillColor, borderColor, innerSymbol, size = 40) {
+  const half = size / 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <defs>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="2" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <circle cx="${half}" cy="${half}" r="${half - 6}" fill="${fillColor}" filter="url(#glow)"/>
+    <circle cx="${half}" cy="${half}" r="${half - 6}" fill="none" stroke="${borderColor}" stroke-width="2"/>
+    ${innerSymbol}
+  </svg>`;
+  return {
+    url: `data:image/svg+xml,${encodeURIComponent(svg)}`,
+    scaledSize: { width: size, height: size, equals: () => false },
+    anchor: { x: half, y: half, equals: () => false },
+  };
+}
+
+/* Green = mains on + geyser on */
+function iconMainsOnGeyserOn() {
+  return makeMarkerIcon("#4cceac", "rgba(255,255,255,0.8)",
+    `<path d="M17 12 L14 20 H18 L16 26 L24 18 H20 L22 12 Z" fill="white" opacity="0.95"/>`, 40);
+}
+/* Amber = mains on + geyser off */
+function iconMainsOnGeyserOff() {
+  return makeMarkerIcon("#f2b705", "rgba(255,255,255,0.8)",
+    `<path d="M17 12 L14 20 H18 L16 26 L24 18 H20 L22 12 Z" fill="white" opacity="0.95"/>`, 40);
+}
+/* Red = mains off */
+function iconMainsOff() {
+  return makeMarkerIcon("#db4f4a", "rgba(255,255,255,0.8)",
+    `<line x1="14" y1="14" x2="26" y2="26" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+     <line x1="26" y1="14" x2="14" y2="26" stroke="white" stroke-width="2.5" stroke-linecap="round"/>`, 40);
+}
+/* Grey = offline */
+function iconOffline() {
+  return makeMarkerIcon("#4a5568", "rgba(255,255,255,0.5)",
+    `<circle cx="20" cy="20" r="3" fill="white" opacity="0.6"/>`, 40);
+}
+
+/* Choose the right icon based on meter state */
+function getMeterIcon(m) {
+  const isOnline = m.Status === "1" || m.Status === 1 || m.Status === "Active";
+  if (!isOnline) return iconOffline();
+  const mainsOn = m.mains_state === "1" || m.mains_state === 1 || m.MainsRelay === "ON";
+  const geyserOn = m.geyser_state === "1" || m.geyser_state === 1 || m.GeyserRelay === "ON";
+  if (!mainsOn) return iconMainsOff();
+  if (mainsOn && !geyserOn) return iconMainsOnGeyserOff();
+  return iconMainsOnGeyserOn();
 }
 
 /* Substation marker (square for primary, diamond for distribution) */
@@ -138,9 +192,14 @@ export default function GroupControl() {
   // Network topology
   const [substations, setSubstations] = useState([]);
   const [connectionLines, setConnectionLines] = useState([]);
-  const [showSubstations, setShowSubstations] = useState(true);
-  const [showConnections, setShowConnections] = useState(true);
   const [clickedSubstation, setClickedSubstation] = useState(null);
+
+  // Layer toggle controls
+  const [layers, setLayers] = useState({
+    meterMarkers: true,
+    substationMarkers: true,
+    connectionLines: true,
+  });
 
   // Polygon drawing
   const [drawingMode, setDrawingMode] = useState(false);
@@ -335,6 +394,11 @@ export default function GroupControl() {
     setSelectedArea(null);
     setSelectedSidebarSubstation(null);
   };
+
+  /* Toggle a single layer */
+  function toggleLayer(key) {
+    setLayers(prev => ({ ...prev, [key]: !prev[key] }));
+  }
 
   /* Select area — highlight meters in that area */
   const selectArea = (area) => {
@@ -942,20 +1006,28 @@ export default function GroupControl() {
             </Typography>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
               <Box display="flex" alignItems="center" gap={0.75}>
-                <FiberManualRecord sx={{ fontSize: 8, color: "#10B981" }} />
-                <Typography fontSize="11px" color={labelColor}>Online</Typography>
+                <FiberManualRecord sx={{ fontSize: 8, color: "#4cceac" }} />
+                <Typography fontSize="11px" color={labelColor}>Mains ON, Geyser ON</Typography>
               </Box>
               <Box display="flex" alignItems="center" gap={0.75}>
-                <FiberManualRecord sx={{ fontSize: 8, color: "#EF4444" }} />
+                <FiberManualRecord sx={{ fontSize: 8, color: "#f2b705" }} />
+                <Typography fontSize="11px" color={labelColor}>Mains ON, Geyser OFF</Typography>
+              </Box>
+              <Box display="flex" alignItems="center" gap={0.75}>
+                <FiberManualRecord sx={{ fontSize: 8, color: "#db4f4a" }} />
+                <Typography fontSize="11px" color={labelColor}>Mains OFF</Typography>
+              </Box>
+              <Box display="flex" alignItems="center" gap={0.75}>
+                <FiberManualRecord sx={{ fontSize: 8, color: "#4a5568" }} />
                 <Typography fontSize="11px" color={labelColor}>Offline</Typography>
               </Box>
               <Box display="flex" alignItems="center" gap={0.75}>
                 <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: "#3b82f6" }} />
-                <Typography fontSize="11px" color={labelColor}>Primary</Typography>
+                <Typography fontSize="11px" color={labelColor}>Primary Sub</Typography>
               </Box>
               <Box display="flex" alignItems="center" gap={0.75}>
                 <Box sx={{ width: 8, height: 8, transform: "rotate(45deg)", bgcolor: "#f59e0b" }} />
-                <Typography fontSize="11px" color={labelColor}>Distribution</Typography>
+                <Typography fontSize="11px" color={labelColor}>Distribution Sub</Typography>
               </Box>
             </Box>
           </Box>
@@ -1012,43 +1084,6 @@ export default function GroupControl() {
               </Button>
             )}
 
-            {/* Network topology layer toggles */}
-            <Box sx={{ ml: "auto", display: "flex", gap: 0.75 }}>
-              <Chip
-                label="Substations"
-                size="small"
-                variant={showSubstations ? "filled" : "outlined"}
-                onClick={() => setShowSubstations(prev => !prev)}
-                sx={{
-                  height: 28,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  borderRadius: "8px",
-                  ...(showSubstations
-                    ? { bgcolor: isDark ? "rgba(37,99,235,0.2)" : "#DBEAFE", color: "#2563EB", border: "1px solid #2563EB" }
-                    : { bgcolor: "transparent", color: labelColor, borderColor: isDark ? "#374151" : "#D1D5DB" }),
-                  "&:hover": { bgcolor: showSubstations ? (isDark ? "rgba(37,99,235,0.3)" : "#BFDBFE") : (isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6") },
-                }}
-              />
-              <Chip
-                label="Connections"
-                size="small"
-                variant={showConnections ? "filled" : "outlined"}
-                onClick={() => setShowConnections(prev => !prev)}
-                sx={{
-                  height: 28,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  borderRadius: "8px",
-                  ...(showConnections
-                    ? { bgcolor: isDark ? "rgba(37,99,235,0.2)" : "#DBEAFE", color: "#2563EB", border: "1px solid #2563EB" }
-                    : { bgcolor: "transparent", color: labelColor, borderColor: isDark ? "#374151" : "#D1D5DB" }),
-                  "&:hover": { bgcolor: showConnections ? (isDark ? "rgba(37,99,235,0.3)" : "#BFDBFE") : (isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6") },
-                }}
-              />
-            </Box>
           </Box>
 
           {/* Map */}
@@ -1099,7 +1134,7 @@ export default function GroupControl() {
               )}
 
               {/* Connection lines (render behind markers) */}
-              {showConnections && connectionLines.map(line => (
+              {layers.connectionLines && connectionLines.map(line => (
                 <Polyline
                   key={line.id}
                   path={[line.from, line.to]}
@@ -1113,7 +1148,7 @@ export default function GroupControl() {
               ))}
 
               {/* Substation markers */}
-              {showSubstations && substations.map(sub => (
+              {layers.substationMarkers && substations.map(sub => (
                 <Marker
                   key={`sub-${sub.id}`}
                   position={{ lat: sub.lat, lng: sub.lng }}
@@ -1123,17 +1158,15 @@ export default function GroupControl() {
                 />
               ))}
 
-              {meters.map(meter => {
-                const online = isOnline(meter);
-                return (
-                  <MeterDot
-                    key={meter.DRN}
-                    meter={meter}
-                    icon={makeDotIcon(online ? "#10B981" : "#EF4444")}
-                    onClick={() => setClickedMeter(meter)}
-                  />
-                );
-              })}
+              {/* Meter markers */}
+              {layers.meterMarkers && meters.map(meter => (
+                <MeterDot
+                  key={meter.DRN}
+                  meter={meter}
+                  icon={getMeterIcon(meter)}
+                  onClick={() => setClickedMeter(meter)}
+                />
+              ))}
 
               {/* Substation InfoWindow */}
               {clickedSubstation && (
@@ -1241,6 +1274,69 @@ export default function GroupControl() {
                 );
               })()}
             </GoogleMap>
+
+            {/* ---- Floating Layer Controls Panel ---- */}
+            <Box
+              sx={{
+                position: "absolute",
+                top: 10,
+                left: 10,
+                zIndex: 5,
+                p: "10px 14px",
+                borderRadius: "10px",
+                bgcolor: isDark ? "rgba(15,23,42,0.92)" : "rgba(255,255,255,0.95)",
+                backdropFilter: "blur(12px)",
+                border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
+                boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.5)" : "0 4px 20px rgba(0,0,0,0.12)",
+              }}
+            >
+              <Typography fontSize={10} fontWeight={700} color={labelColor} textTransform="uppercase" letterSpacing="1px" mb={0.5}>Layers</Typography>
+              {[
+                { key: "meterMarkers", label: "Meters", color: "#10B981" },
+                { key: "substationMarkers", label: "Substations", color: "#3B82F6" },
+                { key: "connectionLines", label: "Connections", color: "#64748B" },
+              ].map(l => (
+                <Box key={l.key} display="flex" alignItems="center" justifyContent="space-between" gap={1}>
+                  <Box display="flex" alignItems="center" gap={0.5}>
+                    <FiberManualRecord sx={{ fontSize: 8, color: l.color }} />
+                    <Typography fontSize={11} color={headingColor}>{l.label}</Typography>
+                  </Box>
+                  <Switch size="small" checked={layers[l.key]} onChange={() => toggleLayer(l.key)}
+                    sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: l.color }, "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: l.color } }} />
+                </Box>
+              ))}
+            </Box>
+
+            {/* ---- Floating Legend ---- */}
+            <Box
+              sx={{
+                position: "absolute",
+                bottom: 10,
+                left: 10,
+                zIndex: 5,
+                p: "8px 12px",
+                borderRadius: "8px",
+                bgcolor: isDark ? "rgba(15,23,42,0.88)" : "rgba(255,255,255,0.92)",
+                backdropFilter: "blur(10px)",
+                border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
+                boxShadow: isDark ? "0 2px 12px rgba(0,0,0,0.4)" : "0 2px 12px rgba(0,0,0,0.08)",
+              }}
+            >
+              <Typography fontSize={9} fontWeight={700} color={labelColor} textTransform="uppercase" letterSpacing="0.5px" mb={0.5}>Legend</Typography>
+              <Box display="flex" flexDirection="column" gap={0.25}>
+                {[
+                  { color: "#4cceac", label: "Mains ON, Geyser ON" },
+                  { color: "#f2b705", label: "Mains ON, Geyser OFF" },
+                  { color: "#db4f4a", label: "Mains OFF" },
+                  { color: "#4a5568", label: "Offline" },
+                ].map(item => (
+                  <Box key={item.label} display="flex" alignItems="center" gap={0.5}>
+                    <FiberManualRecord sx={{ fontSize: 7, color: item.color }} />
+                    <Typography fontSize={10} color={isDark ? "#CBD5E1" : "#4B5563"}>{item.label}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
           </Box>
         </Box>
 
