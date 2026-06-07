@@ -55,7 +55,7 @@ import {
   Polyline,
 } from "@react-google-maps/api";
 import { tokens } from "../theme";
-import { groupControlAPI, energyAnalyticsAPI } from "../services/api";
+import { groupControlAPI, energyAnalyticsAPI, mqttAPI } from "../services/api";
 import { getSubstationMarkers, getConnectionLines } from "../components/EnergyAnalytics";
 
 const GOOGLE_MAPS_KEY = "AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk";
@@ -186,6 +186,8 @@ export default function GroupControl() {
   const [meters, setMeters] = useState([]);
   const [groups, setGroups] = useState([]);
   const [search, setSearch] = useState("");
+  const [liveKW, setLiveKW] = useState(null);
+  const [todayKWh, setTodayKWh] = useState(null);
   const [clickedMeter, setClickedMeter] = useState(null);
   const [selectedMeters, setSelectedMeters] = useState(new Set());
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
@@ -236,10 +238,11 @@ export default function GroupControl() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Stage 1: Fast data (meters + groups) — cached on backend
-      const [metersRes, groupsRes] = await Promise.allSettled([
+      // Stage 1: Fast data (meters + groups + power stats) — cached on backend
+      const [metersRes, groupsRes, mqttStatsRes] = await Promise.allSettled([
         groupControlAPI.getMetersState(),
         groupControlAPI.getGroups(),
+        mqttAPI.getDashboardStats(),
       ]);
       if (metersRes.status === "fulfilled") {
         const d = metersRes.value?.data || metersRes.value || [];
@@ -249,7 +252,13 @@ export default function GroupControl() {
         const d = groupsRes.value?.data || groupsRes.value || [];
         setGroups(Array.isArray(d) ? d : []);
       }
-      setLoading(false); // UI renders now with meters + groups
+      if (mqttStatsRes.status === "fulfilled") {
+        const stats = mqttStatsRes.value;
+        const kpis = stats?.kpis || {};
+        setLiveKW(kpis.avgPower != null ? Number(kpis.avgPower).toFixed(1) : null);
+        setTodayKWh(kpis.todayKwh != null ? Number(kpis.todayKwh).toFixed(1) : null);
+      }
+      setLoading(false);
 
       // Stage 2: Heavy data (substations, topology, connections) — background
       const [subConfigRes, powerFlowRes, regionalRes] = await Promise.allSettled([
@@ -613,21 +622,23 @@ export default function GroupControl() {
       </Box>
 
       {/* ===== STATS ROW ===== */}
-      <Box sx={{ px: 3, py: 2, display: "flex", gap: 2, flexWrap: "wrap" }}>
+      <Box sx={{ px: 3, py: 2, display: "flex", gap: 1.5, flexWrap: "nowrap" }}>
         {[
           { label: "Total Meters", value: loading ? "—" : meters.length, icon: <ElectricMeterOutlined sx={{ fontSize: 20 }} />, iconColor: "#2563EB" },
           { label: "Online", value: loading ? "—" : onlineCount, icon: <WifiOutlined sx={{ fontSize: 20 }} />, iconColor: "#10B981" },
           { label: "Offline", value: loading ? "—" : offlineCount, icon: <WifiOffOutlined sx={{ fontSize: 20 }} />, iconColor: "#EF4444" },
-          { label: "Groups", value: loading ? "—" : groups.length, icon: <GroupWorkOutlined sx={{ fontSize: 20 }} />, iconColor: "#2563EB" },
+          { label: "Live Load", value: loading ? "—" : (liveKW != null ? `${liveKW} kW` : "—"), icon: <BoltOutlined sx={{ fontSize: 20 }} />, iconColor: "#F59E0B" },
+          { label: "Today's Energy", value: loading ? "—" : (todayKWh != null ? `${todayKWh} kWh` : "—"), icon: <BoltOutlined sx={{ fontSize: 20 }} />, iconColor: "#8B5CF6" },
         ].map((s) => (
           <Box
             key={s.label}
             sx={{
-              flex: "1 1 180px",
+              flex: 1,
+              minWidth: 0,
               bgcolor: cardBg,
               border: cardBorder,
               borderRadius: "12px",
-              p: "16px 20px",
+              p: "12px 14px",
               display: "flex",
               alignItems: "center",
               gap: 2,

@@ -96,7 +96,8 @@ function getCachedMetersState(callback) {
   }
   queryAll(`
     SELECT
-      ml.DRN, ml.Lat, ml.Longitude, ml.LocationName, ml.Status,
+      ml.DRN, ml.Lat, ml.Longitude, ml.LocationName,
+      CASE WHEN mls.last_seen >= NOW() - INTERVAL 300 SECOND THEN '1' ELSE '0' END as Status,
       CONCAT(mpr.Name, ' ', mpr.Surname) as customerName,
       mpr.City, mpr.Region, mpr.TransformerDRN,
       mpr.tariff_type,
@@ -105,6 +106,7 @@ function getCachedMetersState(callback) {
       ROUND(COALESCE(CAST(eu.units AS DECIMAL(14,2)), 0), 1) as CumulativeUnits
     FROM MeterLocationInfoTable ml
     LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
+    LEFT JOIN MeterLastSeen mls ON ml.DRN = mls.DRN
     LEFT JOIN (
       SELECT DRN, state,
              ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
