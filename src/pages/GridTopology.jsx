@@ -36,40 +36,118 @@ function flattenTree(node) { const r = [node]; (node.children || []).forEach((c)
 
 function buildTopologyTree(data) {
   const { meters, substations, nodes } = data;
-  const hNodes = nodes || [], nodeMap = {}, roots = [];
-  hNodes.forEach((n) => {
-    nodeMap[n.id] = { id: "h-" + n.id, dbId: n.id, name: n.node_name || n.node_id, code: n.node_code,
-      type: n.node_type, nodeId: n.node_id, lat: parseFloat(n.lat) || null, lng: parseFloat(n.lng) || null,
-      status: n.status || "online", capacityRating: n.capacity_rating, voltageLevel: n.voltage_level,
-      description: n.description, parentDbId: n.parent_id, children: [],
-      drn: n.node_type === "meter" ? n.node_id : undefined };
+
+  /* Build manual assignment map from GridHierarchy: DRN -> parent node db id */
+  const manualAssignments = {};
+  (nodes || []).forEach((n) => {
+    if (n.node_type === "meter" && n.parent_id) {
+      manualAssignments[n.node_id] = n.parent_id;
+    }
   });
-  Object.values(nodeMap).forEach((n) => {
-    if (n.parentDbId && nodeMap[n.parentDbId]) nodeMap[n.parentDbId].children.push(n);
-    else roots.push(n);
+  /* Also build a lookup for non-meter hierarchy nodes by db id */
+  const hierNodeById = {};
+  (nodes || []).forEach((n) => { if (n.node_type !== "meter") hierNodeById[n.id] = n; });
+
+  /* Root */
+  const root = {
+    id: "main", name: "Windhoek Grid", type: "main_station",
+    status: "online", children: [], expanded: true,
+  };
+
+  /* Add substations as children of root */
+  const subNodeMap = {};
+  (substations || []).forEach((sub) => {
+    const subNode = {
+      id: "sub-" + sub.id, name: sub.name || "Substation " + sub.id,
+      type: sub.type === "distribution" ? "distribution" : "substation",
+      lat: sub.lat, lng: sub.lng, district: sub.district,
+      status: "online", children: [], expanded: false,
+      dbId: sub.id, substationId: sub.id,
+    };
+    root.children.push(subNode);
+    subNodeMap[sub.id] = subNode;
   });
-  const mapped = new Set(); hNodes.forEach((n) => { if (n.node_type === "meter") mapped.add(n.node_id); });
-  const subNodes = (substations || []).map((sub) => {
-    const sn = { id: "sub-" + sub.id, name: sub.name || "Substation " + sub.id, type: "substation",
-      lat: sub.lat, lng: sub.lng, district: sub.district, status: "online", children: [], isLegacy: true };
-    (meters || []).forEach((m) => {
-      if (mapped.has(m.DRN)) return;
-      const lat = parseFloat(m.Lat), lng = parseFloat(m.Longitude);
-      if (!isNaN(lat) && !isNaN(lng) && sub.lat && sub.lng && Math.sqrt(Math.pow(lat - sub.lat, 2) + Math.pow(lng - sub.lng, 2)) < 0.02) {
-        mapped.add(m.DRN);
-        sn.children.push({ id: "meter-" + m.DRN, name: m.DRN, type: "meter", drn: m.DRN, customerName: m.customerName,
-          area: m.LocationName, suburb: m.Suburb, lat, lng, status: m.Status == "1" || m.Status == 1 ? "online" : "offline",
-          tariff: m.tariff_type, city: m.City, region: m.Region });
-      }
+
+  /* Also add any non-meter GridHierarchy nodes that are NOT already represented as substations */
+  const hierTreeNodes = {};
+  (nodes || []).forEach((n) => {
+    if (n.node_type === "meter") return;
+    /* Check if this hierarchy node matches an existing substation by name */
+    const matchingSub = root.children.find((s) => s.name === n.node_name || s.name === n.node_id);
+    if (matchingSub) {
+      /* Link the hierarchy db id to the substation tree node */
+      matchingSub.dbId = n.id;
+      matchingSub.code = n.node_code;
+      matchingSub.capacityRating = n.capacity_rating;
+      matchingSub.voltageLevel = n.voltage_level;
+      matchingSub.description = n.description;
+      hierTreeNodes[n.id] = matchingSub;
+    } else {
+      /* New hierarchy node — add to root */
+      const hn = {
+        id: "h-" + n.id, dbId: n.id, name: n.node_name || n.node_id, code: n.node_code,
+        type: n.node_type, lat: parseFloat(n.lat) || null, lng: parseFloat(n.lng) || null,
+        status: n.status || "online", capacityRating: n.capacity_rating, voltageLevel: n.voltage_level,
+        description: n.description, children: [], expanded: false,
+      };
+      root.children.push(hn);
+      hierTreeNodes[n.id] = hn;
+    }
+  });
+
+  /* Helper: build a meter tree node */
+  const mkMeter = (m) => {
+    const lat = parseFloat(m.Lat), lng = parseFloat(m.Longitude);
+    return {
+      id: "meter-" + m.DRN, name: m.DRN, type: "meter", drn: m.DRN,
+      customerName: m.customerName, area: m.LocationName, suburb: m.Suburb,
+      lat: isNaN(lat) ? null : lat, lng: isNaN(lng) ? null : lng,
+      status: (m.Status == "1" || m.Status == 1) ? "online" : "offline",
+      tariff: m.tariff_type, city: m.City, region: m.Region,
+    };
+  };
+
+  /* Map meters — manual assignments first, then distance-based auto-map */
+  const mappedDrns = new Set();
+
+  /* Pass 1: manual assignments from GridHierarchy */
+  (meters || []).forEach((m) => {
+    if (!manualAssignments[m.DRN]) return;
+    const parentDbId = manualAssignments[m.DRN];
+    const parentNode = hierTreeNodes[parentDbId] || root.children.find((s) => s.dbId === parentDbId);
+    if (parentNode) {
+      parentNode.children.push(mkMeter(m));
+      mappedDrns.add(m.DRN);
+    }
+  });
+
+  /* Pass 2: auto-map remaining meters by distance to nearest substation (<0.02 degrees) */
+  (meters || []).forEach((m) => {
+    if (mappedDrns.has(m.DRN)) return;
+    const mLat = parseFloat(m.Lat), mLng = parseFloat(m.Longitude);
+    if (isNaN(mLat) || isNaN(mLng)) return;
+    let nearest = null, minDist = Infinity;
+    root.children.forEach((sub) => {
+      if (!sub.lat || !sub.lng) return;
+      const d = Math.sqrt(Math.pow(mLat - sub.lat, 2) + Math.pow(mLng - sub.lng, 2));
+      if (d < 0.02 && d < minDist) { minDist = d; nearest = sub; }
     });
-    return sn;
+    if (nearest) {
+      nearest.children.push(mkMeter(m));
+      mappedDrns.add(m.DRN);
+    }
   });
-  const orphans = (meters || []).filter((m) => !mapped.has(m.DRN));
-  const tree = { id: "main", name: "Windhoek Grid", type: "main_station", status: "online", children: [...roots, ...subNodes] };
-  if (orphans.length > 0) tree.children.push({ id: "unmapped", name: "Unmapped Meters", type: "distribution", status: "warning",
-    children: orphans.map((m) => ({ id: "meter-" + m.DRN, name: m.DRN, type: "meter", drn: m.DRN, customerName: m.customerName,
-      area: m.LocationName, suburb: m.Suburb, status: m.Status == "1" || m.Status == 1 ? "online" : "offline", tariff: m.tariff_type, city: m.City, region: m.Region })) });
-  return tree;
+
+  /* Unmapped meters */
+  const orphans = (meters || []).filter((m) => !mappedDrns.has(m.DRN));
+  if (orphans.length > 0) {
+    root.children.push({
+      id: "unmapped", name: "Unmapped Meters", type: "distribution",
+      status: "warning", children: orphans.map(mkMeter), expanded: true,
+    });
+  }
+
+  return root;
 }
 
 /* TreeNode */
@@ -182,25 +260,56 @@ function AddDlg({ open, onClose, onCreated, allNodes, isDark, colors, token }) {
 }
 
 /* Assign Meter Dialog */
-function AssignDlg({ open, onClose, onAssigned, meterDrn, allNodes, isDark, colors, token }) {
+function AssignDlg({ open, onClose, onAssigned, meterDrn, allNodes, tree, isDark, colors, token }) {
   const [sel, setSel] = useState(""), [sq, setSq] = useState(""), [saving, setSaving] = useState(false), [err, setErr] = useState(""), [curA, setCurA] = useState(null);
   const bg = isDark ? colors.primary[400] : "#FFF", hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
+
+  /* Find current assignment — check both hierarchy and tree */
   useEffect(() => {
-    if (!meterDrn || !allNodes) return;
-    const mn = allNodes.find((n) => n.node_type === "meter" && n.node_id === meterDrn);
-    setCurA(mn?.parent_id ? (allNodes.find((n) => n.id === mn.parent_id)?.node_name || null) : null);
-  }, [meterDrn, allNodes]);
+    if (!meterDrn || !tree) { setCurA(null); return; }
+    /* Search tree for where this meter currently lives */
+    let found = null;
+    const search = (node, parent) => {
+      if (node.type === "meter" && node.drn === meterDrn && parent) { found = parent.name; return; }
+      (node.children || []).forEach((ch) => search(ch, node));
+    };
+    search(tree, null);
+    setCurA(found);
+  }, [meterDrn, tree]);
+
+  /* Build options: all substations/distribution/feeder nodes from the tree + hierarchy nodes with dbId */
   const opts = useMemo(() => {
-    const o = (allNodes || []).filter((n) => n.node_type !== "meter"), q = sq.toLowerCase().trim();
-    return q ? o.filter((n) => (buildPath(allNodes, n.id) + (n.node_name || "")).toLowerCase().includes(q)) : o;
-  }, [allNodes, sq]);
+    if (!tree) return [];
+    const result = [];
+    const collect = (node, path) => {
+      if (node.type !== "meter" && node.type !== "main_station" && node.id !== "unmapped") {
+        const fullPath = path ? path + " > " + node.name : node.name;
+        result.push({
+          id: node.dbId || node.id,
+          dbId: node.dbId,
+          label: fullPath,
+          name: node.name,
+          type: node.type,
+          childCount: (node.children || []).length,
+        });
+      }
+      const nextPath = node.type === "main_station" ? "" : (path ? path + " > " + node.name : node.name);
+      (node.children || []).forEach((ch) => collect(ch, nextPath));
+    };
+    collect(tree, "");
+    const q = sq.toLowerCase().trim();
+    return q ? result.filter((n) => n.label.toLowerCase().includes(q) || n.name.toLowerCase().includes(q)) : result;
+  }, [tree, sq]);
+
   const reset = () => { setSel(""); setSq(""); setErr(""); onClose(); };
   const assign = async () => {
     if (!sel) { setErr("Select a distribution node"); return; } setSaving(true); setErr("");
     try {
+      const selOpt = opts.find((o) => String(o.id) === sel);
+      const parentId = selOpt?.dbId || parseInt(sel);
       const r = await fetch("/cb/loadcontrol/grid-topology/assign-meter", { method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ drn: meterDrn, parent_id: parseInt(sel) }) });
+        body: JSON.stringify({ drn: meterDrn, parent_id: parentId }) });
       const j = await r.json(); if (j.success) { onAssigned(j); reset(); } else setErr(j.error || "Failed");
     } catch (e) { setErr(e.message); } setSaving(false);
   };
@@ -209,16 +318,16 @@ function AssignDlg({ open, onClose, onAssigned, meterDrn, allNodes, isDark, colo
       <DialogTitle sx={{ color: hc, fontWeight: 700, fontSize: 16, pb: 0.5 }}>Assign Meter to Distribution</DialogTitle>
       <DialogContent sx={{ pt: "8px !important" }}>
         <Typography fontSize="12px" color={lc} mb={1.5}>Assign DRN <strong style={{ fontFamily: "monospace" }}>{meterDrn}</strong> to a distribution node. One meter = one node.</Typography>
-        {curA && <Alert severity="warning" sx={{ mb: 2, fontSize: 12 }}>This meter is currently assigned to <strong>{curA}</strong>. Assigning here will remove the previous assignment.</Alert>}
+        {curA && <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>Currently assigned to: <strong>{curA}</strong></Alert>}
         {err && <Alert severity="error" sx={{ mb: 2, fontSize: 12 }}>{err}</Alert>}
-        <TextField size="small" fullWidth placeholder="Search nodes..." value={sq} onChange={(e) => setSq(e.target.value)}
+        <TextField size="small" fullWidth placeholder="Search substations, nodes..." value={sq} onChange={(e) => setSq(e.target.value)}
           sx={{ mb: 1.5, ...inputSx }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined sx={{ fontSize: 16, color: lc }} /></InputAdornment> }} />
         <Box sx={{ maxHeight: 300, overflowY: "auto", border: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`, borderRadius: "8px", p: 1 }}>
           <RadioGroup value={sel} onChange={(e) => setSel(e.target.value)}>
             {opts.length === 0 ? <Typography fontSize="12px" color={lc} textAlign="center" py={2}>No distribution nodes found. Create one first.</Typography>
               : opts.map((n) => <FormControlLabel key={n.id} value={String(n.id)} control={<Radio size="small" sx={{ py: 0.5 }} />}
-                label={<Box><Typography fontSize="12px" fontWeight={600} color={hc}>{buildPath(allNodes, n.id)}</Typography>
-                  <Typography fontSize="10px" color={lc}>{TL[n.node_type] || n.node_type}{n.capacity_rating ? " • " + n.capacity_rating : ""}</Typography></Box>}
+                label={<Box><Typography fontSize="12px" fontWeight={600} color={hc}>{n.label}</Typography>
+                  <Typography fontSize="10px" color={lc}>{TL[n.type] || n.type} &middot; {n.childCount} meters</Typography></Box>}
                 sx={{ alignItems: "flex-start", mb: 0.5, mx: 0, borderRadius: "6px", py: 0.5, px: 1,
                   bgcolor: sel === String(n.id) ? (isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF") : "transparent" }} />)}
           </RadioGroup>
@@ -298,6 +407,7 @@ function DetailPanel({ node, isDark, colors, navigate, cardBorder, onAssignMeter
   } else {
     details.push({ l: "Name", v: node.name }, { l: "Type", v: TL[node.type] || node.type });
     if (node.code) details.push({ l: "Code", v: node.code });
+    if (node.district) details.push({ l: "District", v: node.district });
     if (node.capacityRating) details.push({ l: "Capacity", v: node.capacityRating });
     if (node.voltageLevel) details.push({ l: "Voltage", v: node.voltageLevel });
     if (node.description) details.push({ l: "Description", v: node.description });
@@ -339,6 +449,9 @@ function DetailPanel({ node, isDark, colors, navigate, cardBorder, onAssignMeter
             onClick={() => onAssignMeter(node.drn || node.name)}
             sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#F59E0B", color: "#F59E0B", py: "6px",
               "&:hover": { borderColor: "#D97706", bgcolor: "rgba(245,158,11,0.05)" } }}>Assign to Distribution</Button></>}
+        {!isMeter && (node.type === "substation" || node.type === "distribution" || node.type === "feeder") && node.substationId &&
+          <Button fullWidth variant="contained" size="small" startIcon={<OpenInNewOutlined sx={{ fontSize: 14 }} />}
+            onClick={() => navigate(`/substation/${node.substationId}`)} sx={{ ...btnPrimary, py: "6px" }}>View Substation Profile</Button>}
         {!isMeter && node.type !== "main_station" && <Button fullWidth variant="outlined" size="small" startIcon={<LinkOutlined sx={{ fontSize: 14 }} />}
           onClick={() => onAssignMeter(null)} sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#10B981", color: "#10B981", py: "6px",
             "&:hover": { borderColor: "#059669", bgcolor: "rgba(16,185,129,0.05)" } }}>Assign Meters</Button>}
@@ -495,7 +608,7 @@ export default function GridTopology() {
 
       {/* DIALOGS */}
       <AddDlg open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => fetchTopology()} allNodes={allNodes} isDark={isDark} colors={colors} token={token} />
-      <AssignDlg open={assignOpen} onClose={() => setAssignOpen(false)} onAssigned={() => fetchTopology()} meterDrn={assignDrn} allNodes={allNodes} isDark={isDark} colors={colors} token={token} />
+      <AssignDlg open={assignOpen} onClose={() => setAssignOpen(false)} onAssigned={() => fetchTopology()} meterDrn={assignDrn} allNodes={allNodes} tree={tree} isDark={isDark} colors={colors} token={token} />
       <EditDlg open={editOpen} onClose={() => setEditOpen(false)} onUpdated={() => fetchTopology()} node={editNode} allNodes={allNodes} isDark={isDark} colors={colors} token={token} />
     </Box>
   );
