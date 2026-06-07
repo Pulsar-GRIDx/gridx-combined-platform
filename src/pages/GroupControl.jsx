@@ -264,7 +264,67 @@ export default function GroupControl() {
 
       if (Array.isArray(subConfig) && subConfig.length > 0) {
         setSubstations(getSubstationMarkers(subConfig, Array.isArray(regions) ? regions : []));
-        setConnectionLines(getConnectionLines(subConfig, Array.isArray(powerFlow) ? powerFlow : []));
+      }
+
+      // Build connection lines from grid topology hierarchy
+      try {
+        const token = sessionStorage.getItem("token");
+        const topoRes = await fetch("/cb/loadcontrol/grid-topology", { headers: { Authorization: `Bearer ${token}` } });
+        const topoData = await topoRes.json();
+        if (topoData.success && topoData.data) {
+          const topo = topoData.data;
+          const subs = Array.isArray(subConfig) ? subConfig : [];
+          const lines = [];
+          const primarySubs = subs.filter(s => s.type === "primary");
+          const distSubs = subs.filter(s => s.type !== "primary");
+          const metersArr = Array.isArray(topo.meters) ? topo.meters : [];
+
+          // Distribution → Primary substation lines
+          distSubs.forEach(dist => {
+            if (!dist.lat || !dist.lng) return;
+            let nearest = null, minD = Infinity;
+            primarySubs.forEach(ps => {
+              if (!ps.lat || !ps.lng) return;
+              const d = Math.sqrt(Math.pow(dist.lat - ps.lat, 2) + Math.pow(dist.lng - ps.lng, 2));
+              if (d < minD) { minD = d; nearest = ps; }
+            });
+            if (nearest) {
+              lines.push({
+                id: `dist-${dist.id}-to-sub-${nearest.id}`,
+                from: { lat: dist.lat, lng: dist.lng },
+                to: { lat: nearest.lat, lng: nearest.lng },
+                type: "substation", weight: 2.5, color: "#3b82f660",
+              });
+            }
+          });
+
+          // Meter → nearest distribution node lines
+          metersArr.forEach(m => {
+            const mLat = parseFloat(m.Lat), mLng = parseFloat(m.Longitude);
+            if (isNaN(mLat) || isNaN(mLng)) return;
+            let nearest = null, minD = Infinity;
+            distSubs.forEach(dist => {
+              if (!dist.lat || !dist.lng) return;
+              const d = Math.sqrt(Math.pow(mLat - dist.lat, 2) + Math.pow(mLng - dist.lng, 2));
+              if (d < 0.03 && d < minD) { minD = d; nearest = dist; }
+            });
+            if (nearest) {
+              lines.push({
+                id: `meter-${m.DRN}-to-dist-${nearest.id}`,
+                from: { lat: nearest.lat, lng: nearest.lng },
+                to: { lat: mLat, lng: mLng },
+                type: "meter", weight: 1, color: "#64748B40",
+              });
+            }
+          });
+
+          setConnectionLines(lines);
+        }
+      } catch (topoErr) {
+        // Fallback to old method
+        if (Array.isArray(subConfig) && subConfig.length > 0) {
+          setConnectionLines(getConnectionLines(subConfig, Array.isArray(powerFlow) ? powerFlow : []));
+        }
       }
     } catch (err) {
       console.error("Fetch error:", err);
