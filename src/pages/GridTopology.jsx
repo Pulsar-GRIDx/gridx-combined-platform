@@ -54,26 +54,48 @@ function buildTopologyTree(data) {
     status: "online", children: [], expanded: true,
   };
 
-  /* Add substations as children of root, each with a distribution node */
+  /* Separate primary substations from distribution nodes */
+  const primarySubs = (substations || []).filter(s => s.type === "primary");
+  const distSubs = (substations || []).filter(s => s.type !== "primary");
+
+  /* Add 3 primary substations as children of root */
   const subNodeMap = {};
   const distNodeMap = {};
-  (substations || []).forEach((sub) => {
-    const distNode = {
-      id: "dist-" + sub.id, name: (sub.district || sub.name || "Area") + " Distribution",
-      type: "distribution", lat: sub.lat, lng: sub.lng,
-      status: "online", children: [], expanded: false,
-      parentSubId: sub.id,
-    };
+  primarySubs.forEach((sub) => {
     const subNode = {
       id: "sub-" + sub.id, name: sub.name || "Substation " + sub.id,
-      type: sub.type === "primary" ? "substation" : "substation",
-      lat: sub.lat, lng: sub.lng, district: sub.district,
-      status: "online", children: [distNode], expanded: false,
+      type: "substation", lat: sub.lat, lng: sub.lng, district: sub.district,
+      status: "online", children: [], expanded: false,
       dbId: sub.id, substationId: sub.id,
     };
     root.children.push(subNode);
     subNodeMap[sub.id] = subNode;
-    distNodeMap[sub.id] = distNode;
+  });
+
+  /* Nest distribution nodes under their nearest primary substation */
+  distSubs.forEach((dist) => {
+    const distNode = {
+      id: "dist-" + dist.id, name: dist.name || dist.district + " Distribution",
+      type: "distribution", lat: dist.lat, lng: dist.lng, district: dist.district,
+      status: "online", children: [], expanded: false,
+      dbId: dist.id, distId: dist.id,
+    };
+    /* Find nearest primary substation by distance */
+    let nearestPrimary = null, minDist = Infinity;
+    primarySubs.forEach((ps) => {
+      if (ps.lat && ps.lng && dist.lat && dist.lng) {
+        const d = Math.sqrt(Math.pow(dist.lat - ps.lat, 2) + Math.pow(dist.lng - ps.lng, 2));
+        if (d < minDist) { minDist = d; nearestPrimary = subNodeMap[ps.id]; }
+      }
+    });
+    if (nearestPrimary) {
+      nearestPrimary.children.push(distNode);
+    } else if (primarySubs.length > 0) {
+      subNodeMap[primarySubs[0].id].children.push(distNode);
+    } else {
+      root.children.push(distNode);
+    }
+    distNodeMap[dist.id] = distNode;
   });
 
   /* Also add any non-meter GridHierarchy nodes that are NOT already represented as substations */
@@ -129,19 +151,19 @@ function buildTopologyTree(data) {
     }
   });
 
-  /* Pass 2: auto-map remaining meters by distance to nearest substation's distribution node (<0.02 degrees) */
+  /* Pass 2: auto-map remaining meters by distance to nearest distribution node (<0.03 degrees) */
   (meters || []).forEach((m) => {
     if (mappedDrns.has(m.DRN)) return;
     const mLat = parseFloat(m.Lat), mLng = parseFloat(m.Longitude);
     if (isNaN(mLat) || isNaN(mLng)) return;
-    let nearestSubId = null, minDist = Infinity;
-    root.children.forEach((sub) => {
-      if (!sub.lat || !sub.lng || !sub.substationId) return;
-      const d = Math.sqrt(Math.pow(mLat - sub.lat, 2) + Math.pow(mLng - sub.lng, 2));
-      if (d < 0.02 && d < minDist) { minDist = d; nearestSubId = sub.substationId; }
+    let nearestDist = null, minDist = Infinity;
+    Object.values(distNodeMap).forEach((dn) => {
+      if (!dn.lat || !dn.lng) return;
+      const d = Math.sqrt(Math.pow(mLat - dn.lat, 2) + Math.pow(mLng - dn.lng, 2));
+      if (d < 0.03 && d < minDist) { minDist = d; nearestDist = dn; }
     });
-    if (nearestSubId && distNodeMap[nearestSubId]) {
-      distNodeMap[nearestSubId].children.push(mkMeter(m));
+    if (nearestDist) {
+      nearestDist.children.push(mkMeter(m));
       mappedDrns.add(m.DRN);
     }
   });
@@ -457,9 +479,12 @@ function DetailPanel({ node, isDark, colors, navigate, cardBorder, onAssignMeter
             onClick={() => onAssignMeter(node.drn || node.name)}
             sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#F59E0B", color: "#F59E0B", py: "6px",
               "&:hover": { borderColor: "#D97706", bgcolor: "rgba(245,158,11,0.05)" } }}>Assign to Distribution</Button></>}
-        {!isMeter && (node.type === "substation" || node.type === "distribution" || node.type === "feeder") && node.substationId &&
+        {!isMeter && node.type === "substation" && node.substationId &&
           <Button fullWidth variant="contained" size="small" startIcon={<OpenInNewOutlined sx={{ fontSize: 14 }} />}
             onClick={() => navigate(`/substation/${node.substationId}`)} sx={{ ...btnPrimary, py: "6px" }}>View Substation Profile</Button>}
+        {!isMeter && node.type === "distribution" && node.district &&
+          <Button fullWidth variant="contained" size="small" startIcon={<OpenInNewOutlined sx={{ fontSize: 14 }} />}
+            onClick={() => navigate(`/load-control/area/${encodeURIComponent(node.district)}`)} sx={{ ...btnPrimary, py: "6px" }}>View Distribution Profile</Button>}
         {!isMeter && node.type !== "main_station" && <Button fullWidth variant="outlined" size="small" startIcon={<LinkOutlined sx={{ fontSize: 14 }} />}
           onClick={() => onAssignMeter(null)} sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#10B981", color: "#10B981", py: "6px",
             "&:hover": { borderColor: "#059669", bgcolor: "rgba(16,185,129,0.05)" } }}>Assign Meters</Button>}
