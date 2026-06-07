@@ -433,19 +433,22 @@ router.post('/loadcontrol/randomize', authenticateToken, async (req, res) => {
   }
 });
 
-// ─── GRID TOPOLOGY ────────────────────────────────────────────
+// ─── GRID TOPOLOGY / DISTRIBUTION MANAGEMENT ─────────────────
 
-// Ensure topology tables exist
+// Grid Distribution Hierarchy
 execute(`CREATE TABLE IF NOT EXISTS GridHierarchy (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  node_type ENUM('main_station','substation','feeder','transformer','meter') NOT NULL,
+  node_type ENUM('main_station','substation','feeder','distribution','transformer','meter') NOT NULL,
   node_id VARCHAR(50) NOT NULL,
   node_name VARCHAR(200),
-  parent_id INT,
-  parent_node_id VARCHAR(50),
+  node_code VARCHAR(50),
+  parent_id INT DEFAULT NULL,
   lat DECIMAL(10,6),
   lng DECIMAL(10,6),
   status ENUM('online','offline','warning','critical') DEFAULT 'online',
+  capacity_rating VARCHAR(50),
+  voltage_level VARCHAR(50),
+  description TEXT,
   metadata TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -453,43 +456,82 @@ execute(`CREATE TABLE IF NOT EXISTS GridHierarchy (
   INDEX idx_parent (parent_id),
   INDEX idx_type (node_type),
   INDEX idx_status (status)
-)`).catch(() => {});
+) ENGINE=InnoDB`).catch(() => {});
 
-// GET /loadcontrol/grid-topology — Returns the full grid hierarchy
-router.get('/loadcontrol/grid-topology', authenticateToken, async (req, res) => {
+// Add new columns if they don't exist
+['node_code VARCHAR(50)', 'capacity_rating VARCHAR(50)', 'voltage_level VARCHAR(50)', 'description TEXT'].forEach(function(col) {
+  var colName = col.split(' ')[0];
+  execute("SELECT " + colName + " FROM GridHierarchy LIMIT 1").catch(function() {
+    execute("ALTER TABLE GridHierarchy ADD COLUMN " + col).catch(function() {});
+  });
+});
+
+// Helper: build full hierarchy path for a node
+function buildNodePath(nodes, nodeId) {
+  var path = [];
+  var current = nodes.find(function(n) { return n.id === nodeId; });
+  while (current) {
+    path.unshift(current.node_name || current.node_id);
+    current = current.parent_id ? nodes.find(function(n) { return n.id === current.parent_id; }) : null;
+  }
+  return path.join(' → ');
+}
+
+// GET /loadcontrol/grid-topology — Full hierarchy with auto-mapped meters
+router.get('/loadcontrol/grid-topology', authenticateToken, async function(req, res) {
   try {
     // Get all hierarchy nodes
-    const nodes = await queryAll('SELECT * FROM GridHierarchy ORDER BY node_type, node_name');
+    var nodes = await queryAll('SELECT * FROM GridHierarchy ORDER BY node_type, node_name');
 
     // Get meters from MeterLocationInfoTable + MeterProfileReal
-    const meters = await queryAll(`
+    var meters = await queryAll(`
       SELECT ml.DRN, ml.LocationName, ml.Lat, ml.Longitude, ml.Status, ml.Suburb,
              CONCAT(mpr.Name, ' ', mpr.Surname) as customerName,
-             mpr.City, mpr.Region, mpr.tariff_type
+             mpr.City, mpr.Region, mpr.tariff_type,
+             mpr.TransformerDRN
       FROM MeterLocationInfoTable ml
       LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
       WHERE ml.DRN != 'TEST'
     `);
 
     // Get substations from energy analytics
-    const substations = await queryAll('SELECT * FROM SubstationConfig').catch(() => []);
+    var substations = await queryAll('SELECT * FROM SubstationConfig').catch(function() { return []; });
 
-    // Get transformers
-    const transformers = await queryAll('SELECT * FROM TransformerInformation').catch(() => []);
+    // Get tamper counts
+    var tamperCount = 0;
+    try {
+      var tamperResult = await queryOne("SELECT COUNT(DISTINCT DRN) as cnt FROM MeterTamperAlerts WHERE resolved = 0");
+      tamperCount = tamperResult ? tamperResult.cnt : 0;
+    } catch(e) {
+      // table may not exist
+      try {
+        var tamperResult2 = await queryOne("SELECT COUNT(DISTINCT DRN) as cnt FROM MeterAlerts WHERE alert_type = 'tamper' AND status = 'active'");
+        tamperCount = tamperResult2 ? tamperResult2.cnt : 0;
+      } catch(e2) { tamperCount = 0; }
+    }
+
+    // Count distribution nodes and transformers from hierarchy
+    var distNodes = (nodes || []).filter(function(n) { return n.node_type === 'distribution'; });
+    var transformerNodes = (nodes || []).filter(function(n) { return n.node_type === 'transformer'; });
+    var substationNodes = (nodes || []).filter(function(n) { return n.node_type === 'substation'; });
+    var warningNodes = (nodes || []).filter(function(n) { return n.status === 'warning'; });
+    var criticalNodes = (nodes || []).filter(function(n) { return n.status === 'critical'; });
 
     // Build topology tree
-    // Auto-map meters to nearest transformer/substation if not in GridHierarchy
-    const topology = {
+    var topology = {
       nodes: nodes || [],
       meters: meters || [],
       substations: substations || [],
-      transformers: transformers || [],
       stats: {
         totalMeters: (meters || []).length,
-        onlineMeters: (meters || []).filter(m => m.Status == '1' || m.Status == 1).length,
-        offlineMeters: (meters || []).filter(m => m.Status != '1' && m.Status != 1).length,
-        totalSubstations: (substations || []).length,
-        totalTransformers: (transformers || []).length,
+        onlineMeters: (meters || []).filter(function(m) { return m.Status == '1' || m.Status == 1; }).length,
+        offlineMeters: (meters || []).filter(function(m) { return m.Status != '1' && m.Status != 1; }).length,
+        totalSubstations: substationNodes.length + (substations || []).length,
+        totalDistribution: distNodes.length,
+        totalTransformers: transformerNodes.length,
+        tamperCount: tamperCount,
+        warningAlerts: warningNodes.length,
+        criticalAlerts: criticalNodes.length,
       }
     };
 
@@ -499,33 +541,223 @@ router.get('/loadcontrol/grid-topology', authenticateToken, async (req, res) => 
   }
 });
 
-// POST /loadcontrol/grid-topology/assign — Assign a meter/device to a parent node
-router.post('/loadcontrol/grid-topology/assign', authenticateToken, async (req, res) => {
+// GET /loadcontrol/grid-topology/nodes — All hierarchy nodes only
+router.get('/loadcontrol/grid-topology/nodes', authenticateToken, async function(req, res) {
   try {
-    const { nodeType, nodeId, nodeName, parentNodeId, lat, lng } = req.body;
-    if (!nodeType || !nodeId) return res.status(400).json({ error: 'nodeType and nodeId required' });
-
-    await execute(
-      `INSERT INTO GridHierarchy (node_type, node_id, node_name, parent_node_id, lat, lng)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE node_name=VALUES(node_name), parent_node_id=VALUES(parent_node_id), lat=VALUES(lat), lng=VALUES(lng)`,
-      [nodeType, nodeId, nodeName || nodeId, parentNodeId || null, lat || null, lng || null]
-    );
-
-    res.json({ success: true, message: 'Node assigned' });
+    var nodes = await queryAll('SELECT * FROM GridHierarchy ORDER BY node_type, node_name');
+    // Add path to each node
+    (nodes || []).forEach(function(n) {
+      n.path = buildNodePath(nodes, n.id);
+    });
+    res.json({ success: true, data: nodes || [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /loadcontrol/grid-topology/orphans — Find unmapped devices
-router.get('/loadcontrol/grid-topology/orphans', authenticateToken, async (req, res) => {
+// POST /loadcontrol/grid-topology/nodes — Create a new distribution asset
+router.post('/loadcontrol/grid-topology/nodes', authenticateToken, async function(req, res) {
   try {
-    const allMeters = await queryAll(`SELECT DRN FROM MeterLocationInfoTable WHERE DRN != 'TEST'`);
-    const mappedMeters = await queryAll(`SELECT node_id FROM GridHierarchy WHERE node_type = 'meter'`);
-    const mappedSet = new Set((mappedMeters || []).map(m => m.node_id));
-    const orphans = (allMeters || []).filter(m => !mappedSet.has(m.DRN));
+    var body = req.body;
+    var nodeType = body.node_type;
+    var nodeName = body.node_name;
+    var nodeCode = body.node_code || null;
+    var parentId = body.parent_id || null;
+    var lat = body.lat || null;
+    var lng = body.lng || null;
+    var capacityRating = body.capacity_rating || null;
+    var voltageLevel = body.voltage_level || null;
+    var description = body.description || null;
+    var metadata = body.metadata ? JSON.stringify(body.metadata) : null;
+
+    if (!nodeType || !nodeName) {
+      return res.status(400).json({ error: 'node_type and node_name are required' });
+    }
+
+    var validTypes = ['main_station', 'substation', 'feeder', 'distribution', 'transformer'];
+    if (validTypes.indexOf(nodeType) === -1) {
+      return res.status(400).json({ error: 'Invalid node_type. Must be one of: ' + validTypes.join(', ') });
+    }
+
+    // Validate parent_id exists if provided
+    if (parentId) {
+      var parent = await queryOne('SELECT id, node_name, node_type FROM GridHierarchy WHERE id = ?', [parentId]);
+      if (!parent) {
+        return res.status(400).json({ error: 'Parent node not found with id: ' + parentId });
+      }
+    }
+
+    // Generate node_id
+    var nodeId = nodeType.substring(0, 3).toUpperCase() + '-' + Date.now();
+
+    var result = await execute(
+      `INSERT INTO GridHierarchy (node_type, node_id, node_name, node_code, parent_id, lat, lng, capacity_rating, voltage_level, description, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [nodeType, nodeId, nodeName, nodeCode, parentId, lat, lng, capacityRating, voltageLevel, description, metadata]
+    );
+
+    // Get full path
+    var allNodes = await queryAll('SELECT * FROM GridHierarchy ORDER BY node_type, node_name');
+    var path = buildNodePath(allNodes, result.insertId);
+
+    res.json({
+      success: true,
+      message: 'Distribution node created',
+      id: result.insertId,
+      node_id: nodeId,
+      path: path
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /loadcontrol/grid-topology/nodes/:id — Update a node
+router.put('/loadcontrol/grid-topology/nodes/:id', authenticateToken, async function(req, res) {
+  try {
+    var existing = await queryOne('SELECT * FROM GridHierarchy WHERE id = ?', [req.params.id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'Node not found' });
+    }
+
+    var updates = [];
+    var params = [];
+    var fields = ['node_name', 'node_code', 'parent_id', 'lat', 'lng', 'status', 'capacity_rating', 'voltage_level', 'description', 'metadata'];
+    fields.forEach(function(f) {
+      if (req.body[f] !== undefined) {
+        var val = req.body[f];
+        if (f === 'metadata' && typeof val === 'object') val = JSON.stringify(val);
+        updates.push(f + ' = ?');
+        params.push(val);
+      }
+    });
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    params.push(req.params.id);
+    await execute('UPDATE GridHierarchy SET ' + updates.join(', ') + ' WHERE id = ?', params);
+
+    res.json({ success: true, message: 'Node updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /loadcontrol/grid-topology/nodes/:id — Delete a node (and re-parent children)
+router.delete('/loadcontrol/grid-topology/nodes/:id', authenticateToken, async function(req, res) {
+  try {
+    var existing = await queryOne('SELECT * FROM GridHierarchy WHERE id = ?', [req.params.id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'Node not found' });
+    }
+
+    // Re-parent children to this node's parent
+    await execute('UPDATE GridHierarchy SET parent_id = ? WHERE parent_id = ?', [existing.parent_id || null, req.params.id]);
+
+    // Delete the node
+    await execute('DELETE FROM GridHierarchy WHERE id = ?', [req.params.id]);
+
+    res.json({ success: true, message: 'Node deleted, children re-parented' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /loadcontrol/grid-topology/assign-meter — Assign meter to distribution node (removes previous)
+router.post('/loadcontrol/grid-topology/assign-meter', authenticateToken, async function(req, res) {
+  try {
+    var drn = req.body.drn;
+    var parentId = req.body.parent_id;
+
+    if (!drn || !parentId) {
+      return res.status(400).json({ error: 'drn and parent_id are required' });
+    }
+
+    // Validate parent exists and is not a meter
+    var parent = await queryOne('SELECT id, node_name, node_type FROM GridHierarchy WHERE id = ?', [parentId]);
+    if (!parent) {
+      return res.status(400).json({ error: 'Parent distribution node not found' });
+    }
+    if (parent.node_type === 'meter') {
+      return res.status(400).json({ error: 'Cannot assign a meter under another meter' });
+    }
+
+    // Check if meter was previously assigned
+    var previousAssignment = await queryOne("SELECT id, parent_id FROM GridHierarchy WHERE node_type = 'meter' AND node_id = ?", [drn]);
+    var previousParentName = null;
+    if (previousAssignment && previousAssignment.parent_id) {
+      var prevParent = await queryOne('SELECT node_name FROM GridHierarchy WHERE id = ?', [previousAssignment.parent_id]);
+      previousParentName = prevParent ? prevParent.node_name : null;
+    }
+
+    // Remove any existing assignment for this DRN
+    await execute("DELETE FROM GridHierarchy WHERE node_type = 'meter' AND node_id = ?", [drn]);
+
+    // Get meter info for the name
+    var meterInfo = await queryOne(
+      "SELECT ml.LocationName, CONCAT(mpr.Name, ' ', mpr.Surname) as customerName FROM MeterLocationInfoTable ml LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN WHERE ml.DRN = ?",
+      [drn]
+    );
+    var meterName = drn;
+    if (meterInfo && meterInfo.customerName) {
+      meterName = drn + ' (' + meterInfo.customerName.trim() + ')';
+    }
+
+    // Insert new assignment
+    await execute(
+      "INSERT INTO GridHierarchy (node_type, node_id, node_name, parent_id) VALUES ('meter', ?, ?, ?)",
+      [drn, meterName, parentId]
+    );
+
+    // Get full path
+    var allNodes = await queryAll('SELECT * FROM GridHierarchy ORDER BY node_type, node_name');
+    var newNode = allNodes.find(function(n) { return n.node_type === 'meter' && n.node_id === drn; });
+    var path = newNode ? buildNodePath(allNodes, newNode.id) : '';
+
+    res.json({
+      success: true,
+      message: 'Meter ' + drn + ' assigned to ' + parent.node_name,
+      path: path,
+      previousParent: previousParentName
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /loadcontrol/grid-topology/orphans — Unmapped meters
+router.get('/loadcontrol/grid-topology/orphans', authenticateToken, async function(req, res) {
+  try {
+    var allMeters = await queryAll(`
+      SELECT ml.DRN, ml.LocationName, ml.Lat, ml.Longitude, ml.Status,
+             CONCAT(mpr.Name, ' ', mpr.Surname) as customerName
+      FROM MeterLocationInfoTable ml
+      LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
+      WHERE ml.DRN != 'TEST'
+    `);
+    var mappedMeters = await queryAll("SELECT node_id FROM GridHierarchy WHERE node_type = 'meter'");
+    var mappedSet = {};
+    (mappedMeters || []).forEach(function(m) { mappedSet[m.node_id] = true; });
+    var orphans = (allMeters || []).filter(function(m) { return !mappedSet[m.DRN]; });
     res.json({ success: true, data: orphans, count: orphans.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /loadcontrol/grid-topology/meter-path/:drn — Get full hierarchy path for a meter
+router.get('/loadcontrol/grid-topology/meter-path/:drn', authenticateToken, async function(req, res) {
+  try {
+    var drn = req.params.drn;
+    var meterNode = await queryOne("SELECT * FROM GridHierarchy WHERE node_type = 'meter' AND node_id = ?", [drn]);
+    if (!meterNode) {
+      return res.json({ success: true, data: { drn: drn, path: 'Unassigned', assigned: false } });
+    }
+    var allNodes = await queryAll('SELECT * FROM GridHierarchy ORDER BY node_type, node_name');
+    var path = buildNodePath(allNodes, meterNode.id);
+    res.json({ success: true, data: { drn: drn, path: path, assigned: true, parent_id: meterNode.parent_id } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

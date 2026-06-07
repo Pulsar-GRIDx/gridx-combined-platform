@@ -1,1252 +1,502 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Box,
-  Typography,
-  Chip,
-  TextField,
-  InputAdornment,
-  IconButton,
-  CircularProgress,
-  useTheme,
-  Button,
-  Select,
-  MenuItem,
-  FormControl,
-  Collapse,
+  Box, Typography, Chip, TextField, InputAdornment, IconButton, CircularProgress,
+  useTheme, Button, Select, MenuItem, FormControl, Collapse, Dialog, DialogTitle,
+  DialogContent, DialogActions, Radio, RadioGroup, FormControlLabel, Alert,
 } from "@mui/material";
 import {
-  SearchOutlined,
-  ArrowBackOutlined,
-  ElectricMeterOutlined,
-  WifiOutlined,
-  WifiOffOutlined,
-  WarningAmberOutlined,
-  AccountTreeOutlined,
-  TransformOutlined,
-  ExpandMore,
-  ChevronRight,
-  FiberManualRecord,
-  OpenInNewOutlined,
-  RefreshOutlined,
-  BoltOutlined,
+  SearchOutlined, ArrowBackOutlined, ElectricMeterOutlined, WifiOutlined,
+  WifiOffOutlined, WarningAmberOutlined, AccountTreeOutlined, TransformOutlined,
+  ExpandMore, ChevronRight, FiberManualRecord, OpenInNewOutlined, RefreshOutlined,
+  BoltOutlined, AddOutlined, EditOutlined, DeleteOutlined, LinkOutlined,
+  DeviceHubOutlined, ErrorOutlined,
 } from "@mui/icons-material";
 import { tokens } from "../theme";
 
-/* ================================================================
-   Build topology tree from flat API data
-   ================================================================ */
+const NS = {
+  main_station: { color: "#2563EB", bg: "rgba(37,99,235,0.12)", icon: <BoltOutlined sx={{ fontSize: 16 }} />, shape: "square" },
+  substation: { color: "#3B82F6", bg: "rgba(59,130,246,0.10)", icon: <AccountTreeOutlined sx={{ fontSize: 16 }} />, shape: "square" },
+  feeder: { color: "#14B8A6", bg: "rgba(20,184,166,0.10)", icon: <DeviceHubOutlined sx={{ fontSize: 14 }} />, shape: "diamond" },
+  distribution: { color: "#F59E0B", bg: "rgba(245,158,11,0.10)", icon: <AccountTreeOutlined sx={{ fontSize: 14 }} />, shape: "diamond" },
+  transformer: { color: "#EA580C", bg: "rgba(234,88,12,0.10)", icon: <TransformOutlined sx={{ fontSize: 14 }} />, shape: "diamond" },
+  meter: { color: "#10B981", bg: "rgba(16,185,129,0.10)", icon: <ElectricMeterOutlined sx={{ fontSize: 14 }} />, shape: "circle" },
+};
+const SC = { online: "#10B981", offline: "#EF4444", warning: "#F59E0B", critical: "#DC2626" };
+const TL = { main_station: "Main Station", substation: "Substation", feeder: "Feeder", distribution: "Distribution Node", transformer: "Transformer", meter: "Meter" };
+const inputSx = { "& .MuiOutlinedInput-root": { fontSize: 13, borderRadius: "8px" } };
+const btnPrimary = { textTransform: "none", fontSize: 12, borderRadius: "8px", bgcolor: "#2563EB", "&:hover": { bgcolor: "#1D4ED8" } };
+
+function buildPath(nodes, id) {
+  const p = []; let c = nodes.find((n) => n.id === id);
+  while (c) { p.unshift(c.node_name || c.node_id); c = c.parent_id ? nodes.find((n) => n.id === c.parent_id) : null; }
+  return p.join(" → ");
+}
+function flattenTree(node) { const r = [node]; (node.children || []).forEach((c) => r.push(...flattenTree(c))); return r; }
+
 function buildTopologyTree(data) {
-  const { meters, substations, transformers } = data;
-
-  // Create root node (Main Station)
-  const tree = {
-    id: "main",
-    name: "Windhoek Grid",
-    type: "main_station",
-    children: [],
-    status: "online",
-  };
-
-  // Add substations as children of main
-  (substations || []).forEach((sub) => {
-    const subNode = {
-      id: `sub-${sub.id}`,
-      name: sub.name || `Substation ${sub.id}`,
-      type: sub.type === "primary" ? "substation" : "feeder",
-      lat: sub.lat,
-      lng: sub.lng,
-      district: sub.district,
-      status: "online",
-      children: [],
-    };
-
-    // Find meters near this substation
+  const { meters, substations, nodes } = data;
+  const hNodes = nodes || [], nodeMap = {}, roots = [];
+  hNodes.forEach((n) => {
+    nodeMap[n.id] = { id: "h-" + n.id, dbId: n.id, name: n.node_name || n.node_id, code: n.node_code,
+      type: n.node_type, nodeId: n.node_id, lat: parseFloat(n.lat) || null, lng: parseFloat(n.lng) || null,
+      status: n.status || "online", capacityRating: n.capacity_rating, voltageLevel: n.voltage_level,
+      description: n.description, parentDbId: n.parent_id, children: [],
+      drn: n.node_type === "meter" ? n.node_id : undefined };
+  });
+  Object.values(nodeMap).forEach((n) => {
+    if (n.parentDbId && nodeMap[n.parentDbId]) nodeMap[n.parentDbId].children.push(n);
+    else roots.push(n);
+  });
+  const mapped = new Set(); hNodes.forEach((n) => { if (n.node_type === "meter") mapped.add(n.node_id); });
+  const subNodes = (substations || []).map((sub) => {
+    const sn = { id: "sub-" + sub.id, name: sub.name || "Substation " + sub.id, type: "substation",
+      lat: sub.lat, lng: sub.lng, district: sub.district, status: "online", children: [], isLegacy: true };
     (meters || []).forEach((m) => {
-      const lat = parseFloat(m.Lat);
-      const lng = parseFloat(m.Longitude);
-      if (!isNaN(lat) && !isNaN(lng) && sub.lat && sub.lng) {
-        const dist = Math.sqrt(
-          Math.pow(lat - sub.lat, 2) + Math.pow(lng - sub.lng, 2)
-        );
-        if (dist < 0.02) {
-          subNode.children.push({
-            id: `meter-${m.DRN}`,
-            name: m.DRN,
-            type: "meter",
-            customerName: m.customerName,
-            area: m.LocationName,
-            suburb: m.Suburb,
-            lat,
-            lng,
-            status: m.Status == "1" || m.Status == 1 ? "online" : "offline",
-            drn: m.DRN,
-            tariff: m.tariff_type,
-            city: m.City,
-            region: m.Region,
-          });
-        }
+      if (mapped.has(m.DRN)) return;
+      const lat = parseFloat(m.Lat), lng = parseFloat(m.Longitude);
+      if (!isNaN(lat) && !isNaN(lng) && sub.lat && sub.lng && Math.sqrt(Math.pow(lat - sub.lat, 2) + Math.pow(lng - sub.lng, 2)) < 0.02) {
+        mapped.add(m.DRN);
+        sn.children.push({ id: "meter-" + m.DRN, name: m.DRN, type: "meter", drn: m.DRN, customerName: m.customerName,
+          area: m.LocationName, suburb: m.Suburb, lat, lng, status: m.Status == "1" || m.Status == 1 ? "online" : "offline",
+          tariff: m.tariff_type, city: m.City, region: m.Region });
       }
     });
-
-    tree.children.push(subNode);
+    return sn;
   });
-
-  // Collect mapped DRNs
-  const mappedDrns = new Set();
-  tree.children.forEach((sub) =>
-    (sub.children || []).forEach((m) => mappedDrns.add(m.drn))
-  );
-
-  // Add orphan meters
-  const orphans = (meters || []).filter((m) => !mappedDrns.has(m.DRN));
-  if (orphans.length > 0) {
-    tree.children.push({
-      id: "unmapped",
-      name: "Unmapped Meters",
-      type: "feeder",
-      status: "warning",
-      children: orphans.map((m) => ({
-        id: `meter-${m.DRN}`,
-        name: m.DRN,
-        type: "meter",
-        customerName: m.customerName,
-        area: m.LocationName,
-        suburb: m.Suburb,
-        status: m.Status == "1" || m.Status == 1 ? "online" : "offline",
-        drn: m.DRN,
-        tariff: m.tariff_type,
-        city: m.City,
-        region: m.Region,
-      })),
-    });
-  }
-
+  const orphans = (meters || []).filter((m) => !mapped.has(m.DRN));
+  const tree = { id: "main", name: "Windhoek Grid", type: "main_station", status: "online", children: [...roots, ...subNodes] };
+  if (orphans.length > 0) tree.children.push({ id: "unmapped", name: "Unmapped Meters", type: "distribution", status: "warning",
+    children: orphans.map((m) => ({ id: "meter-" + m.DRN, name: m.DRN, type: "meter", drn: m.DRN, customerName: m.customerName,
+      area: m.LocationName, suburb: m.Suburb, status: m.Status == "1" || m.Status == 1 ? "online" : "offline", tariff: m.tariff_type, city: m.City, region: m.Region })) });
   return tree;
 }
 
-/* ================================================================
-   Collect all nodes (flat) from tree, for filtering
-   ================================================================ */
-function flattenTree(node) {
-  const result = [node];
-  (node.children || []).forEach((c) => result.push(...flattenTree(c)));
-  return result;
-}
-
-/* ================================================================
-   Icon/color helpers per node type
-   ================================================================ */
-const nodeStyles = {
-  main_station: { color: "#2563EB", bg: "rgba(37,99,235,0.12)", icon: <BoltOutlined sx={{ fontSize: 16 }} />, shape: "square" },
-  substation: { color: "#3B82F6", bg: "rgba(59,130,246,0.10)", icon: <AccountTreeOutlined sx={{ fontSize: 16 }} />, shape: "square" },
-  feeder: { color: "#F59E0B", bg: "rgba(245,158,11,0.10)", icon: <AccountTreeOutlined sx={{ fontSize: 14 }} />, shape: "diamond" },
-  transformer: { color: "#D97706", bg: "rgba(217,119,6,0.10)", icon: <TransformOutlined sx={{ fontSize: 14 }} />, shape: "diamond" },
-  meter: { color: "#10B981", bg: "rgba(16,185,129,0.10)", icon: <ElectricMeterOutlined sx={{ fontSize: 14 }} />, shape: "circle" },
-};
-
-const statusColors = {
-  online: "#10B981",
-  offline: "#EF4444",
-  warning: "#F59E0B",
-  critical: "#DC2626",
-};
-
-/* ================================================================
-   TreeNode component — recursive, expandable
-   ================================================================ */
+/* TreeNode */
 function TreeNode({ node, depth, expanded, toggleExpand, selectedNode, setSelectedNode, isDark, colors, filter }) {
-  const hasChildren = node.children && node.children.length > 0;
-  const isExpanded = expanded.has(node.id);
-  const isSelected = selectedNode?.id === node.id;
-  const style = nodeStyles[node.type] || nodeStyles.meter;
-  const statusColor = statusColors[node.status] || "#64748B";
-
-  // Filter logic: if filter is set and node doesn't match AND no children match, hide
-  const filteredChildren = useMemo(() => {
-    if (!hasChildren) return [];
-    if (!filter) return node.children;
-    return node.children.filter((c) => {
-      const flat = flattenTree(c);
-      return flat.some(
-        (n) =>
-          (n.name || "").toLowerCase().includes(filter) ||
-          (n.customerName || "").toLowerCase().includes(filter) ||
-          (n.drn || "").toLowerCase().includes(filter) ||
-          (n.area || "").toLowerCase().includes(filter)
-      );
-    });
-  }, [hasChildren, node.children, filter]);
-
-  // If filtering and this node + no children match, hide
-  if (filter && filteredChildren.length === 0) {
-    const selfMatch =
-      (node.name || "").toLowerCase().includes(filter) ||
-      (node.customerName || "").toLowerCase().includes(filter) ||
-      (node.drn || "").toLowerCase().includes(filter) ||
-      (node.area || "").toLowerCase().includes(filter);
-    if (!selfMatch) return null;
-  }
-
-  const headingColor = isDark ? colors.grey[100] : "#111827";
-  const labelColor = isDark ? colors.grey[300] : "#6B7280";
-
+  const has = node.children && node.children.length > 0, isExp = expanded.has(node.id), isSel = selectedNode?.id === node.id;
+  const st = NS[node.type] || NS.meter, sc = SC[node.status] || "#64748B";
+  const hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
+  const fc = useMemo(() => {
+    if (!has) return []; if (!filter) return node.children;
+    return node.children.filter((c) => flattenTree(c).some((n) =>
+      (n.name || "").toLowerCase().includes(filter) || (n.customerName || "").toLowerCase().includes(filter) ||
+      (n.drn || "").toLowerCase().includes(filter) || (n.area || "").toLowerCase().includes(filter)));
+  }, [has, node.children, filter]);
+  if (filter && fc.length === 0 && ![(node.name||""), (node.customerName||""), (node.drn||""), (node.area||"")].some((v) => v.toLowerCase().includes(filter))) return null;
   return (
     <Box>
-      {/* Node row */}
-      <Box
-        onClick={() => setSelectedNode(node)}
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          gap: 1,
-          pl: `${depth * 28 + 8}px`,
-          pr: 1.5,
-          py: "7px",
-          cursor: "pointer",
-          borderRadius: "8px",
-          bgcolor: isSelected
-            ? isDark
-              ? "rgba(37,99,235,0.12)"
-              : "rgba(37,99,235,0.06)"
-            : "transparent",
-          border: isSelected
-            ? `1px solid ${isDark ? "rgba(37,99,235,0.3)" : "rgba(37,99,235,0.2)"}`
-            : "1px solid transparent",
-          transition: "all 0.15s",
-          "&:hover": {
-            bgcolor: isDark
-              ? "rgba(37,99,235,0.06)"
-              : "rgba(37,99,235,0.03)",
-          },
-          mb: "2px",
-        }}
-      >
-        {/* Expand/collapse toggle */}
-        {hasChildren ? (
-          <IconButton
-            size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleExpand(node.id);
-            }}
-            sx={{
-              width: 22,
-              height: 22,
-              color: labelColor,
-              transition: "transform 0.2s",
-            }}
-          >
-            {isExpanded ? (
-              <ExpandMore sx={{ fontSize: 16 }} />
-            ) : (
-              <ChevronRight sx={{ fontSize: 16 }} />
-            )}
-          </IconButton>
-        ) : (
-          <Box sx={{ width: 22 }} />
-        )}
-
-        {/* Node icon */}
-        <Box
-          sx={{
-            width: 28,
-            height: 28,
-            borderRadius: style.shape === "circle" ? "50%" : style.shape === "diamond" ? "6px" : "6px",
-            transform: style.shape === "diamond" ? "rotate(45deg)" : "none",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            bgcolor: style.bg,
-            border: `1.5px solid ${style.color}`,
-            flexShrink: 0,
-          }}
-        >
-          <Box sx={{ transform: style.shape === "diamond" ? "rotate(-45deg)" : "none", display: "flex" }}>
-            {style.icon}
-          </Box>
+      <Box onClick={() => setSelectedNode(node)} sx={{ display: "flex", alignItems: "center", gap: 1,
+        pl: `${depth * 28 + 8}px`, pr: 1.5, py: "7px", cursor: "pointer", borderRadius: "8px", mb: "2px",
+        bgcolor: isSel ? (isDark ? "rgba(37,99,235,0.12)" : "rgba(37,99,235,0.06)") : "transparent",
+        border: isSel ? `1px solid ${isDark ? "rgba(37,99,235,0.3)" : "rgba(37,99,235,0.2)"}` : "1px solid transparent",
+        transition: "all 0.15s", "&:hover": { bgcolor: isDark ? "rgba(37,99,235,0.06)" : "rgba(37,99,235,0.03)" } }}>
+        {has ? <IconButton size="small" onClick={(e) => { e.stopPropagation(); toggleExpand(node.id); }}
+          sx={{ width: 22, height: 22, color: lc }}>{isExp ? <ExpandMore sx={{ fontSize: 16 }} /> : <ChevronRight sx={{ fontSize: 16 }} />}</IconButton> : <Box sx={{ width: 22 }} />}
+        <Box sx={{ width: 28, height: 28, borderRadius: st.shape === "circle" ? "50%" : "6px",
+          transform: st.shape === "diamond" ? "rotate(45deg)" : "none", display: "flex", alignItems: "center",
+          justifyContent: "center", bgcolor: st.bg, border: `1.5px solid ${st.color}`, flexShrink: 0 }}>
+          <Box sx={{ transform: st.shape === "diamond" ? "rotate(-45deg)" : "none", display: "flex" }}>{st.icon}</Box>
         </Box>
-
-        {/* Name + meta */}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box display="flex" alignItems="center" gap={0.75}>
-            <Typography
-              fontSize="13px"
-              fontWeight={node.type === "main_station" ? 700 : 600}
-              color={headingColor}
-              noWrap
-              sx={{ fontFamily: node.type === "meter" ? "monospace" : "inherit" }}
-            >
-              {node.name}
-            </Typography>
-            {node.customerName && (
-              <Typography fontSize="11px" color={labelColor} noWrap>
-                {node.customerName}
-              </Typography>
-            )}
+            <Typography fontSize="13px" fontWeight={node.type === "main_station" ? 700 : 600} color={hc} noWrap
+              sx={{ fontFamily: node.type === "meter" ? "monospace" : "inherit" }}>{node.name}</Typography>
+            {node.customerName && <Typography fontSize="11px" color={lc} noWrap>{node.customerName}</Typography>}
           </Box>
           <Box display="flex" alignItems="center" gap={0.5} mt="1px">
-            <Typography
-              fontSize="10px"
-              color={labelColor}
-              textTransform="capitalize"
-            >
-              {node.type.replace("_", " ")}
-            </Typography>
-            {node.area && (
-              <Typography fontSize="10px" color={labelColor}>
-                &middot; {node.area}
-              </Typography>
-            )}
-            {node.district && (
-              <Typography fontSize="10px" color={labelColor}>
-                &middot; {node.district}
-              </Typography>
-            )}
-            {hasChildren && (
-              <Typography fontSize="10px" color={labelColor}>
-                &middot; {node.children.length} children
-              </Typography>
-            )}
+            <Chip label={TL[node.type] || node.type} size="small" sx={{ height: 16, fontSize: 9, fontWeight: 600, bgcolor: st.bg, color: st.color, "& .MuiChip-label": { px: "5px" } }} />
+            {node.area && <Typography fontSize="10px" color={lc}>&middot; {node.area}</Typography>}
+            {has && <Typography fontSize="10px" color={lc}>&middot; {node.children.length}</Typography>}
           </Box>
         </Box>
-
-        {/* Status dot */}
-        <FiberManualRecord
-          sx={{ fontSize: 10, color: statusColor, flexShrink: 0 }}
-        />
+        <FiberManualRecord sx={{ fontSize: 10, color: sc, flexShrink: 0 }} />
       </Box>
-
-      {/* Children */}
-      {hasChildren && (
-        <Collapse in={isExpanded} timeout={200}>
-          <Box
-            sx={{
-              ml: `${depth * 28 + 19}px`,
-              borderLeft: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`,
-              pl: 0,
-            }}
-          >
-            {filteredChildren.map((child) => (
-              <TreeNode
-                key={child.id}
-                node={child}
-                depth={depth + 1}
-                expanded={expanded}
-                toggleExpand={toggleExpand}
-                selectedNode={selectedNode}
-                setSelectedNode={setSelectedNode}
-                isDark={isDark}
-                colors={colors}
-                filter={filter}
-              />
-            ))}
-          </Box>
-        </Collapse>
-      )}
+      {has && <Collapse in={isExp} timeout={200}><Box sx={{ ml: `${depth * 28 + 19}px`, borderLeft: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}` }}>
+        {fc.map((ch) => <TreeNode key={ch.id} node={ch} depth={depth + 1} expanded={expanded} toggleExpand={toggleExpand}
+          selectedNode={selectedNode} setSelectedNode={setSelectedNode} isDark={isDark} colors={colors} filter={filter} />)}
+      </Box></Collapse>}
     </Box>
   );
 }
 
-/* ================================================================
-   Main Component
-   ================================================================ */
+/* Shared dialog field */
+function DField({ label, children, isDark, colors }) {
+  return <Box><Typography fontSize="11px" color={isDark ? colors.grey[300] : "#6B7280"} mb={0.5} fontWeight={600}>{label}</Typography>{children}</Box>;
+}
+
+/* Add Distribution Dialog */
+function AddDlg({ open, onClose, onCreated, allNodes, isDark, colors, token }) {
+  const [nt, setNt] = useState("substation"), [nm, setNm] = useState(""), [cd, setCd] = useState("");
+  const [pid, setPid] = useState(""), [lt, setLt] = useState(""), [lg, setLg] = useState("");
+  const [cap, setCap] = useState(""), [vol, setVol] = useState(""), [desc, setDesc] = useState("");
+  const [saving, setSaving] = useState(false), [err, setErr] = useState("");
+  const bg = isDark ? colors.primary[400] : "#FFF", hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
+  const pOpts = useMemo(() => (allNodes || []).filter((n) => n.node_type !== "meter").map((n) => ({ id: n.id, label: buildPath(allNodes, n.id) || n.node_name })), [allNodes]);
+  const selPath = useMemo(() => { if (!pid) return ""; const p = allNodes.find((n) => n.id === parseInt(pid)); return p ? buildPath(allNodes, p.id) + " → " + nm : ""; }, [pid, allNodes, nm]);
+  const types = [["main_station","Main Station"],["substation","Substation"],["feeder","Feeder"],["distribution","Distribution Node"],["transformer","Transformer"]];
+  const reset = () => { setNt("substation"); setNm(""); setCd(""); setPid(""); setLt(""); setLg(""); setCap(""); setVol(""); setDesc(""); setErr(""); onClose(); };
+  const save = async () => {
+    if (!nm.trim()) { setErr("Name is required"); return; } setSaving(true); setErr("");
+    try {
+      const r = await fetch("/cb/loadcontrol/grid-topology/nodes", { method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ node_type: nt, node_name: nm.trim(), node_code: cd.trim() || undefined,
+          parent_id: pid ? parseInt(pid) : undefined, lat: lt ? parseFloat(lt) : undefined, lng: lg ? parseFloat(lg) : undefined,
+          capacity_rating: cap.trim() || undefined, voltage_level: vol.trim() || undefined, description: desc.trim() || undefined }) });
+      const j = await r.json(); if (j.success) { onCreated(j); reset(); } else setErr(j.error || "Failed");
+    } catch (e) { setErr(e.message); } setSaving(false);
+  };
+  return (
+    <Dialog open={open} onClose={reset} maxWidth="sm" fullWidth PaperProps={{ sx: { bgcolor: bg, borderRadius: "12px" } }}>
+      <DialogTitle sx={{ color: hc, fontWeight: 700, fontSize: 16, pb: 1 }}>Add Distribution Asset</DialogTitle>
+      <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "8px !important" }}>
+        {err && <Alert severity="error" sx={{ fontSize: 12 }}>{err}</Alert>}
+        <DField label="Asset Type" isDark={isDark} colors={colors}>
+          <Select size="small" fullWidth value={nt} onChange={(e) => setNt(e.target.value)} sx={{ fontSize: 13, borderRadius: "8px" }}>
+            {types.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}</Select></DField>
+        <DField label="Name *" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={nm} onChange={(e) => setNm(e.target.value)} placeholder="e.g. Rocky Crest Substation" sx={inputSx} /></DField>
+        <DField label="Code (optional)" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={cd} onChange={(e) => setCd(e.target.value)} placeholder="e.g. RC-SUB-01" sx={inputSx} /></DField>
+        <DField label="Parent Node" isDark={isDark} colors={colors}>
+          <Select size="small" fullWidth value={pid} onChange={(e) => setPid(e.target.value)} displayEmpty sx={{ fontSize: 13, borderRadius: "8px" }}>
+            <MenuItem value=""><em>None (root level)</em></MenuItem>
+            {pOpts.map((p) => <MenuItem key={p.id} value={p.id}><Typography fontSize="12px" noWrap>{p.label}</Typography></MenuItem>)}</Select></DField>
+        {selPath && <Alert severity="info" sx={{ fontSize: 11, py: 0 }}>Full path: {selPath}</Alert>}
+        <Box display="flex" gap={1.5}>
+          <DField label="Latitude" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={lt} onChange={(e) => setLt(e.target.value)} placeholder="-22.5597" sx={inputSx} /></DField>
+          <DField label="Longitude" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={lg} onChange={(e) => setLg(e.target.value)} placeholder="17.0832" sx={inputSx} /></DField>
+        </Box>
+        {["substation","transformer","distribution"].includes(nt) && <Box display="flex" gap={1.5}>
+          <DField label="Capacity Rating" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={cap} onChange={(e) => setCap(e.target.value)} placeholder="e.g. 500 kVA" sx={inputSx} /></DField>
+          <DField label="Voltage Level" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={vol} onChange={(e) => setVol(e.target.value)} placeholder="e.g. 11 kV" sx={inputSx} /></DField>
+        </Box>}
+        <DField label="Description" isDark={isDark} colors={colors}><TextField size="small" fullWidth multiline rows={2} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Optional notes..." sx={inputSx} /></DField>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2.5 }}>
+        <Button onClick={reset} sx={{ textTransform: "none", fontSize: 12, color: lc }}>Cancel</Button>
+        <Button variant="contained" onClick={save} disabled={saving || !nm.trim()} sx={btnPrimary}>
+          {saving ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : "Create"}</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/* Assign Meter Dialog */
+function AssignDlg({ open, onClose, onAssigned, meterDrn, allNodes, isDark, colors, token }) {
+  const [sel, setSel] = useState(""), [sq, setSq] = useState(""), [saving, setSaving] = useState(false), [err, setErr] = useState(""), [curA, setCurA] = useState(null);
+  const bg = isDark ? colors.primary[400] : "#FFF", hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
+  useEffect(() => {
+    if (!meterDrn || !allNodes) return;
+    const mn = allNodes.find((n) => n.node_type === "meter" && n.node_id === meterDrn);
+    setCurA(mn?.parent_id ? (allNodes.find((n) => n.id === mn.parent_id)?.node_name || null) : null);
+  }, [meterDrn, allNodes]);
+  const opts = useMemo(() => {
+    const o = (allNodes || []).filter((n) => n.node_type !== "meter"), q = sq.toLowerCase().trim();
+    return q ? o.filter((n) => (buildPath(allNodes, n.id) + (n.node_name || "")).toLowerCase().includes(q)) : o;
+  }, [allNodes, sq]);
+  const reset = () => { setSel(""); setSq(""); setErr(""); onClose(); };
+  const assign = async () => {
+    if (!sel) { setErr("Select a distribution node"); return; } setSaving(true); setErr("");
+    try {
+      const r = await fetch("/cb/loadcontrol/grid-topology/assign-meter", { method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ drn: meterDrn, parent_id: parseInt(sel) }) });
+      const j = await r.json(); if (j.success) { onAssigned(j); reset(); } else setErr(j.error || "Failed");
+    } catch (e) { setErr(e.message); } setSaving(false);
+  };
+  return (
+    <Dialog open={open} onClose={reset} maxWidth="sm" fullWidth PaperProps={{ sx: { bgcolor: bg, borderRadius: "12px" } }}>
+      <DialogTitle sx={{ color: hc, fontWeight: 700, fontSize: 16, pb: 0.5 }}>Assign Meter to Distribution</DialogTitle>
+      <DialogContent sx={{ pt: "8px !important" }}>
+        <Typography fontSize="12px" color={lc} mb={1.5}>Assign DRN <strong style={{ fontFamily: "monospace" }}>{meterDrn}</strong> to a distribution node. One meter = one node.</Typography>
+        {curA && <Alert severity="warning" sx={{ mb: 2, fontSize: 12 }}>This meter is currently assigned to <strong>{curA}</strong>. Assigning here will remove the previous assignment.</Alert>}
+        {err && <Alert severity="error" sx={{ mb: 2, fontSize: 12 }}>{err}</Alert>}
+        <TextField size="small" fullWidth placeholder="Search nodes..." value={sq} onChange={(e) => setSq(e.target.value)}
+          sx={{ mb: 1.5, ...inputSx }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined sx={{ fontSize: 16, color: lc }} /></InputAdornment> }} />
+        <Box sx={{ maxHeight: 300, overflowY: "auto", border: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`, borderRadius: "8px", p: 1 }}>
+          <RadioGroup value={sel} onChange={(e) => setSel(e.target.value)}>
+            {opts.length === 0 ? <Typography fontSize="12px" color={lc} textAlign="center" py={2}>No distribution nodes found. Create one first.</Typography>
+              : opts.map((n) => <FormControlLabel key={n.id} value={String(n.id)} control={<Radio size="small" sx={{ py: 0.5 }} />}
+                label={<Box><Typography fontSize="12px" fontWeight={600} color={hc}>{buildPath(allNodes, n.id)}</Typography>
+                  <Typography fontSize="10px" color={lc}>{TL[n.node_type] || n.node_type}{n.capacity_rating ? " • " + n.capacity_rating : ""}</Typography></Box>}
+                sx={{ alignItems: "flex-start", mb: 0.5, mx: 0, borderRadius: "6px", py: 0.5, px: 1,
+                  bgcolor: sel === String(n.id) ? (isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF") : "transparent" }} />)}
+          </RadioGroup>
+        </Box>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2.5 }}>
+        <Button onClick={reset} sx={{ textTransform: "none", fontSize: 12, color: lc }}>Cancel</Button>
+        <Button variant="contained" onClick={assign} disabled={saving || !sel} sx={btnPrimary}>
+          {saving ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : "Assign Meter"}</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/* Edit Node Dialog */
+function EditDlg({ open, onClose, onUpdated, node, allNodes, isDark, colors, token }) {
+  const [nm, setNm] = useState(""), [cd, setCd] = useState(""), [pid, setPid] = useState("");
+  const [st, setSt] = useState("online"), [cap, setCap] = useState(""), [vol, setVol] = useState(""), [desc, setDesc] = useState("");
+  const [saving, setSaving] = useState(false), [err, setErr] = useState("");
+  const bg = isDark ? colors.primary[400] : "#FFF", hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
+  useEffect(() => { if (node && open) { const d = allNodes.find((n) => n.id === node.dbId);
+    if (d) { setNm(d.node_name || ""); setCd(d.node_code || ""); setPid(d.parent_id ? String(d.parent_id) : "");
+      setSt(d.status || "online"); setCap(d.capacity_rating || ""); setVol(d.voltage_level || ""); setDesc(d.description || ""); } } }, [node, open, allNodes]);
+  const pOpts = useMemo(() => (allNodes || []).filter((n) => n.node_type !== "meter" && n.id !== node?.dbId).map((n) => ({ id: n.id, label: buildPath(allNodes, n.id) || n.node_name })), [allNodes, node]);
+  const save = async () => {
+    if (!nm.trim()) { setErr("Name is required"); return; } setSaving(true); setErr("");
+    try {
+      const r = await fetch(`/cb/loadcontrol/grid-topology/nodes/${node.dbId}`, { method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ node_name: nm.trim(), node_code: cd.trim() || null, parent_id: pid ? parseInt(pid) : null,
+          status: st, capacity_rating: cap.trim() || null, voltage_level: vol.trim() || null, description: desc.trim() || null }) });
+      const j = await r.json(); if (j.success) { onUpdated(); onClose(); } else setErr(j.error || "Update failed");
+    } catch (e) { setErr(e.message); } setSaving(false);
+  };
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { bgcolor: bg, borderRadius: "12px" } }}>
+      <DialogTitle sx={{ color: hc, fontWeight: 700, fontSize: 16, pb: 1 }}>Edit Node</DialogTitle>
+      <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "8px !important" }}>
+        {err && <Alert severity="error" sx={{ fontSize: 12 }}>{err}</Alert>}
+        <DField label="Name" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={nm} onChange={(e) => setNm(e.target.value)} sx={inputSx} /></DField>
+        <DField label="Code" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={cd} onChange={(e) => setCd(e.target.value)} sx={inputSx} /></DField>
+        <DField label="Parent Node" isDark={isDark} colors={colors}>
+          <Select size="small" fullWidth value={pid} onChange={(e) => setPid(e.target.value)} displayEmpty sx={{ fontSize: 13, borderRadius: "8px" }}>
+            <MenuItem value=""><em>None (root)</em></MenuItem>
+            {pOpts.map((p) => <MenuItem key={p.id} value={p.id}>{p.label}</MenuItem>)}</Select></DField>
+        <DField label="Status" isDark={isDark} colors={colors}>
+          <Select size="small" fullWidth value={st} onChange={(e) => setSt(e.target.value)} sx={{ fontSize: 13, borderRadius: "8px" }}>
+            {["online","offline","warning","critical"].map((s) => <MenuItem key={s} value={s} sx={{ textTransform: "capitalize" }}>{s}</MenuItem>)}</Select></DField>
+        <Box display="flex" gap={1.5}>
+          <DField label="Capacity" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={cap} onChange={(e) => setCap(e.target.value)} sx={inputSx} /></DField>
+          <DField label="Voltage" isDark={isDark} colors={colors}><TextField size="small" fullWidth value={vol} onChange={(e) => setVol(e.target.value)} sx={inputSx} /></DField>
+        </Box>
+        <DField label="Description" isDark={isDark} colors={colors}><TextField size="small" fullWidth multiline rows={2} value={desc} onChange={(e) => setDesc(e.target.value)} sx={inputSx} /></DField>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2.5 }}>
+        <Button onClick={onClose} sx={{ textTransform: "none", fontSize: 12, color: lc }}>Cancel</Button>
+        <Button variant="contained" onClick={save} disabled={saving} sx={btnPrimary}>
+          {saving ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : "Save"}</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+/* Detail Panel */
+function DetailPanel({ node, isDark, colors, navigate, cardBorder, onAssignMeter, onEditNode, onDeleteNode, allNodes }) {
+  const hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
+  const st = NS[node.type] || NS.meter, sc = SC[node.status] || "#64748B";
+  const isMeter = node.type === "meter", isHierarchy = !isMeter && node.dbId;
+  const bc = useMemo(() => (node.dbId && allNodes?.length) ? buildPath(allNodes, node.dbId) : "", [node, allNodes]);
+  const details = [];
+  if (isMeter) {
+    details.push({ l: "DRN", v: node.drn || node.name }, { l: "Customer", v: node.customerName || "---" },
+      { l: "Area", v: node.area || "---" }, { l: "Suburb", v: node.suburb || "---" },
+      { l: "City", v: node.city || "---" }, { l: "Region", v: node.region || "---" },
+      { l: "Tariff", v: node.tariff || "---" }, { l: "Status", v: node.status, s: true });
+    if (node.lat && node.lng) details.push({ l: "Coordinates", v: `${node.lat.toFixed(5)}, ${node.lng.toFixed(5)}` });
+  } else {
+    details.push({ l: "Name", v: node.name }, { l: "Type", v: TL[node.type] || node.type });
+    if (node.code) details.push({ l: "Code", v: node.code });
+    if (node.capacityRating) details.push({ l: "Capacity", v: node.capacityRating });
+    if (node.voltageLevel) details.push({ l: "Voltage", v: node.voltageLevel });
+    if (node.description) details.push({ l: "Description", v: node.description });
+    details.push({ l: "Children", v: (node.children || []).length });
+    if (node.lat && node.lng) details.push({ l: "Coordinates", v: `${node.lat.toFixed(5)}, ${node.lng.toFixed(5)}` });
+    details.push({ l: "Status", v: node.status, s: true });
+  }
+  return (
+    <Box>
+      <Box sx={{ px: 2.5, pt: 2.5, pb: 2, borderBottom: cardBorder }}>
+        <Box display="flex" alignItems="center" gap={1.5} mb={1}>
+          <Box sx={{ width: 36, height: 36, borderRadius: st.shape === "circle" ? "50%" : "8px",
+            transform: st.shape === "diamond" ? "rotate(45deg)" : "none", display: "flex", alignItems: "center",
+            justifyContent: "center", bgcolor: st.bg, border: `2px solid ${st.color}` }}>
+            <Box sx={{ transform: st.shape === "diamond" ? "rotate(-45deg)" : "none", display: "flex" }}>{st.icon}</Box></Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography fontSize="15px" fontWeight={700} color={hc} noWrap sx={{ fontFamily: isMeter ? "monospace" : "inherit" }}>{node.name}</Typography>
+            <Typography fontSize="11px" color={lc}>{TL[node.type] || node.type}</Typography></Box>
+        </Box>
+        {bc && <Typography fontSize="10px" color={lc} sx={{ bgcolor: isDark ? "rgba(30,41,59,0.5)" : "#F3F4F6", px: 1, py: 0.5, borderRadius: "4px", mb: 1 }}>{bc}</Typography>}
+        <Chip label={node.status} size="small" sx={{ height: 22, fontSize: 10, fontWeight: 600, textTransform: "capitalize",
+          bgcolor: node.status === "online" ? (isDark ? "rgba(16,185,129,0.15)" : "#ECFDF5") : node.status === "offline" ? (isDark ? "rgba(239,68,68,0.15)" : "#FEF2F2") : (isDark ? "rgba(245,158,11,0.15)" : "#FFFBEB"),
+          color: sc, border: `1px solid ${sc}` }} />
+      </Box>
+      <Box sx={{ px: 2.5, py: 2 }}>
+        {details.map((d) => (
+          <Box key={d.l} display="flex" justifyContent="space-between" alignItems="center" sx={{ py: "6px", borderBottom: cardBorder }}>
+            <Typography fontSize="12px" color={lc}>{d.l}</Typography>
+            {d.s ? <Box display="flex" alignItems="center" gap={0.5}><FiberManualRecord sx={{ fontSize: 8, color: SC[d.v] || "#64748B" }} />
+              <Typography fontSize="12px" fontWeight={600} color={hc} textTransform="capitalize">{d.v}</Typography></Box>
+              : <Typography fontSize="12px" fontWeight={600} color={hc} noWrap sx={{ maxWidth: 180, textAlign: "right", fontFamily: d.l === "DRN" ? "monospace" : "inherit" }}>{d.v}</Typography>}
+          </Box>))}
+      </Box>
+      <Box sx={{ px: 2.5, pb: 2.5, display: "flex", flexDirection: "column", gap: 1 }}>
+        {isMeter && <>
+          <Button fullWidth variant="contained" size="small" startIcon={<OpenInNewOutlined sx={{ fontSize: 14 }} />}
+            onClick={() => navigate(`/meter/${node.drn || node.name}`)} sx={{ ...btnPrimary, py: "6px" }}>View Meter Profile</Button>
+          <Button fullWidth variant="outlined" size="small" startIcon={<LinkOutlined sx={{ fontSize: 14 }} />}
+            onClick={() => onAssignMeter(node.drn || node.name)}
+            sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#F59E0B", color: "#F59E0B", py: "6px",
+              "&:hover": { borderColor: "#D97706", bgcolor: "rgba(245,158,11,0.05)" } }}>Assign to Distribution</Button></>}
+        {!isMeter && node.type !== "main_station" && <Button fullWidth variant="outlined" size="small" startIcon={<LinkOutlined sx={{ fontSize: 14 }} />}
+          onClick={() => onAssignMeter(null)} sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#10B981", color: "#10B981", py: "6px",
+            "&:hover": { borderColor: "#059669", bgcolor: "rgba(16,185,129,0.05)" } }}>Assign Meters</Button>}
+        {isHierarchy && <Box display="flex" gap={1}>
+          <Button fullWidth variant="outlined" size="small" startIcon={<EditOutlined sx={{ fontSize: 14 }} />} onClick={() => onEditNode(node)}
+            sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: isDark ? "#475569" : "#D1D5DB", color: hc, py: "6px" }}>Edit</Button>
+          <Button fullWidth variant="outlined" size="small" startIcon={<DeleteOutlined sx={{ fontSize: 14 }} />} onClick={() => onDeleteNode(node)}
+            sx={{ textTransform: "none", fontSize: 12, borderRadius: "8px", borderColor: "#EF4444", color: "#EF4444", py: "6px",
+              "&:hover": { borderColor: "#DC2626", bgcolor: "rgba(239,68,68,0.05)" } }}>Delete</Button></Box>}
+        {node.children?.length > 0 && <Box sx={{ mt: 1, p: 1.5, borderRadius: "8px", bgcolor: isDark ? "rgba(30,41,59,0.5)" : "#F9FAFB", border: cardBorder }}>
+          <Typography fontSize="10px" fontWeight={700} color={lc} textTransform="uppercase" letterSpacing="0.5px" mb={0.75}>Children Summary</Typography>
+          {(() => { const c = {}; node.children.forEach((ch) => { c[ch.type] = (c[ch.type] || 0) + 1; });
+            return Object.entries(c).map(([t, n]) => <Box key={t} display="flex" justifyContent="space-between" sx={{ py: "3px" }}>
+              <Typography fontSize="11px" color={lc}>{TL[t] || t}</Typography><Typography fontSize="11px" fontWeight={600} color={hc}>{n}</Typography></Box>); })()}
+          {(() => { const on = node.children.filter((c) => c.status === "online").length, off = node.children.length - on;
+            return <Box display="flex" gap={1} mt={0.5}>
+              <Chip label={`${on} online`} size="small" sx={{ height: 18, fontSize: 9, bgcolor: isDark ? "rgba(16,185,129,0.12)" : "#ECFDF5", color: "#10B981", "& .MuiChip-label": { px: "5px" } }} />
+              {off > 0 && <Chip label={`${off} offline`} size="small" sx={{ height: 18, fontSize: 9, bgcolor: isDark ? "rgba(239,68,68,0.12)" : "#FEF2F2", color: "#EF4444", "& .MuiChip-label": { px: "5px" } }} />}
+            </Box>; })()}
+        </Box>}
+      </Box>
+    </Box>
+  );
+}
+
+/* ================================================================ MAIN ================================================================ */
 export default function GridTopology() {
-  const navigate = useNavigate();
-  const theme = useTheme();
-  const colors = tokens(theme.palette.mode);
-  const isDark = theme.palette.mode === "dark";
-
-  const [loading, setLoading] = useState(true);
-  const [topologyData, setTopologyData] = useState(null);
-  const [tree, setTree] = useState(null);
-  const [expanded, setExpanded] = useState(new Set(["main"]));
-  const [selectedNode, setSelectedNode] = useState(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-
-  const cardBg = isDark ? colors.primary[400] : "#FFFFFF";
-  const cardBorder = `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`;
-  const headingColor = isDark ? colors.grey[100] : "#111827";
-  const labelColor = isDark ? colors.grey[300] : "#6B7280";
+  const navigate = useNavigate(), theme = useTheme(), colors = tokens(theme.palette.mode), isDark = theme.palette.mode === "dark";
+  const [loading, setLoading] = useState(true), [topologyData, setTopologyData] = useState(null), [tree, setTree] = useState(null);
+  const [expanded, setExpanded] = useState(new Set(["main"])), [selectedNode, setSelectedNode] = useState(null);
+  const [search, setSearch] = useState(""), [statusFilter, setStatusFilter] = useState("all");
+  const [addOpen, setAddOpen] = useState(false), [assignOpen, setAssignOpen] = useState(false), [assignDrn, setAssignDrn] = useState("");
+  const [editOpen, setEditOpen] = useState(false), [editNode, setEditNode] = useState(null);
+  const cardBg = isDark ? colors.primary[400] : "#FFFFFF", cardBorder = `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`;
+  const hc = isDark ? colors.grey[100] : "#111827", lc = isDark ? colors.grey[300] : "#6B7280";
+  const token = sessionStorage.getItem("token");
 
   const fetchTopology = useCallback(async () => {
     setLoading(true);
-    try {
-      const token = sessionStorage.getItem("token");
-      const res = await fetch("/cb/loadcontrol/grid-topology", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (json.success && json.data) {
-        setTopologyData(json.data);
-        const builtTree = buildTopologyTree(json.data);
-        setTree(builtTree);
-      }
-    } catch (err) {
-      console.error("Topology fetch error:", err);
-    }
-    setLoading(false);
-  }, []);
+    try { const r = await fetch("/cb/loadcontrol/grid-topology", { headers: { Authorization: `Bearer ${token}` } });
+      const j = await r.json(); if (j.success && j.data) { setTopologyData(j.data); setTree(buildTopologyTree(j.data)); }
+    } catch (e) { console.error("Topology fetch error:", e); } setLoading(false);
+  }, [token]);
+  useEffect(() => { fetchTopology(); }, [fetchTopology]);
 
-  useEffect(() => {
-    fetchTopology();
-  }, [fetchTopology]);
-
-  const toggleExpand = useCallback((nodeId) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(nodeId)) {
-        next.delete(nodeId);
-      } else {
-        next.add(nodeId);
-      }
-      return next;
-    });
-  }, []);
-
-  // Expand all / collapse all
-  const expandAll = useCallback(() => {
-    if (!tree) return;
-    const allIds = new Set();
-    const collect = (node) => {
-      allIds.add(node.id);
-      (node.children || []).forEach(collect);
-    };
-    collect(tree);
-    setExpanded(allIds);
-  }, [tree]);
-
-  const collapseAll = useCallback(() => {
-    setExpanded(new Set(["main"]));
-  }, []);
-
-  // Stats
+  const toggleExpand = useCallback((id) => setExpanded((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; }), []);
+  const expandAll = useCallback(() => { if (!tree) return; const a = new Set(); const c = (n) => { a.add(n.id); (n.children || []).forEach(c); }; c(tree); setExpanded(a); }, [tree]);
+  const collapseAll = useCallback(() => setExpanded(new Set(["main"])), []);
   const stats = topologyData?.stats || {};
-  const alertCount = useMemo(() => {
-    if (!tree) return 0;
-    const all = flattenTree(tree);
-    return all.filter(
-      (n) => n.status === "warning" || n.status === "critical"
-    ).length;
-  }, [tree]);
-
-  // Search filter
-  const filterQuery = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    return q || null;
-  }, [search]);
-
-  // Status filter — applied at tree level
+  const activeEvents = useMemo(() => tree ? flattenTree(tree).filter((n) => n.status === "warning" || n.status === "critical").length : 0, [tree]);
+  const filterQuery = useMemo(() => search.toLowerCase().trim() || null, [search]);
   const filteredTree = useMemo(() => {
-    if (!tree) return null;
-    if (statusFilter === "all" && !filterQuery) return tree;
-
-    function filterNode(node) {
-      // Check children recursively
-      const filteredChildren = (node.children || [])
-        .map(filterNode)
-        .filter(Boolean);
-
-      // Check self match
-      const statusMatch =
-        statusFilter === "all" || node.status === statusFilter;
-      const searchMatch =
-        !filterQuery ||
-        (node.name || "").toLowerCase().includes(filterQuery) ||
-        (node.customerName || "").toLowerCase().includes(filterQuery) ||
-        (node.drn || "").toLowerCase().includes(filterQuery) ||
-        (node.area || "").toLowerCase().includes(filterQuery);
-
-      // If self matches or has matching children, include
-      if ((statusMatch && searchMatch) || filteredChildren.length > 0) {
-        return { ...node, children: filteredChildren };
-      }
-      return null;
-    }
-
-    return filterNode(tree);
+    if (!tree) return null; if (statusFilter === "all" && !filterQuery) return tree;
+    const fn = (node) => { const fc = (node.children || []).map(fn).filter(Boolean);
+      const sm = statusFilter === "all" || node.status === statusFilter;
+      const qm = !filterQuery || [(node.name||""), (node.customerName||""), (node.drn||""), (node.area||"")].some((v) => v.toLowerCase().includes(filterQuery));
+      return (sm && qm) || fc.length > 0 ? { ...node, children: fc } : null; };
+    return fn(tree);
   }, [tree, statusFilter, filterQuery]);
 
-  if (loading) {
-    return (
-      <Box
-        display="flex"
-        justifyContent="center"
-        alignItems="center"
-        height="80vh"
-      >
-        <CircularProgress sx={{ color: "#2563EB" }} />
-      </Box>
-    );
-  }
+  const handleAssign = useCallback((drn) => { setAssignDrn(drn || ""); setAssignOpen(true); }, []);
+  const handleEdit = useCallback((n) => { setEditNode(n); setEditOpen(true); }, []);
+  const handleDelete = useCallback(async (n) => { if (!n.dbId || !window.confirm(`Delete "${n.name}"? Children will be re-parented.`)) return;
+    try { const r = await fetch(`/cb/loadcontrol/grid-topology/nodes/${n.dbId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      const j = await r.json(); if (j.success) { setSelectedNode(null); fetchTopology(); } } catch (e) { console.error(e); }
+  }, [token, fetchTopology]);
+  const allNodes = topologyData?.nodes || [];
+
+  if (loading) return <Box display="flex" justifyContent="center" alignItems="center" height="80vh"><CircularProgress sx={{ color: "#2563EB" }} /></Box>;
+
+  const dc = [
+    { l: "Total Meters", v: stats.totalMeters || 0, i: <ElectricMeterOutlined sx={{ fontSize: 20 }} />, c: "#2563EB", b: isDark ? "rgba(37,99,235,0.1)" : "#EFF6FF" },
+    { l: "Online", v: stats.onlineMeters || 0, i: <WifiOutlined sx={{ fontSize: 20 }} />, c: "#10B981", b: isDark ? "rgba(16,185,129,0.1)" : "#ECFDF5" },
+    { l: "Offline", v: stats.offlineMeters || 0, i: <WifiOffOutlined sx={{ fontSize: 20 }} />, c: "#EF4444", b: isDark ? "rgba(239,68,68,0.1)" : "#FEF2F2" },
+    { l: "Substations", v: stats.totalSubstations || 0, i: <AccountTreeOutlined sx={{ fontSize: 20 }} />, c: "#3B82F6", b: isDark ? "rgba(59,130,246,0.1)" : "#EFF6FF" },
+    { l: "Distribution Nodes", v: stats.totalDistribution || 0, i: <DeviceHubOutlined sx={{ fontSize: 20 }} />, c: "#F59E0B", b: isDark ? "rgba(245,158,11,0.1)" : "#FFFBEB" },
+    { l: "Transformers", v: stats.totalTransformers || 0, i: <TransformOutlined sx={{ fontSize: 20 }} />, c: "#EA580C", b: isDark ? "rgba(234,88,12,0.1)" : "#FFF7ED" },
+    { l: "Tampered", v: stats.tamperCount || 0, i: <ErrorOutlined sx={{ fontSize: 20 }} />, c: stats.tamperCount > 0 ? "#DC2626" : "#64748B", b: stats.tamperCount > 0 ? (isDark ? "rgba(220,38,38,0.1)" : "#FEF2F2") : (isDark ? "rgba(100,116,139,0.1)" : "#F3F4F6") },
+    { l: "Critical Alerts", v: stats.criticalAlerts || 0, i: <ErrorOutlined sx={{ fontSize: 20 }} />, c: stats.criticalAlerts > 0 ? "#DC2626" : "#64748B", b: stats.criticalAlerts > 0 ? (isDark ? "rgba(220,38,38,0.1)" : "#FEF2F2") : (isDark ? "rgba(100,116,139,0.1)" : "#F3F4F6") },
+    { l: "Warning Alerts", v: stats.warningAlerts || 0, i: <WarningAmberOutlined sx={{ fontSize: 20 }} />, c: stats.warningAlerts > 0 ? "#F59E0B" : "#64748B", b: stats.warningAlerts > 0 ? (isDark ? "rgba(245,158,11,0.1)" : "#FFFBEB") : (isDark ? "rgba(100,116,139,0.1)" : "#F3F4F6") },
+    { l: "Active Events", v: activeEvents, i: <WarningAmberOutlined sx={{ fontSize: 20 }} />, c: activeEvents > 0 ? "#F59E0B" : "#64748B", b: activeEvents > 0 ? (isDark ? "rgba(245,158,11,0.1)" : "#FFFBEB") : (isDark ? "rgba(100,116,139,0.1)" : "#F3F4F6") },
+  ];
 
   return (
-    <Box
-      sx={{
-        bgcolor: isDark ? colors.primary[500] : "#F9FAFB",
-        minHeight: "calc(100vh - 70px)",
-      }}
-    >
-      {/* ===== HEADER ===== */}
-      <Box
-        sx={{
-          px: 3,
-          pt: 3,
-          pb: 1,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-        }}
-      >
+    <Box sx={{ bgcolor: isDark ? colors.primary[500] : "#F9FAFB", minHeight: "calc(100vh - 70px)" }}>
+      {/* HEADER */}
+      <Box sx={{ px: 3, pt: 3, pb: 1, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <Box display="flex" alignItems="center" gap={2}>
-          <IconButton
-            onClick={() => navigate("/load-control")}
-            sx={{
-              color: labelColor,
-              border: cardBorder,
-              borderRadius: "10px",
-              width: 36,
-              height: 36,
-              mr: 1.5,
-            }}
-          >
-            <ArrowBackOutlined sx={{ fontSize: 18 }} />
-          </IconButton>
-          <Box>
-            <Typography variant="h4" fontWeight={700} color={headingColor}>
-              Grid Topology
-            </Typography>
-            <Typography variant="body2" color={labelColor} mt={0.25}>
-              Network View &mdash; Hierarchical grid infrastructure
-            </Typography>
-          </Box>
+          <IconButton onClick={() => navigate("/load-control")} sx={{ color: lc, border: cardBorder, borderRadius: "10px", width: 36, height: 36, mr: 1.5 }}>
+            <ArrowBackOutlined sx={{ fontSize: 18 }} /></IconButton>
+          <Box><Typography variant="h4" fontWeight={700} color={hc}>Grid Topology</Typography>
+            <Typography variant="body2" color={lc} mt={0.25}>Network View &mdash; Distribution management</Typography></Box>
         </Box>
         <Box display="flex" gap={1} alignItems="center">
-          <TextField
-            size="small"
-            placeholder="Search DRN, name, substation..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            sx={{
-              width: 280,
-              "& .MuiOutlinedInput-root": {
-                bgcolor: cardBg,
-                borderRadius: "8px",
-                height: 36,
-                fontSize: 13,
-                border: cardBorder,
-                "& fieldset": { border: "none" },
-              },
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchOutlined sx={{ fontSize: 18, color: labelColor }} />
-                </InputAdornment>
-              ),
-            }}
-          />
-          <IconButton
-            size="small"
-            onClick={fetchTopology}
-            sx={{
-              color: labelColor,
-              border: cardBorder,
-              borderRadius: "8px",
-              width: 36,
-              height: 36,
-            }}
-          >
-            <RefreshOutlined sx={{ fontSize: 18 }} />
-          </IconButton>
+          <TextField size="small" placeholder="Search DRN, name, area..." value={search} onChange={(e) => setSearch(e.target.value)}
+            sx={{ width: 280, "& .MuiOutlinedInput-root": { bgcolor: cardBg, borderRadius: "8px", height: 36, fontSize: 13, border: cardBorder, "& fieldset": { border: "none" } } }}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlined sx={{ fontSize: 18, color: lc }} /></InputAdornment> }} />
+          <Button variant="contained" size="small" startIcon={<AddOutlined sx={{ fontSize: 16 }} />} onClick={() => setAddOpen(true)}
+            sx={{ ...btnPrimary, height: 36, whiteSpace: "nowrap" }}>Add Distribution</Button>
+          <IconButton size="small" onClick={fetchTopology} sx={{ color: lc, border: cardBorder, borderRadius: "8px", width: 36, height: 36 }}>
+            <RefreshOutlined sx={{ fontSize: 18 }} /></IconButton>
         </Box>
       </Box>
 
-      {/* ===== HEALTH DASHBOARD ===== */}
-      <Box sx={{ px: 3, py: 2, display: "flex", gap: 2, flexWrap: "wrap" }}>
-        {[
-          {
-            label: "Total Meters",
-            value: stats.totalMeters || 0,
-            icon: <ElectricMeterOutlined sx={{ fontSize: 20 }} />,
-            iconColor: "#2563EB",
-            iconBg: isDark ? "rgba(37,99,235,0.1)" : "#EFF6FF",
-          },
-          {
-            label: "Online",
-            value: stats.onlineMeters || 0,
-            icon: <WifiOutlined sx={{ fontSize: 20 }} />,
-            iconColor: "#10B981",
-            iconBg: isDark ? "rgba(16,185,129,0.1)" : "#ECFDF5",
-          },
-          {
-            label: "Offline",
-            value: stats.offlineMeters || 0,
-            icon: <WifiOffOutlined sx={{ fontSize: 20 }} />,
-            iconColor: "#EF4444",
-            iconBg: isDark ? "rgba(239,68,68,0.1)" : "#FEF2F2",
-          },
-          {
-            label: "Substations",
-            value: stats.totalSubstations || 0,
-            icon: <AccountTreeOutlined sx={{ fontSize: 20 }} />,
-            iconColor: "#3B82F6",
-            iconBg: isDark ? "rgba(59,130,246,0.1)" : "#EFF6FF",
-          },
-          {
-            label: "Transformers",
-            value: stats.totalTransformers || 0,
-            icon: <TransformOutlined sx={{ fontSize: 20 }} />,
-            iconColor: "#D97706",
-            iconBg: isDark ? "rgba(217,119,6,0.1)" : "#FFFBEB",
-          },
-          {
-            label: "Active Alerts",
-            value: alertCount,
-            icon: <WarningAmberOutlined sx={{ fontSize: 20 }} />,
-            iconColor: alertCount > 0 ? "#F59E0B" : "#64748B",
-            iconBg:
-              alertCount > 0
-                ? isDark
-                  ? "rgba(245,158,11,0.1)"
-                  : "#FFFBEB"
-                : isDark
-                ? "rgba(100,116,139,0.1)"
-                : "#F3F4F6",
-          },
-        ].map((s) => (
-          <Box
-            key={s.label}
-            sx={{
-              flex: "1 1 150px",
-              bgcolor: cardBg,
-              border: cardBorder,
-              borderRadius: "12px",
-              p: "14px 18px",
-              display: "flex",
-              alignItems: "center",
-              gap: 1.5,
-            }}
-          >
-            <Box
-              sx={{
-                width: 38,
-                height: 38,
-                borderRadius: "10px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                bgcolor: s.iconBg,
-                color: s.iconColor,
-              }}
-            >
-              {s.icon}
-            </Box>
-            <Box>
-              <Typography variant="h5" fontWeight={700} color={headingColor}>
-                {s.value}
-              </Typography>
-              <Typography variant="caption" color={labelColor} fontSize="11px">
-                {s.label}
-              </Typography>
-            </Box>
-          </Box>
-        ))}
-      </Box>
+      {/* DASHBOARD 2x5 */}
+      <Box sx={{ px: 3, py: 2 }}><Box sx={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 2 }}>
+        {dc.map((s) => <Box key={s.l} sx={{ bgcolor: cardBg, border: cardBorder, borderRadius: "12px", p: "14px 18px", display: "flex", alignItems: "center", gap: 1.5 }}>
+          <Box sx={{ width: 38, height: 38, borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: s.b, color: s.c }}>{s.i}</Box>
+          <Box><Typography variant="h5" fontWeight={700} color={hc}>{s.v}</Typography><Typography variant="caption" color={lc} fontSize="11px">{s.l}</Typography></Box>
+        </Box>)}
+      </Box></Box>
 
-      {/* ===== FILTER BAR ===== */}
-      <Box
-        sx={{
-          px: 3,
-          pb: 1.5,
-          display: "flex",
-          gap: 1.5,
-          alignItems: "center",
-        }}
-      >
-        <FormControl size="small">
-          <Select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            sx={{
-              height: 32,
-              fontSize: 12,
-              borderRadius: "8px",
-              bgcolor: cardBg,
-              border: cardBorder,
-              "& fieldset": { border: "none" },
-              minWidth: 130,
-            }}
-          >
-            <MenuItem value="all">All Status</MenuItem>
-            <MenuItem value="online">Online</MenuItem>
-            <MenuItem value="offline">Offline</MenuItem>
-            <MenuItem value="warning">Warning</MenuItem>
-            <MenuItem value="critical">Critical</MenuItem>
-          </Select>
-        </FormControl>
-
+      {/* FILTER BAR */}
+      <Box sx={{ px: 3, pb: 1.5, display: "flex", gap: 1.5, alignItems: "center" }}>
+        <FormControl size="small"><Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+          sx={{ height: 32, fontSize: 12, borderRadius: "8px", bgcolor: cardBg, border: cardBorder, "& fieldset": { border: "none" }, minWidth: 130 }}>
+          {["all","online","offline","warning","critical"].map((v) => <MenuItem key={v} value={v} sx={{ textTransform: "capitalize" }}>{v === "all" ? "All Status" : v}</MenuItem>)}
+        </Select></FormControl>
         <Box sx={{ ml: "auto", display: "flex", gap: 1 }}>
-          <Button
-            size="small"
-            onClick={expandAll}
-            sx={{
-              textTransform: "none",
-              fontSize: 11,
-              color: labelColor,
-              borderRadius: "6px",
-              "&:hover": {
-                bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF",
-              },
-            }}
-          >
-            Expand All
-          </Button>
-          <Button
-            size="small"
-            onClick={collapseAll}
-            sx={{
-              textTransform: "none",
-              fontSize: 11,
-              color: labelColor,
-              borderRadius: "6px",
-              "&:hover": {
-                bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF",
-              },
-            }}
-          >
-            Collapse All
-          </Button>
+          {[["Expand All", expandAll], ["Collapse All", collapseAll]].map(([l, fn]) =>
+            <Button key={l} size="small" onClick={fn} sx={{ textTransform: "none", fontSize: 11, color: lc, borderRadius: "6px", "&:hover": { bgcolor: isDark ? "rgba(37,99,235,0.08)" : "#EFF6FF" } }}>{l}</Button>)}
         </Box>
       </Box>
 
-      {/* ===== MAIN CONTENT: TREE + DETAIL PANEL ===== */}
+      {/* TREE + DETAIL */}
       <Box sx={{ px: 3, pb: 4, display: "flex", gap: 2 }}>
-        {/* Tree visualization */}
-        <Box
-          sx={{
-            flex: 1,
-            bgcolor: cardBg,
-            border: cardBorder,
-            borderRadius: "12px",
-            minHeight: 500,
-            maxHeight: "calc(100vh - 380px)",
-            overflowY: "auto",
-            py: 1,
-            "&::-webkit-scrollbar": { width: 5 },
-            "&::-webkit-scrollbar-thumb": {
-              bgcolor: isDark ? "#374151" : "#D1D5DB",
-              borderRadius: 4,
-            },
-          }}
-        >
-          {filteredTree ? (
-            <TreeNode
-              node={filteredTree}
-              depth={0}
-              expanded={expanded}
-              toggleExpand={toggleExpand}
-              selectedNode={selectedNode}
-              setSelectedNode={setSelectedNode}
-              isDark={isDark}
-              colors={colors}
-              filter={filterQuery}
-            />
-          ) : (
-            <Box
-              display="flex"
-              justifyContent="center"
-              alignItems="center"
-              height={400}
-            >
-              <Typography color={labelColor} fontSize="13px">
-                No nodes match the current filter
-              </Typography>
-            </Box>
-          )}
+        <Box sx={{ flex: 1, bgcolor: cardBg, border: cardBorder, borderRadius: "12px", minHeight: 500, maxHeight: "calc(100vh - 420px)",
+          overflowY: "auto", py: 1, "&::-webkit-scrollbar": { width: 5 }, "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 } }}>
+          {filteredTree ? <TreeNode node={filteredTree} depth={0} expanded={expanded} toggleExpand={toggleExpand}
+            selectedNode={selectedNode} setSelectedNode={setSelectedNode} isDark={isDark} colors={colors} filter={filterQuery} />
+            : <Box display="flex" justifyContent="center" alignItems="center" height={400}><Typography color={lc} fontSize="13px">No nodes match the current filter</Typography></Box>}
         </Box>
-
-        {/* Detail panel */}
-        <Box
-          sx={{
-            width: 320,
-            flexShrink: 0,
-            bgcolor: cardBg,
-            border: cardBorder,
-            borderRadius: "12px",
-            p: 0,
-            minHeight: 500,
-            maxHeight: "calc(100vh - 380px)",
-            overflowY: "auto",
-            "&::-webkit-scrollbar": { width: 5 },
-            "&::-webkit-scrollbar-thumb": {
-              bgcolor: isDark ? "#374151" : "#D1D5DB",
-              borderRadius: 4,
-            },
-          }}
-        >
-          {selectedNode ? (
-            <DetailPanel
-              node={selectedNode}
-              isDark={isDark}
-              colors={colors}
-              navigate={navigate}
-              cardBorder={cardBorder}
-            />
-          ) : (
-            <Box
-              display="flex"
-              flexDirection="column"
-              justifyContent="center"
-              alignItems="center"
-              height="100%"
-              minHeight={400}
-              px={3}
-            >
-              <AccountTreeOutlined
-                sx={{
-                  fontSize: 48,
-                  color: isDark ? colors.grey[500] : "#D1D5DB",
-                  mb: 1.5,
-                }}
-              />
-              <Typography
-                fontSize="13px"
-                fontWeight={600}
-                color={headingColor}
-                mb={0.5}
-              >
-                Select a Node
-              </Typography>
-              <Typography
-                fontSize="12px"
-                color={labelColor}
-                textAlign="center"
-              >
-                Click on any node in the tree to view its details
-              </Typography>
-            </Box>
-          )}
+        <Box sx={{ width: 340, flexShrink: 0, bgcolor: cardBg, border: cardBorder, borderRadius: "12px", minHeight: 500, maxHeight: "calc(100vh - 420px)",
+          overflowY: "auto", "&::-webkit-scrollbar": { width: 5 }, "&::-webkit-scrollbar-thumb": { bgcolor: isDark ? "#374151" : "#D1D5DB", borderRadius: 4 } }}>
+          {selectedNode ? <DetailPanel node={selectedNode} isDark={isDark} colors={colors} navigate={navigate} cardBorder={cardBorder}
+            onAssignMeter={handleAssign} onEditNode={handleEdit} onDeleteNode={handleDelete} allNodes={allNodes} />
+            : <Box display="flex" flexDirection="column" justifyContent="center" alignItems="center" height="100%" minHeight={400} px={3}>
+              <AccountTreeOutlined sx={{ fontSize: 48, color: isDark ? colors.grey[500] : "#D1D5DB", mb: 1.5 }} />
+              <Typography fontSize="13px" fontWeight={600} color={hc} mb={0.5}>Select a Node</Typography>
+              <Typography fontSize="12px" color={lc} textAlign="center">Click on any node in the tree to view its details</Typography></Box>}
         </Box>
       </Box>
 
-      {/* ===== LEGEND ===== */}
-      <Box sx={{ px: 3, pb: 3 }}>
-        <Box
-          sx={{
-            bgcolor: cardBg,
-            border: cardBorder,
-            borderRadius: "12px",
-            px: 3,
-            py: 2,
-            display: "flex",
-            gap: 4,
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          <Typography
-            fontSize="11px"
-            fontWeight={700}
-            color={labelColor}
-            textTransform="uppercase"
-            letterSpacing="0.5px"
-          >
-            Legend
-          </Typography>
-          {[
-            { label: "Main Station", color: "#2563EB", shape: "square" },
-            { label: "Substation", color: "#3B82F6", shape: "square" },
-            { label: "Feeder", color: "#F59E0B", shape: "diamond" },
-            { label: "Transformer", color: "#D97706", shape: "diamond" },
-          ].map((item) => (
-            <Box
-              key={item.label}
-              display="flex"
-              alignItems="center"
-              gap={0.75}
-            >
-              <Box
-                sx={{
-                  width: 10,
-                  height: 10,
-                  borderRadius:
-                    item.shape === "square" ? "2px" : "50%",
-                  transform:
-                    item.shape === "diamond" ? "rotate(45deg)" : "none",
-                  bgcolor: item.color,
-                }}
-              />
-              <Typography fontSize="11px" color={labelColor}>
-                {item.label}
-              </Typography>
-            </Box>
-          ))}
-          <Box sx={{ borderLeft: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`, pl: 2, ml: 1 }}>
-            {[
-              { label: "Online", color: "#10B981" },
-              { label: "Offline", color: "#EF4444" },
-              { label: "Warning", color: "#F59E0B" },
-            ].map((item) => (
-              <Box
-                key={item.label}
-                display="inline-flex"
-                alignItems="center"
-                gap={0.5}
-                mr={2}
-              >
-                <FiberManualRecord
-                  sx={{ fontSize: 8, color: item.color }}
-                />
-                <Typography fontSize="11px" color={labelColor}>
-                  {item.label}
-                </Typography>
-              </Box>
-            ))}
-          </Box>
+      {/* LEGEND */}
+      <Box sx={{ px: 3, pb: 3 }}><Box sx={{ bgcolor: cardBg, border: cardBorder, borderRadius: "12px", px: 3, py: 2, display: "flex", gap: 3, flexWrap: "wrap", alignItems: "center" }}>
+        <Typography fontSize="11px" fontWeight={700} color={lc} textTransform="uppercase" letterSpacing="0.5px">Legend</Typography>
+        {[["Main Station","#2563EB"],["Substation","#3B82F6"],["Feeder","#14B8A6"],["Distribution","#F59E0B"],["Transformer","#EA580C"],["Meter","#10B981"]].map(([l, c]) =>
+          <Box key={l} display="flex" alignItems="center" gap={0.75}><Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: c }} /><Typography fontSize="11px" color={lc}>{l}</Typography></Box>)}
+        <Box sx={{ borderLeft: `1px solid ${isDark ? "#1E293B" : "#E5E7EB"}`, pl: 2, ml: 1 }}>
+          {[["Online","#10B981"],["Offline","#EF4444"],["Warning","#F59E0B"],["Critical","#DC2626"]].map(([l, c]) =>
+            <Box key={l} display="inline-flex" alignItems="center" gap={0.5} mr={2}><FiberManualRecord sx={{ fontSize: 8, color: c }} /><Typography fontSize="11px" color={lc}>{l}</Typography></Box>)}
         </Box>
-      </Box>
-    </Box>
-  );
-}
+      </Box></Box>
 
-/* ================================================================
-   Detail Panel — shown when a node is selected
-   ================================================================ */
-function DetailPanel({ node, isDark, colors, navigate, cardBorder }) {
-  const headingColor = isDark ? colors.grey[100] : "#111827";
-  const labelColor = isDark ? colors.grey[300] : "#6B7280";
-  const style = nodeStyles[node.type] || nodeStyles.meter;
-  const statusColor = statusColors[node.status] || "#64748B";
-
-  const isMeter = node.type === "meter";
-  const isSubstation = node.type === "substation" || node.type === "feeder";
-
-  const details = [];
-  if (isMeter) {
-    details.push({ label: "DRN", value: node.drn || node.name });
-    details.push({ label: "Customer", value: node.customerName || "---" });
-    details.push({ label: "Area", value: node.area || "---" });
-    details.push({ label: "Suburb", value: node.suburb || "---" });
-    details.push({ label: "City", value: node.city || "---" });
-    details.push({ label: "Region", value: node.region || "---" });
-    details.push({ label: "Tariff", value: node.tariff || "---" });
-    details.push({
-      label: "Status",
-      value: node.status,
-      isStatus: true,
-    });
-    if (node.lat && node.lng) {
-      details.push({
-        label: "Coordinates",
-        value: `${node.lat.toFixed(5)}, ${node.lng.toFixed(5)}`,
-      });
-    }
-  } else if (isSubstation) {
-    details.push({ label: "Name", value: node.name });
-    details.push({
-      label: "Type",
-      value: node.type === "substation" ? "Primary" : "Distribution/Feeder",
-    });
-    details.push({
-      label: "Connected Meters",
-      value: (node.children || []).length,
-    });
-    if (node.district)
-      details.push({ label: "District", value: node.district });
-    if (node.lat && node.lng)
-      details.push({
-        label: "Coordinates",
-        value: `${node.lat.toFixed(5)}, ${node.lng.toFixed(5)}`,
-      });
-    details.push({ label: "Status", value: node.status, isStatus: true });
-  } else {
-    details.push({ label: "Name", value: node.name });
-    details.push({ label: "Type", value: node.type.replace("_", " ") });
-    details.push({
-      label: "Children",
-      value: (node.children || []).length,
-    });
-    details.push({ label: "Status", value: node.status, isStatus: true });
-  }
-
-  return (
-    <Box>
-      {/* Header */}
-      <Box
-        sx={{
-          px: 2.5,
-          pt: 2.5,
-          pb: 2,
-          borderBottom: cardBorder,
-        }}
-      >
-        <Box display="flex" alignItems="center" gap={1.5} mb={1}>
-          <Box
-            sx={{
-              width: 36,
-              height: 36,
-              borderRadius:
-                style.shape === "circle"
-                  ? "50%"
-                  : style.shape === "diamond"
-                  ? "8px"
-                  : "8px",
-              transform:
-                style.shape === "diamond" ? "rotate(45deg)" : "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              bgcolor: style.bg,
-              border: `2px solid ${style.color}`,
-            }}
-          >
-            <Box
-              sx={{
-                transform:
-                  style.shape === "diamond" ? "rotate(-45deg)" : "none",
-                display: "flex",
-              }}
-            >
-              {style.icon}
-            </Box>
-          </Box>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography
-              fontSize="15px"
-              fontWeight={700}
-              color={headingColor}
-              noWrap
-              sx={{
-                fontFamily: isMeter ? "monospace" : "inherit",
-              }}
-            >
-              {node.name}
-            </Typography>
-            <Typography
-              fontSize="11px"
-              color={labelColor}
-              textTransform="capitalize"
-            >
-              {node.type.replace("_", " ")}
-            </Typography>
-          </Box>
-        </Box>
-
-        {/* Status chip */}
-        <Chip
-          label={node.status}
-          size="small"
-          sx={{
-            height: 22,
-            fontSize: 10,
-            fontWeight: 600,
-            textTransform: "capitalize",
-            bgcolor:
-              node.status === "online"
-                ? isDark
-                  ? "rgba(16,185,129,0.15)"
-                  : "#ECFDF5"
-                : node.status === "offline"
-                ? isDark
-                  ? "rgba(239,68,68,0.15)"
-                  : "#FEF2F2"
-                : isDark
-                ? "rgba(245,158,11,0.15)"
-                : "#FFFBEB",
-            color: statusColor,
-            border: `1px solid ${statusColor}`,
-          }}
-        />
-      </Box>
-
-      {/* Details */}
-      <Box sx={{ px: 2.5, py: 2 }}>
-        {details.map((d) => (
-          <Box
-            key={d.label}
-            display="flex"
-            justifyContent="space-between"
-            alignItems="center"
-            sx={{ py: "6px", borderBottom: cardBorder }}
-          >
-            <Typography fontSize="12px" color={labelColor}>
-              {d.label}
-            </Typography>
-            {d.isStatus ? (
-              <Box display="flex" alignItems="center" gap={0.5}>
-                <FiberManualRecord
-                  sx={{
-                    fontSize: 8,
-                    color: statusColors[d.value] || "#64748B",
-                  }}
-                />
-                <Typography
-                  fontSize="12px"
-                  fontWeight={600}
-                  color={headingColor}
-                  textTransform="capitalize"
-                >
-                  {d.value}
-                </Typography>
-              </Box>
-            ) : (
-              <Typography
-                fontSize="12px"
-                fontWeight={600}
-                color={headingColor}
-                noWrap
-                sx={{
-                  maxWidth: 180,
-                  textAlign: "right",
-                  fontFamily:
-                    d.label === "DRN" ? "monospace" : "inherit",
-                }}
-              >
-                {d.value}
-              </Typography>
-            )}
-          </Box>
-        ))}
-      </Box>
-
-      {/* Actions */}
-      <Box sx={{ px: 2.5, pb: 2.5, display: "flex", flexDirection: "column", gap: 1 }}>
-        {isMeter && (
-          <Button
-            fullWidth
-            variant="contained"
-            size="small"
-            startIcon={<OpenInNewOutlined sx={{ fontSize: 14 }} />}
-            onClick={() => navigate(`/meter/${node.drn || node.name}`)}
-            sx={{
-              textTransform: "none",
-              fontSize: 12,
-              borderRadius: "8px",
-              bgcolor: "#2563EB",
-              py: "6px",
-              "&:hover": { bgcolor: "#1D4ED8" },
-            }}
-          >
-            View Meter Profile
-          </Button>
-        )}
-        {isSubstation && (
-          <Button
-            fullWidth
-            variant="contained"
-            size="small"
-            startIcon={<OpenInNewOutlined sx={{ fontSize: 14 }} />}
-            onClick={() =>
-              navigate(`/substation/${node.id?.replace("sub-", "") || node.name}`)
-            }
-            sx={{
-              textTransform: "none",
-              fontSize: 12,
-              borderRadius: "8px",
-              bgcolor: "#2563EB",
-              py: "6px",
-              "&:hover": { bgcolor: "#1D4ED8" },
-            }}
-          >
-            View Substation
-          </Button>
-        )}
-
-        {/* Child summary for non-leaf nodes */}
-        {node.children && node.children.length > 0 && (
-          <Box
-            sx={{
-              mt: 1,
-              p: 1.5,
-              borderRadius: "8px",
-              bgcolor: isDark ? "rgba(30,41,59,0.5)" : "#F9FAFB",
-              border: cardBorder,
-            }}
-          >
-            <Typography
-              fontSize="10px"
-              fontWeight={700}
-              color={labelColor}
-              textTransform="uppercase"
-              letterSpacing="0.5px"
-              mb={0.75}
-            >
-              Children Summary
-            </Typography>
-            {(() => {
-              const counts = {};
-              node.children.forEach((c) => {
-                const t = c.type || "unknown";
-                counts[t] = (counts[t] || 0) + 1;
-              });
-              return Object.entries(counts).map(([type, count]) => (
-                <Box
-                  key={type}
-                  display="flex"
-                  justifyContent="space-between"
-                  alignItems="center"
-                  sx={{ py: "3px" }}
-                >
-                  <Typography
-                    fontSize="11px"
-                    color={labelColor}
-                    textTransform="capitalize"
-                  >
-                    {type.replace("_", " ")}
-                  </Typography>
-                  <Typography
-                    fontSize="11px"
-                    fontWeight={600}
-                    color={headingColor}
-                  >
-                    {count}
-                  </Typography>
-                </Box>
-              ));
-            })()}
-            {(() => {
-              const onlineCount = node.children.filter(
-                (c) => c.status === "online"
-              ).length;
-              const offlineCount = node.children.length - onlineCount;
-              return (
-                <Box display="flex" gap={1} mt={0.5}>
-                  <Chip
-                    label={`${onlineCount} online`}
-                    size="small"
-                    sx={{
-                      height: 18,
-                      fontSize: 9,
-                      bgcolor: isDark
-                        ? "rgba(16,185,129,0.12)"
-                        : "#ECFDF5",
-                      color: "#10B981",
-                      "& .MuiChip-label": { px: "5px" },
-                    }}
-                  />
-                  {offlineCount > 0 && (
-                    <Chip
-                      label={`${offlineCount} offline`}
-                      size="small"
-                      sx={{
-                        height: 18,
-                        fontSize: 9,
-                        bgcolor: isDark
-                          ? "rgba(239,68,68,0.12)"
-                          : "#FEF2F2",
-                        color: "#EF4444",
-                        "& .MuiChip-label": { px: "5px" },
-                      }}
-                    />
-                  )}
-                </Box>
-              );
-            })()}
-          </Box>
-        )}
-      </Box>
+      {/* DIALOGS */}
+      <AddDlg open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => fetchTopology()} allNodes={allNodes} isDark={isDark} colors={colors} token={token} />
+      <AssignDlg open={assignOpen} onClose={() => setAssignOpen(false)} onAssigned={() => fetchTopology()} meterDrn={assignDrn} allNodes={allNodes} isDark={isDark} colors={colors} token={token} />
+      <EditDlg open={editOpen} onClose={() => setEditOpen(false)} onUpdated={() => fetchTopology()} node={editNode} allNodes={allNodes} isDark={isDark} colors={colors} token={token} />
     </Box>
   );
 }
