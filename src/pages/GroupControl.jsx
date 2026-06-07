@@ -309,11 +309,12 @@ export default function GroupControl() {
               if (d < minD) { minD = d; nearest = dist; }
             });
             if (nearest) {
+              const isOnline = m.Status === "1" || m.Status === 1 || m.Status === "Active";
               lines.push({
                 id: `meter-${m.DRN}-to-dist-${nearest.id}`,
                 from: { lat: nearest.lat, lng: nearest.lng },
                 to: { lat: mLat, lng: mLng },
-                type: "meter", weight: 1.5, color: "#64748B50",
+                type: "meter", weight: 3, color: isOnline ? "#10B981" : "#EF4444",
               });
             }
           });

@@ -381,8 +381,10 @@ router.get('/loadcontrol/meters-state', authenticateToken, async (req, res) => {
         ml.DRN, ml.Lat, ml.Longitude, ml.LocationName, ml.Status,
         CONCAT(mpr.Name, ' ', mpr.Surname) as customerName,
         mpr.City, mpr.Region, mpr.TransformerDRN,
+        mpr.tariff_type,
         COALESCE(ms.state, '0') as mains_state,
-        COALESCE(hs.state, '0') as geyser_state
+        COALESCE(hs.state, '0') as geyser_state,
+        ROUND(COALESCE(eu.cumulative_energy, 0) / 1000, 2) as CumulativeUnits
       FROM MeterLocationInfoTable ml
       LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
       LEFT JOIN (
@@ -395,6 +397,11 @@ router.get('/loadcontrol/meters-state', authenticateToken, async (req, res) => {
                ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
         FROM MeterHeaterStateTable
       ) hs ON ml.DRN = hs.DRN AND hs.rn = 1
+      LEFT JOIN (
+        SELECT DRN, cumulative_energy,
+               ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
+        FROM MeterCumulativeEnergyUsage
+      ) eu ON ml.DRN = eu.DRN AND eu.rn = 1
       ORDER BY ml.LocationName, ml.DRN
     `);
     res.json({ success: true, data: meters });
