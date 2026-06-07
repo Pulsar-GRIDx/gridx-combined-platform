@@ -875,28 +875,26 @@ export default function MeterProfile() {
     if (tab !== 4) return;
     const fetchPowerChart = async () => {
       try {
-        // Fetch today's raw power readings (has ALL fields including temperature)
-        const now = new Date();
-        const y = now.getFullYear();
-        const m = String(now.getMonth() + 1).padStart(2, "0");
-        const d = String(now.getDate()).padStart(2, "0");
-        const raw = await meterAPI.getPowerByDate(drn, y, m, d);
-        const rows = Array.isArray(raw) ? raw : raw?.data || [];
-        setPowerChartData(rows.map(r => {
-          const dt = new Date(r.date_time || r.created_at || r.createdAt || r.timestamp);
-          const freq = parseFloat(r.frequency || 0);
-          return {
-            time: dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            active_power: parseFloat(r.active_power || 0),
-            voltage: parseFloat(r.voltage || 0),
-            current: parseFloat(r.current || 0),
-            power_factor: parseFloat(r.power_factor || 0),
-            reactive_power: parseFloat(r.reactive_power || 0),
-            apparent_power: parseFloat(r.apparent_power || 0),
-            frequency: freq < 10 ? freq * 100 : freq,
-            temperature: parseFloat(r.temperature || 0),
-          };
-        }).filter(r => r.time));
+        // Use 15-min summary (96 points, fast) — has all fields except temperature
+        const p15 = await meterAPI.getPower15min(drn);
+        const arr = Array.isArray(p15) ? p15 : p15?.data || [];
+        if (arr.length > 0) {
+          setPowerChartData(arr.map(r => {
+            const freq = parseFloat(r.frequency || r.avg_frequency || 0);
+            return {
+              time: r.time || "",
+              active_power: parseFloat(r.power || r.avg_power || 0),
+              voltage: parseFloat(r.voltage || r.avg_voltage || 0),
+              current: parseFloat(r.current || r.avg_current || 0),
+              power_factor: parseFloat(r.pf || r.avg_pf || 0),
+              reactive_power: parseFloat(r.reactive || r.avg_reactive || 0),
+              apparent_power: parseFloat(r.apparent || r.avg_apparent || 0),
+              frequency: freq < 10 ? freq * 100 : freq,
+              temperature: parseFloat(r.temperature || 0),
+            };
+          }));
+          return;
+        }
       } catch (e) {
         console.warn("Failed to fetch power chart data:", e);
       }
