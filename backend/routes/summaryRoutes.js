@@ -25,7 +25,7 @@ function queryOne(sql, params = []) {
 router.get('/power15min/:drn', authenticateToken, async (req, res) => {
   try {
     const rows = await queryAll(
-      `SELECT slot, avg_power, peak_power, avg_voltage, avg_current, avg_pf, avg_reactive, avg_apparent, avg_frequency, readings
+      `SELECT slot, avg_power, peak_power, avg_voltage, avg_current, avg_pf, avg_reactive, avg_apparent, avg_frequency, avg_temperature, readings
        FROM SummaryPower15Min WHERE DRN = ? AND summary_date = CURDATE() ORDER BY slot`,
       [req.params.drn]
     );
@@ -36,7 +36,7 @@ router.get('/power15min/:drn', authenticateToken, async (req, res) => {
       arr.push({
         time: String(h).padStart(2, '0') + ':' + String(q * 15).padStart(2, '0'),
         power: 0, peak: 0, voltage: 0, current: 0, pf: 0,
-        reactive: 0, apparent: 0, frequency: 0,
+        reactive: 0, apparent: 0, frequency: 0, temperature: 0,
       });
     }
     rows.forEach(row => {
@@ -50,6 +50,7 @@ router.get('/power15min/:drn', authenticateToken, async (req, res) => {
         arr[idx].reactive = parseFloat(row.avg_reactive) || 0;
         arr[idx].apparent = parseFloat(row.avg_apparent) || 0;
         arr[idx].frequency = parseFloat(row.avg_frequency) || 0;
+        arr[idx].temperature = parseFloat(row.avg_temperature) || 0;
       }
     });
     res.json(arr);
@@ -73,7 +74,7 @@ router.get('/power15min/:drn/:date', authenticateToken, async (req, res) => {
       arr.push({
         time: String(h).padStart(2, '0') + ':' + String(q * 15).padStart(2, '0'),
         power: 0, peak: 0, voltage: 0, current: 0, pf: 0,
-        reactive: 0, apparent: 0, frequency: 0,
+        reactive: 0, apparent: 0, frequency: 0, temperature: 0,
       });
     }
     rows.forEach(row => {
