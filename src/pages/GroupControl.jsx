@@ -1145,6 +1145,26 @@ export default function GroupControl() {
               </Button>
             )}
 
+            {/* Layer toggles */}
+            <Box sx={{ ml: "auto", display: "flex", gap: 0.75, alignItems: "center" }}>
+              {[
+                { key: "meterMarkers", label: "Meters", color: "#10B981" },
+                { key: "substationMarkers", label: "Substations", color: "#3B82F6" },
+                { key: "connectionLines", label: "Connections", color: "#64748B" },
+              ].map(l => (
+                <Chip key={l.key} label={l.label} size="small"
+                  variant={layers[l.key] ? "filled" : "outlined"}
+                  onClick={() => toggleLayer(l.key)}
+                  sx={{
+                    height: 28, fontSize: 11, fontWeight: 500, cursor: "pointer", borderRadius: "8px",
+                    ...(layers[l.key]
+                      ? { bgcolor: isDark ? `${l.color}30` : `${l.color}18`, color: l.color, border: `1px solid ${l.color}` }
+                      : { bgcolor: "transparent", color: labelColor, borderColor: isDark ? "#374151" : "#D1D5DB" }),
+                    "&:hover": { bgcolor: layers[l.key] ? (isDark ? `${l.color}40` : `${l.color}25`) : (isDark ? "rgba(100,116,139,0.12)" : "#F3F4F6") },
+                  }}
+                />
+              ))}
+            </Box>
           </Box>
 
           {/* Map */}
@@ -1336,68 +1356,29 @@ export default function GroupControl() {
               })()}
             </GoogleMap>
 
-            {/* ---- Floating Layer Controls Panel ---- */}
-            <Box
-              sx={{
-                position: "absolute",
-                top: 10,
-                left: 10,
-                zIndex: 5,
-                p: "10px 14px",
-                borderRadius: "10px",
-                bgcolor: isDark ? "rgba(15,23,42,0.92)" : "rgba(255,255,255,0.95)",
-                backdropFilter: "blur(12px)",
-                border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
-                boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.5)" : "0 4px 20px rgba(0,0,0,0.12)",
-              }}
-            >
-              <Typography fontSize={10} fontWeight={700} color={labelColor} textTransform="uppercase" letterSpacing="1px" mb={0.5}>Layers</Typography>
-              {[
-                { key: "meterMarkers", label: "Meters", color: "#10B981" },
-                { key: "substationMarkers", label: "Substations", color: "#3B82F6" },
-                { key: "connectionLines", label: "Connections", color: "#64748B" },
-              ].map(l => (
-                <Box key={l.key} display="flex" alignItems="center" justifyContent="space-between" gap={1}>
-                  <Box display="flex" alignItems="center" gap={0.5}>
-                    <FiberManualRecord sx={{ fontSize: 8, color: l.color }} />
-                    <Typography fontSize={11} color={headingColor}>{l.label}</Typography>
-                  </Box>
-                  <Switch size="small" checked={layers[l.key]} onChange={() => toggleLayer(l.key)}
-                    sx={{ "& .MuiSwitch-switchBase.Mui-checked": { color: l.color }, "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": { bgcolor: l.color } }} />
-                </Box>
-              ))}
-            </Box>
+          </Box>
 
-            {/* ---- Floating Legend ---- */}
-            <Box
-              sx={{
-                position: "absolute",
-                bottom: 10,
-                left: 10,
-                zIndex: 5,
-                p: "8px 12px",
-                borderRadius: "8px",
-                bgcolor: isDark ? "rgba(15,23,42,0.88)" : "rgba(255,255,255,0.92)",
-                backdropFilter: "blur(10px)",
-                border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
-                boxShadow: isDark ? "0 2px 12px rgba(0,0,0,0.4)" : "0 2px 12px rgba(0,0,0,0.08)",
-              }}
-            >
-              <Typography fontSize={9} fontWeight={700} color={labelColor} textTransform="uppercase" letterSpacing="0.5px" mb={0.5}>Legend</Typography>
-              <Box display="flex" flexDirection="column" gap={0.25}>
-                {[
-                  { color: "#4cceac", label: "Mains ON, Geyser ON" },
-                  { color: "#f2b705", label: "Mains ON, Geyser OFF" },
-                  { color: "#db4f4a", label: "Mains OFF" },
-                  { color: "#4a5568", label: "Offline" },
-                ].map(item => (
-                  <Box key={item.label} display="flex" alignItems="center" gap={0.5}>
-                    <FiberManualRecord sx={{ fontSize: 7, color: item.color }} />
-                    <Typography fontSize={10} color={isDark ? "#CBD5E1" : "#4B5563"}>{item.label}</Typography>
-                  </Box>
-                ))}
+          {/* Legend — below the map, horizontal */}
+          <Box sx={{ display: "flex", gap: 2.5, alignItems: "center", mt: 1, px: 1, flexWrap: "wrap" }}>
+            {[
+              { color: "#4cceac", label: "Mains ON, Geyser ON" },
+              { color: "#f2b705", label: "Mains ON, Geyser OFF" },
+              { color: "#db4f4a", label: "Mains OFF" },
+              { color: "#4a5568", label: "Offline" },
+              { color: "#3B82F6", label: "Primary Substation", shape: "square" },
+              { color: "#F59E0B", label: "Distribution", shape: "diamond" },
+            ].map(item => (
+              <Box key={item.label} display="flex" alignItems="center" gap={0.5}>
+                {item.shape === "square" ? (
+                  <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: item.color }} />
+                ) : item.shape === "diamond" ? (
+                  <Box sx={{ width: 8, height: 8, transform: "rotate(45deg)", bgcolor: item.color }} />
+                ) : (
+                  <FiberManualRecord sx={{ fontSize: 8, color: item.color }} />
+                )}
+                <Typography fontSize={10} color={labelColor}>{item.label}</Typography>
               </Box>
-            </Box>
+            ))}
           </Box>
         </Box>
 

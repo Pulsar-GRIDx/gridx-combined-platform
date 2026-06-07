@@ -384,7 +384,7 @@ router.get('/loadcontrol/meters-state', authenticateToken, async (req, res) => {
         mpr.tariff_type,
         COALESCE(ms.state, '0') as mains_state,
         COALESCE(hs.state, '0') as geyser_state,
-        ROUND(COALESCE(eu.cumulative_energy, 0) / 1000, 2) as CumulativeUnits
+        ROUND(COALESCE(CAST(eu.active_energy AS DECIMAL(14,2)), 0) / 1000, 2) as CumulativeUnits
       FROM MeterLocationInfoTable ml
       LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
       LEFT JOIN (
@@ -398,7 +398,7 @@ router.get('/loadcontrol/meters-state', authenticateToken, async (req, res) => {
         FROM MeterHeaterStateTable
       ) hs ON ml.DRN = hs.DRN AND hs.rn = 1
       LEFT JOIN (
-        SELECT DRN, cumulative_energy,
+        SELECT DRN, active_energy,
                ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
         FROM MeterCumulativeEnergyUsage
       ) eu ON ml.DRN = eu.DRN AND eu.rn = 1
