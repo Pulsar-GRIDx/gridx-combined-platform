@@ -8,6 +8,7 @@ import {
   InputAdornment,
   IconButton,
   CircularProgress,
+  LinearProgress,
   useTheme,
   Button,
   Dialog,
@@ -235,12 +236,10 @@ export default function GroupControl() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [metersRes, groupsRes, subConfigRes, powerFlowRes, regionalRes] = await Promise.allSettled([
+      // Stage 1: Fast data (meters + groups) — cached on backend
+      const [metersRes, groupsRes] = await Promise.allSettled([
         groupControlAPI.getMetersState(),
         groupControlAPI.getGroups(),
-        energyAnalyticsAPI.getSubstationConfig(),
-        energyAnalyticsAPI.getPowerFlow(),
-        energyAnalyticsAPI.getRegionalSummary(),
       ]);
       if (metersRes.status === "fulfilled") {
         const d = metersRes.value?.data || metersRes.value || [];
@@ -250,6 +249,14 @@ export default function GroupControl() {
         const d = groupsRes.value?.data || groupsRes.value || [];
         setGroups(Array.isArray(d) ? d : []);
       }
+      setLoading(false); // UI renders now with meters + groups
+
+      // Stage 2: Heavy data (substations, topology, connections) — background
+      const [subConfigRes, powerFlowRes, regionalRes] = await Promise.allSettled([
+        energyAnalyticsAPI.getSubstationConfig(),
+        energyAnalyticsAPI.getPowerFlow(),
+        energyAnalyticsAPI.getRegionalSummary(),
+      ]);
 
       // Process substation / connection data
       const subConfig = subConfigRes.status === "fulfilled"
@@ -329,8 +336,8 @@ export default function GroupControl() {
       }
     } catch (err) {
       console.error("Fetch error:", err);
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -582,7 +589,8 @@ export default function GroupControl() {
     return active;
   };
 
-  if (loading || !isLoaded) {
+  // Only block render for Google Maps not loaded
+  if (!isLoaded) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" height="80vh">
         <CircularProgress sx={{ color: "#2563EB" }} />
@@ -592,6 +600,7 @@ export default function GroupControl() {
 
   return (
     <Box sx={{ bgcolor: isDark ? colors.primary[500] : "#F9FAFB", minHeight: "calc(100vh - 70px)" }}>
+      {loading && <LinearProgress sx={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, height: 3 }} />}
 
       {/* ===== HEADER ===== */}
       <Box sx={{ px: 3, pt: 3, pb: 1 }}>
@@ -606,10 +615,10 @@ export default function GroupControl() {
       {/* ===== STATS ROW ===== */}
       <Box sx={{ px: 3, py: 2, display: "flex", gap: 2, flexWrap: "wrap" }}>
         {[
-          { label: "Total Meters", value: meters.length, icon: <ElectricMeterOutlined sx={{ fontSize: 20 }} />, iconColor: "#2563EB" },
-          { label: "Online", value: onlineCount, icon: <WifiOutlined sx={{ fontSize: 20 }} />, iconColor: "#10B981" },
-          { label: "Offline", value: offlineCount, icon: <WifiOffOutlined sx={{ fontSize: 20 }} />, iconColor: "#EF4444" },
-          { label: "Groups", value: groups.length, icon: <GroupWorkOutlined sx={{ fontSize: 20 }} />, iconColor: "#2563EB" },
+          { label: "Total Meters", value: loading ? "—" : meters.length, icon: <ElectricMeterOutlined sx={{ fontSize: 20 }} />, iconColor: "#2563EB" },
+          { label: "Online", value: loading ? "—" : onlineCount, icon: <WifiOutlined sx={{ fontSize: 20 }} />, iconColor: "#10B981" },
+          { label: "Offline", value: loading ? "—" : offlineCount, icon: <WifiOffOutlined sx={{ fontSize: 20 }} />, iconColor: "#EF4444" },
+          { label: "Groups", value: loading ? "—" : groups.length, icon: <GroupWorkOutlined sx={{ fontSize: 20 }} />, iconColor: "#2563EB" },
         ].map((s) => (
           <Box
             key={s.label}
@@ -1600,6 +1609,7 @@ export default function GroupControl() {
             overflow: "hidden",
           }}
         >
+          {loading && <LinearProgress sx={{ height: 2 }} />}
           <Box sx={{ maxHeight: 520, overflowY: "auto" }}>
             <Table size="small" stickyHeader>
               <TableHead>

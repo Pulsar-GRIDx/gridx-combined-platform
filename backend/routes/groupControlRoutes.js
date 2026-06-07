@@ -84,6 +84,129 @@ async function ensureTables() {
 // Initialize tables on module load
 ensureTables().catch(err => console.warn('Group control tables init:', err.message));
 
+// ─── IN-MEMORY CACHE FOR HEAVY QUERIES ─────────────────────
+var _metersStateCache = { data: null, ts: 0 };
+var _topologyCache = { data: null, ts: 0 };
+var METERS_STATE_CACHE_TTL = 30000; // 30 seconds
+var TOPOLOGY_CACHE_TTL = 60000; // 60 seconds
+
+function getCachedMetersState(callback) {
+  if (_metersStateCache.data && Date.now() - _metersStateCache.ts < METERS_STATE_CACHE_TTL) {
+    return callback(null, _metersStateCache.data);
+  }
+  queryAll(`
+    SELECT
+      ml.DRN, ml.Lat, ml.Longitude, ml.LocationName, ml.Status,
+      CONCAT(mpr.Name, ' ', mpr.Surname) as customerName,
+      mpr.City, mpr.Region, mpr.TransformerDRN,
+      mpr.tariff_type,
+      COALESCE(ms.state, '0') as mains_state,
+      COALESCE(hs.state, '0') as geyser_state,
+      ROUND(COALESCE(CAST(eu.active_energy AS DECIMAL(14,2)), 0) / 1000, 2) as CumulativeUnits
+    FROM MeterLocationInfoTable ml
+    LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
+    LEFT JOIN (
+      SELECT DRN, state,
+             ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
+      FROM MeterMainsStateTable
+    ) ms ON ml.DRN = ms.DRN AND ms.rn = 1
+    LEFT JOIN (
+      SELECT DRN, state,
+             ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
+      FROM MeterHeaterStateTable
+    ) hs ON ml.DRN = hs.DRN AND hs.rn = 1
+    LEFT JOIN (
+      SELECT DRN, active_energy,
+             ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
+      FROM MeterCumulativeEnergyUsage
+    ) eu ON ml.DRN = eu.DRN AND eu.rn = 1
+    ORDER BY ml.LocationName, ml.DRN
+  `).then(function(rows) {
+    _metersStateCache.data = rows;
+    _metersStateCache.ts = Date.now();
+    callback(null, rows);
+  }).catch(function(err) {
+    callback(err, null);
+  });
+}
+
+function getCachedTopology(callback) {
+  if (_topologyCache.data && Date.now() - _topologyCache.ts < TOPOLOGY_CACHE_TTL) {
+    return callback(null, _topologyCache.data);
+  }
+  // Build topology data (same logic as the route handler)
+  var topoResult = {};
+  queryAll('SELECT * FROM GridHierarchy ORDER BY node_type, node_name').then(function(nodes) {
+    topoResult.nodes = nodes || [];
+    return queryAll(`
+      SELECT ml.DRN, ml.LocationName, ml.Lat, ml.Longitude, ml.Status, ml.Suburb,
+             CONCAT(mpr.Name, ' ', mpr.Surname) as customerName,
+             mpr.City, mpr.Region, mpr.tariff_type,
+             mpr.TransformerDRN
+      FROM MeterLocationInfoTable ml
+      LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
+      WHERE ml.DRN != 'TEST'
+    `);
+  }).then(function(meters) {
+    topoResult.meters = meters || [];
+    return queryAll('SELECT * FROM SubstationConfig').catch(function() { return []; });
+  }).then(function(substations) {
+    topoResult.substations = substations || [];
+    // Get tamper count
+    return queryOne("SELECT COUNT(DISTINCT DRN) as cnt FROM MeterTamperAlerts WHERE resolved = 0")
+      .catch(function() {
+        return queryOne("SELECT COUNT(DISTINCT DRN) as cnt FROM MeterAlerts WHERE alert_type = 'tamper' AND status = 'active'")
+          .catch(function() { return { cnt: 0 }; });
+      });
+  }).then(function(tamperResult) {
+    var tamperCount = tamperResult ? tamperResult.cnt : 0;
+    var nodes = topoResult.nodes;
+    var meters = topoResult.meters;
+    var substations = topoResult.substations;
+
+    var distNodes = nodes.filter(function(n) { return n.node_type === 'distribution'; });
+    var transformerNodes = nodes.filter(function(n) { return n.node_type === 'transformer'; });
+    var substationNodes = nodes.filter(function(n) { return n.node_type === 'substation'; });
+    var warningNodes = nodes.filter(function(n) { return n.status === 'warning'; });
+    var criticalNodes = nodes.filter(function(n) { return n.status === 'critical'; });
+
+    var topology = {
+      nodes: nodes,
+      meters: meters,
+      substations: substations,
+      stats: {
+        totalMeters: meters.length,
+        onlineMeters: meters.filter(function(m) { return m.Status == '1' || m.Status == 1; }).length,
+        offlineMeters: meters.filter(function(m) { return m.Status != '1' && m.Status != 1; }).length,
+        totalSubstations: substationNodes.length + substations.length,
+        totalDistribution: distNodes.length,
+        totalTransformers: transformerNodes.length,
+        tamperCount: tamperCount,
+        warningAlerts: warningNodes.length,
+        criticalAlerts: criticalNodes.length,
+      }
+    };
+
+    _topologyCache.data = topology;
+    _topologyCache.ts = Date.now();
+    callback(null, topology);
+  }).catch(function(err) {
+    callback(err, null);
+  });
+}
+
+// Pre-warm caches on startup
+setTimeout(function() {
+  getCachedMetersState(function(err) {
+    if (err) console.warn('[GroupControl] Pre-warm meters-state cache failed:', err.message);
+    else console.log('[GroupControl] Pre-warmed meters-state cache');
+  });
+  getCachedTopology(function(err) {
+    if (err) console.warn('[GroupControl] Pre-warm topology cache failed:', err.message);
+    else console.log('[GroupControl] Pre-warmed topology cache');
+  });
+}, 3000);
+
 // Extend ENUM to include calibration action types (safe to run multiple times)
 execute(`ALTER TABLE LoadControlActions MODIFY COLUMN action_type
   ENUM('mains_off', 'mains_on', 'geyser_off', 'geyser_on', 'calibrate_auto', 'calibrate_verify', 'calibrate_exercise') NOT NULL`)
@@ -374,40 +497,11 @@ router.get('/loadcontrol/history', authenticateToken, async (req, res) => {
 });
 
 // ─── GET ALL METERS WITH MAINS+GEYSER STATE (for map) ───────
-router.get('/loadcontrol/meters-state', authenticateToken, async (req, res) => {
-  try {
-    const meters = await queryAll(`
-      SELECT
-        ml.DRN, ml.Lat, ml.Longitude, ml.LocationName, ml.Status,
-        CONCAT(mpr.Name, ' ', mpr.Surname) as customerName,
-        mpr.City, mpr.Region, mpr.TransformerDRN,
-        mpr.tariff_type,
-        COALESCE(ms.state, '0') as mains_state,
-        COALESCE(hs.state, '0') as geyser_state,
-        ROUND(COALESCE(CAST(eu.active_energy AS DECIMAL(14,2)), 0) / 1000, 2) as CumulativeUnits
-      FROM MeterLocationInfoTable ml
-      LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
-      LEFT JOIN (
-        SELECT DRN, state,
-               ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
-        FROM MeterMainsStateTable
-      ) ms ON ml.DRN = ms.DRN AND ms.rn = 1
-      LEFT JOIN (
-        SELECT DRN, state,
-               ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
-        FROM MeterHeaterStateTable
-      ) hs ON ml.DRN = hs.DRN AND hs.rn = 1
-      LEFT JOIN (
-        SELECT DRN, active_energy,
-               ROW_NUMBER() OVER (PARTITION BY DRN ORDER BY date_time DESC) as rn
-        FROM MeterCumulativeEnergyUsage
-      ) eu ON ml.DRN = eu.DRN AND eu.rn = 1
-      ORDER BY ml.LocationName, ml.DRN
-    `);
+router.get('/loadcontrol/meters-state', authenticateToken, function(req, res) {
+  getCachedMetersState(function(err, meters) {
+    if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true, data: meters });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  });
 });
 
 // ─── RANDOMIZE METERS FOR CONTROL ───────────────────────────
@@ -485,67 +579,11 @@ function buildNodePath(nodes, nodeId) {
 }
 
 // GET /loadcontrol/grid-topology — Full hierarchy with auto-mapped meters
-router.get('/loadcontrol/grid-topology', authenticateToken, async function(req, res) {
-  try {
-    // Get all hierarchy nodes
-    var nodes = await queryAll('SELECT * FROM GridHierarchy ORDER BY node_type, node_name');
-
-    // Get meters from MeterLocationInfoTable + MeterProfileReal
-    var meters = await queryAll(`
-      SELECT ml.DRN, ml.LocationName, ml.Lat, ml.Longitude, ml.Status, ml.Suburb,
-             CONCAT(mpr.Name, ' ', mpr.Surname) as customerName,
-             mpr.City, mpr.Region, mpr.tariff_type,
-             mpr.TransformerDRN
-      FROM MeterLocationInfoTable ml
-      LEFT JOIN MeterProfileReal mpr ON ml.DRN = mpr.DRN
-      WHERE ml.DRN != 'TEST'
-    `);
-
-    // Get substations from energy analytics
-    var substations = await queryAll('SELECT * FROM SubstationConfig').catch(function() { return []; });
-
-    // Get tamper counts
-    var tamperCount = 0;
-    try {
-      var tamperResult = await queryOne("SELECT COUNT(DISTINCT DRN) as cnt FROM MeterTamperAlerts WHERE resolved = 0");
-      tamperCount = tamperResult ? tamperResult.cnt : 0;
-    } catch(e) {
-      // table may not exist
-      try {
-        var tamperResult2 = await queryOne("SELECT COUNT(DISTINCT DRN) as cnt FROM MeterAlerts WHERE alert_type = 'tamper' AND status = 'active'");
-        tamperCount = tamperResult2 ? tamperResult2.cnt : 0;
-      } catch(e2) { tamperCount = 0; }
-    }
-
-    // Count distribution nodes and transformers from hierarchy
-    var distNodes = (nodes || []).filter(function(n) { return n.node_type === 'distribution'; });
-    var transformerNodes = (nodes || []).filter(function(n) { return n.node_type === 'transformer'; });
-    var substationNodes = (nodes || []).filter(function(n) { return n.node_type === 'substation'; });
-    var warningNodes = (nodes || []).filter(function(n) { return n.status === 'warning'; });
-    var criticalNodes = (nodes || []).filter(function(n) { return n.status === 'critical'; });
-
-    // Build topology tree
-    var topology = {
-      nodes: nodes || [],
-      meters: meters || [],
-      substations: substations || [],
-      stats: {
-        totalMeters: (meters || []).length,
-        onlineMeters: (meters || []).filter(function(m) { return m.Status == '1' || m.Status == 1; }).length,
-        offlineMeters: (meters || []).filter(function(m) { return m.Status != '1' && m.Status != 1; }).length,
-        totalSubstations: substationNodes.length + (substations || []).length,
-        totalDistribution: distNodes.length,
-        totalTransformers: transformerNodes.length,
-        tamperCount: tamperCount,
-        warningAlerts: warningNodes.length,
-        criticalAlerts: criticalNodes.length,
-      }
-    };
-
+router.get('/loadcontrol/grid-topology', authenticateToken, function(req, res) {
+  getCachedTopology(function(err, topology) {
+    if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true, data: topology });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  });
 });
 
 // GET /loadcontrol/grid-topology/nodes — All hierarchy nodes only
