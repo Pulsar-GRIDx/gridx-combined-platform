@@ -808,7 +808,7 @@ export default function MeterProfile() {
 
   /* ---------- Fetch health data when Health tab is selected ---------- */
   useEffect(() => {
-    if (tab !== 8) return;
+    if (tab !== 9) return;
     const fetchHealth = async () => {
       setHealthLoading(true);
       try {
@@ -826,7 +826,7 @@ export default function MeterProfile() {
 
   /* ---------- Fetch relay events when Relay tab is selected ---------- */
   useEffect(() => {
-    if (tab !== 9) return;
+    if (tab !== 5) return;
     const fetchRelays = async () => {
       setRelayLoading(true);
       try {
@@ -905,7 +905,7 @@ export default function MeterProfile() {
 
   /* ---------- Auto-refresh commission reports when tab 6 is active ---------- */
   useEffect(() => {
-    if (tab !== 6) return;
+    if (tab !== 7) return;
     // Fetch immediately on tab switch
     const fetchReports = async () => {
       try {
@@ -1341,11 +1341,11 @@ export default function MeterProfile() {
           { icon: <AccountBalanceWalletOutlined sx={{ fontSize: 18 }} />, label: "Billing & Tariff", accent: "#6870fa" },
           { icon: <TuneOutlined sx={{ fontSize: 18 }} />, label: "Configuration", accent: "#868dfb" },
           { icon: <BarChartOutlined sx={{ fontSize: 18 }} />, label: "Energy Charts", accent: "#00bcd4" },
-          { icon: <HistoryOutlined sx={{ fontSize: 18 }} />, label: "History", accent: "#a3a3a3" },
+          { icon: <SwapVertOutlined sx={{ fontSize: 18 }} />, label: "Relay Events", accent: "#00897b" },
+          { icon: <HistoryOutlined sx={{ fontSize: 18 }} />, label: "Token History", accent: "#a3a3a3" },
           { icon: <AssignmentOutlined sx={{ fontSize: 18 }} />, label: "Commission Report", accent: "#ff9800" },
           { icon: <HomeOutlined sx={{ fontSize: 18 }} />, label: "Home Classification", accent: "#9c27b0" },
           { icon: <FavoriteBorderOutlined sx={{ fontSize: 18 }} />, label: "Meter Health", accent: "#e91e63" },
-          { icon: <SwapVertOutlined sx={{ fontSize: 18 }} />, label: "Relay Events", accent: "#00897b" },
           { icon: <SolarPowerOutlined sx={{ fontSize: 18 }} />, label: "Net Metering", accent: "#4caf50" },
         ];
         return (
@@ -3548,9 +3548,9 @@ export default function MeterProfile() {
       )}
 
       {/* ================================================================ */}
-      {/* TAB 6: Transaction History                                       */}
+      {/* TAB 6: Token History                                              */}
       {/* ================================================================ */}
-      {tab === 5 && (
+      {tab === 6 && (
         <Box>
         <Box display="flex" justifyContent="flex-end" mb={0.5}>
           <DataBadge />
@@ -3803,7 +3803,7 @@ export default function MeterProfile() {
       {/* ================================================================ */}
       {/* TAB 7: Commission Report                                       */}
       {/* ================================================================ */}
-      {tab === 6 && (() => {
+      {tab === 7 && (() => {
         /* ── Color Tokens ── */
         const tk = {
           pass: "#4ADE80",
@@ -4819,7 +4819,7 @@ export default function MeterProfile() {
       {/* ================================================================ */}
       {/* TAB 8: Home Classification                                      */}
       {/* ================================================================ */}
-      {tab === 7 && (
+      {tab === 8 && (
         <Box>
           <Box display="flex" justifyContent="flex-end" mb={0.5}>
             <DataBadge />
@@ -5034,7 +5034,7 @@ export default function MeterProfile() {
       {/* ================================================================ */}
       {/* TAB 9: Meter Health                                              */}
       {/* ================================================================ */}
-      {tab === 8 && (
+      {tab === 9 && (
         <Box>
           <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
             <Typography variant="h6" fontWeight="bold" color={colors.grey[100]}>Meter Health</Typography>
@@ -5245,9 +5245,9 @@ export default function MeterProfile() {
       )}
 
       {/* ================================================================ */}
-      {/* TAB 10: Relay Events                                             */}
+      {/* TAB 5: Relay Events                                              */}
       {/* ================================================================ */}
-      {tab === 9 && (() => {
+      {tab === 5 && (() => {
         const REASON_COLORS = ["#868dfb","#4cceac","#f44336","#ff9800","#2196f3","#ab47bc","#78909c","#e91e63","#ff5722"];
         const REASON_LABELS = ["Unknown","Manual Control","Credit Expired","Power Limit","Scheduled","Remote Command","System Startup","Tamper Detected","Overcurrent"];
         const fmtTime = (ts) => ts ? new Date(ts).toLocaleString("en-ZA", { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "-";
