@@ -969,12 +969,15 @@ function updateSuburbDailyEnergy(drn) {
 
 function handleEnergyBin(drn, buf) {
   if (buf.length < 23) return console.error('[MQTT] Energy packet too short:', buf.length);
+  const tamperState = buf.readUInt8(13);
+  const activeEnergy = buf.readFloatLE(1);
+  const units = buf.readFloatLE(9);
   db.query('INSERT INTO MeterCumulativeEnergyUsage SET ?', {
     DRN: drn,
-    active_energy:   buf.readFloatLE(1),
+    active_energy:   activeEnergy,
     reactive_energy: buf.readFloatLE(5),
-    units:           buf.readFloatLE(9),
-    tamper_state:    buf.readUInt8(13),
+    units:           units,
+    tamper_state:    tamperState,
     tamp_time:       buf.readUInt32LE(14),
     meter_reset:     buf.readUInt8(18),
     record_time:     buf.readUInt32LE(19),
@@ -982,6 +985,25 @@ function handleEnergyBin(drn, buf) {
   }, (err) => {
     if (err) console.error('[MQTT] Energy insert error:', err.message);
     else updateSuburbDailyEnergy(drn);
+  });
+  checkTamperStateChange(drn, tamperState, activeEnergy, units);
+}
+
+function checkTamperStateChange(drn, newState, activeEnergy, units) {
+  db.query('SELECT last_tamper_state FROM MeterTamperStateTracker WHERE DRN = ?', [drn], (err, rows) => {
+    if (err) return;
+    const prevState = rows && rows.length > 0 ? rows[0].last_tamper_state : -1;
+    if (prevState === -1) {
+      db.query('INSERT INTO MeterTamperStateTracker (DRN, last_tamper_state) VALUES (?, ?)', [drn, newState]);
+      if (newState === 1) {
+        db.query('INSERT INTO MeterTamperEvents (DRN, previous_state, new_state, active_energy, units) VALUES (?, 0, 1, ?, ?)', [drn, activeEnergy, units]);
+        console.log(`[Tamper] NEW tamper detected on ${drn}`);
+      }
+    } else if (prevState !== newState) {
+      db.query('UPDATE MeterTamperStateTracker SET last_tamper_state = ?, last_changed_at = NOW() WHERE DRN = ?', [newState, drn]);
+      db.query('INSERT INTO MeterTamperEvents (DRN, previous_state, new_state, active_energy, units) VALUES (?, ?, ?, ?, ?)', [drn, prevState, newState, activeEnergy, units]);
+      console.log(`[Tamper] State change on ${drn}: ${prevState} → ${newState}`);
+    }
   });
 }
 

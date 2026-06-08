@@ -13,12 +13,12 @@ var auth = require('../admin/authMiddllware');
  */
 router.get('/tamper/summary', auth.authenticateToken, function(req, res) {
   var queries = {
-    // Total physical tamper events (last 90 days)
-    physicalEvents: 'SELECT COUNT(*) as count FROM MeterCumulativeEnergyUsage WHERE tamper_state = 1 AND date_time >= DATE_SUB(NOW(), INTERVAL 90 DAY)',
-    // Unique meters with physical tamper (last 90 days)
-    physicalMeters: 'SELECT COUNT(DISTINCT DRN) as count FROM MeterCumulativeEnergyUsage WHERE tamper_state = 1 AND date_time >= DATE_SUB(NOW(), INTERVAL 90 DAY)',
-    // Confirmed tampered (3+ events)
-    confirmedMeters: 'SELECT COUNT(*) as count FROM (SELECT DRN FROM MeterCumulativeEnergyUsage WHERE tamper_state = 1 AND date_time >= DATE_SUB(NOW(), INTERVAL 90 DAY) GROUP BY DRN HAVING COUNT(*) >= 3) t',
+    // Total tamper state-change events (last 90 days) — only counts actual state changes
+    physicalEvents: 'SELECT COUNT(*) as count FROM MeterTamperEvents WHERE new_state = 1 AND detected_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)',
+    // Unique meters with tamper state changes (last 90 days)
+    physicalMeters: 'SELECT COUNT(DISTINCT DRN) as count FROM MeterTamperEvents WHERE new_state = 1 AND detected_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)',
+    // Confirmed tampered (3+ state-change events)
+    confirmedMeters: 'SELECT COUNT(*) as count FROM (SELECT DRN FROM MeterTamperEvents WHERE new_state = 1 AND detected_at >= DATE_SUB(NOW(), INTERVAL 90 DAY) GROUP BY DRN HAVING COUNT(*) >= 3) t',
     // Active tamper notifications
     activeNotifications: "SELECT COUNT(*) as count FROM MeterNotifications WHERE AlarmType = 'Tamper' AND date_time >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
     // Total meters for context
