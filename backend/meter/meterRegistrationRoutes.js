@@ -23,4 +23,11 @@ router.get('/locations', meterRegistrationController.getAllLocations);
  */
 router.get('/locations/registered', meterRegistrationController.getLocations);
 
+/**
+ * @route GET /api/meter/verify/:drn
+ * @description Check if a meter DRN has been authenticated with the network
+ * @access Public
+ */
+router.get('/verify/:drn', meterRegistrationController.verifyMeterAuthentication);
+
 module.exports = router;

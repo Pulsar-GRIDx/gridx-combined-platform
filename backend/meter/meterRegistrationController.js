@@ -1,4 +1,5 @@
 const meterRegistrationService = require('./meterRegistrationService');
+const db = require('../config/db');
 
 /**
  * Controller for meter registration
@@ -111,5 +112,39 @@ exports.getAllLocations = async (req, res) => {
       error: 'Failed to fetch locations',
       details: error.message,
     });
+  }
+};
+
+exports.verifyMeterAuthentication = async (req, res) => {
+  const drn = req.params.drn;
+  if (!drn) {
+    return res.status(400).json({ authenticated: false, error: 'DRN is required' });
+  }
+
+  try {
+    const query = `SELECT DRN, last_seen FROM MeterLastSeen WHERE DRN = ? LIMIT 1`;
+    db.query(query, [drn], (err, results) => {
+      if (err) {
+        console.error('Error checking meter authentication:', err);
+        return res.status(500).json({ authenticated: false, error: err.message });
+      }
+
+      if (results && results.length > 0) {
+        res.json({
+          authenticated: true,
+          drn: results[0].DRN,
+          lastSeen: results[0].last_seen,
+        });
+      } else {
+        res.json({
+          authenticated: false,
+          drn: drn,
+          message: 'Meter has not been authenticated with the network',
+        });
+      }
+    });
+  } catch (error) {
+    console.error('Error verifying meter:', error);
+    res.status(500).json({ authenticated: false, error: error.message });
   }
 };
