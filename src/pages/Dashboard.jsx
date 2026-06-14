@@ -226,6 +226,7 @@ export default function Dashboard() {
         liveMeters: stats.kpis.liveMeters || 0,
         offlineMeters: stats.kpis.offlineMeters || 0,
         avgPower: stats.power.avgPower || 0,
+        totalPower: stats.power.totalPower || 0,
         peakPower: stats.power.peakPower || 0,
         avgVoltage: stats.power.avgVoltage || 0,
         reportingMeters: stats.power.reportingMeters || 0,
@@ -553,9 +554,9 @@ export default function Dashboard() {
           justifyContent="center"
         >
           <StatBox
-            title={`${kpis.avgPower ? kpis.avgPower.toFixed(0) : "0"} W`}
-            subtitle="Current System Load"
-            progress={String(Math.min(1, (kpis.avgPower || 0) / 10000))}
+            title={`${kpis.totalPower ? (kpis.totalPower / 1000).toFixed(1) : "0"} kW`}
+            subtitle="Live Load"
+            progress={String(Math.min(1, (kpis.totalPower || 0) / 100000))}
             increase={kpis.reportingMeters ? `${kpis.reportingMeters} meter${kpis.reportingMeters > 1 ? "s" : ""} reporting` : ""}
             link="/"
             icon={

@@ -625,7 +625,7 @@ async function _refreshDashCache(thresholdSec = 300) {
   ] = await Promise.allSettled([
     queryAll(`SELECT COUNT(*) as totalTracked, SUM(CASE WHEN last_seen >= NOW() - INTERVAL ? SECOND THEN 1 ELSE 0 END) as liveCount, SUM(CASE WHEN last_seen < NOW() - INTERVAL ? SECOND THEN 1 ELSE 0 END) as offlineCount FROM MeterLastSeen`, [thresholdSec, thresholdSec]),
     queryAll('SELECT COUNT(DISTINCT DRN) as total FROM MeterProfileReal', []),
-    queryAll(`SELECT ROUND(AVG(p.active_power), 1) as avgPower, ROUND(MAX(p.active_power), 1) as peakPower, ROUND(AVG(p.voltage), 1) as avgVoltage, ROUND(AVG(p.current), 3) as avgCurrent, ROUND(AVG(p.power_factor), 2) as avgPF, COUNT(DISTINCT p.DRN) as reportingMeters FROM MeteringPower p INNER JOIN (SELECT DRN, MAX(id) as maxId FROM MeteringPower WHERE date_time >= NOW() - INTERVAL 10 MINUTE GROUP BY DRN) latest ON p.DRN = latest.DRN AND p.id = latest.maxId`, []),
+    queryAll(`SELECT ROUND(AVG(p.active_power), 1) as avgPower, ROUND(SUM(p.active_power), 1) as totalPower, ROUND(MAX(p.active_power), 1) as peakPower, ROUND(AVG(p.voltage), 1) as avgVoltage, ROUND(AVG(p.current), 3) as avgCurrent, ROUND(AVG(p.power_factor), 2) as avgPF, COUNT(DISTINCT p.DRN) as reportingMeters FROM MeteringPower p INNER JOIN (SELECT DRN, MAX(id) as maxId FROM MeteringPower WHERE date_time >= NOW() - INTERVAL 10 MINUTE GROUP BY DRN) latest ON p.DRN = latest.DRN AND p.id = latest.maxId`, []),
     queryAll(`SELECT ROUND(COALESCE(SUM(energy_delta_kwh), 0), 2) as totalKwh, COUNT(*) as metersReporting FROM SummaryDailyEnergy WHERE summary_date = CURDATE()`, []),
     queryAll(`SELECT COUNT(*) as tokenCount, ROUND(COALESCE(SUM(token_amount), 0), 2) as totalRevenue FROM STSTokesInfo WHERE DATE(date_time) = CURDATE() AND display_msg LIKE '%Accept%'`, []),
     queryAll(`SELECT HOUR(date_time) as hour, ROUND(AVG(active_power), 2) as avgPower, ROUND(SUM(active_power), 2) as totalPower, COUNT(*) as readings FROM MeteringPower WHERE DATE(date_time) = CURDATE() GROUP BY HOUR(date_time) ORDER BY hour`, []),
@@ -660,6 +660,7 @@ async function _refreshDashCache(thresholdSec = 300) {
     },
     power: {
       avgPower: parseFloat(power.avgPower) || 0,
+      totalPower: parseFloat(power.totalPower) || 0,
       peakPower: parseFloat(power.peakPower) || 0,
       avgVoltage: parseFloat(power.avgVoltage) || 0,
       avgCurrent: parseFloat(power.avgCurrent) || 0,

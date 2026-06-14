@@ -254,7 +254,8 @@ export default function GroupControl() {
       }
       if (mqttStatsRes.status === "fulfilled") {
         const stats = mqttStatsRes.value;
-        setLiveKW(stats?.power?.avgPower != null ? Number(stats.power.avgPower).toFixed(1) : null);
+        const totalW = stats?.power?.totalPower || stats?.power?.avgPower || 0;
+        setLiveKW(totalW > 0 ? (totalW / 1000).toFixed(1) : null);
         setTodayKWh(stats?.energy?.todayKwh != null ? Number(stats.energy.todayKwh).toFixed(1) : null);
       }
       setLoading(false);

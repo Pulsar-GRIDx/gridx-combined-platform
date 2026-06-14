@@ -209,10 +209,19 @@ router.post('/getSuburbHourlyEnergy', authenticateToken, async (req, res) => {
   }
 
   try {
-    // Fast path: read from pre-computed SuburbDailyEnergy table
+    // Use SummaryDailyEnergy (actual meter register consumption) joined with
+    // MeterLocationInfoTable to group by suburb. Falls back to LocationName if
+    // Suburb is empty. This matches the client portal's consumption data source.
     const result = await new Promise((resolve, reject) => {
       connection.query(
-        'SELECT suburb AS Suburb, consumption_wh AS consumption FROM SuburbDailyEnergy WHERE energy_date = CURDATE() AND suburb IN (?)',
+        `SELECT
+          COALESCE(NULLIF(mli.Suburb, ''), mli.LocationName) AS Suburb,
+          ROUND(SUM(sde.energy_delta_kwh), 2) AS consumption_kwh
+        FROM SummaryDailyEnergy sde
+        INNER JOIN MeterLocationInfoTable mli ON sde.DRN = mli.DRN
+        WHERE sde.summary_date = CURDATE()
+          AND COALESCE(NULLIF(mli.Suburb, ''), mli.LocationName) IN (?)
+        GROUP BY Suburb`,
         [suburbs],
         (err, data) => {
           if (err) reject(err);
@@ -221,22 +230,20 @@ router.post('/getSuburbHourlyEnergy', authenticateToken, async (req, res) => {
       );
     });
 
-    // Initialize all suburbs to 0.00
     const locationConsumption = suburbs.reduce((acc, suburb) => {
       acc[suburb] = "0.00";
       return acc;
     }, {});
 
-    // Update values for suburbs that have pre-computed data
     result.forEach(row => {
-      if (row.Suburb && row.consumption !== null) {
-        locationConsumption[row.Suburb] = Number(row.consumption / 1000).toFixed(2);
+      if (row.Suburb && row.consumption_kwh !== null) {
+        locationConsumption[row.Suburb] = Number(row.consumption_kwh).toFixed(2);
       }
     });
 
     res.json({ data: locationConsumption });
   } catch (err) {
-    logger.error('Error querying SuburbDailyEnergy:', err);
+    logger.error('Error querying suburb energy:', err);
     return res.status(500).json({
       error: 'An error occurred while querying the database.',
       details: err.message
