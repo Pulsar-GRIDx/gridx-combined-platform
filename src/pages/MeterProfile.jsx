@@ -960,13 +960,23 @@ export default function MeterProfile() {
   const lastUpdate =
     energyData?.date_time || powerData?.date_time || mockMeter?.lastUpdate;
 
-  // Load control
+  // Actual relay states from meter feedback (read-only)
+  const actualMainsOn =
+    mainsState?.state === "1" || mainsState?.state === 1;
+  const actualHeaterOn =
+    heaterState?.state === "1" || heaterState?.state === 1;
+
+  // Load control command states (for the Load Control tab)
   const lcMainsState =
     loadControlData?.mains_state ??
     (mockMeter?.loadControl?.mainsState === "ON" ? "1" : "0");
   const lcGeyserState =
     loadControlData?.geyser_state ??
     (mockMeter?.loadControl?.geyserState === "ON" ? "1" : "0");
+
+  // Tamper detection from actual meter data
+  const isTampered =
+    tamperState === "1" || tamperState === "Tampered";
 
   // Cell network
   const signalStrength =
@@ -979,8 +989,8 @@ export default function MeterProfile() {
     cellNetwork?.sim_phone_number ?? mockMeter?.network?.simPhone ?? "-";
   const imei = cellNetwork?.IMEU ?? mockMeter?.network?.imei ?? "-";
 
-  // Status
-  const status = lcMainsState === "1" ? "Online" : "Offline";
+  // Status based on actual mains state feedback from meter
+  const status = actualMainsOn ? "Online" : "Offline";
   const statusChipColor =
     status === "Online" ? colors.greenAccent[500] : colors.grey[400];
 
@@ -1317,19 +1327,33 @@ export default function MeterProfile() {
             {meterName} &mdash; {meterArea}, {meterSuburb}
           </Typography>
         </Box>
-        <Chip
-          label={status}
-          sx={{
-            bgcolor:
-              status === "Online"
-                ? "rgba(76,206,172,0.15)"
-                : "rgba(108,117,125,0.2)",
-            color: statusChipColor,
-            fontWeight: 700,
-            fontSize: "0.85rem",
-            height: 32,
-          }}
-        />
+        <Box display="flex" alignItems="center" gap={1}>
+          <Chip
+            label={status}
+            sx={{
+              bgcolor:
+                status === "Online"
+                  ? "rgba(76,206,172,0.15)"
+                  : "rgba(108,117,125,0.2)",
+              color: statusChipColor,
+              fontWeight: 700,
+              fontSize: "0.85rem",
+              height: 32,
+            }}
+          />
+          <Chip
+            label={isTampered ? "Tampered" : "No Tamper"}
+            sx={{
+              bgcolor: isTampered
+                ? "rgba(219,79,74,0.15)"
+                : "rgba(76,206,172,0.1)",
+              color: isTampered ? "#db4f4a" : colors.greenAccent[500],
+              fontWeight: 700,
+              fontSize: "0.85rem",
+              height: 32,
+            }}
+          />
+        </Box>
       </Box>
 
       {/* ---- Tabs ---- */}
@@ -1419,7 +1443,7 @@ export default function MeterProfile() {
                 flex: 1,
               }}
             >
-              {/* Mains/Heater ON/OFF indicators */}
+              {/* Mains/Heater ON/OFF indicators (actual meter state) */}
               <Box
                 display="flex"
                 justifyContent="center"
@@ -1429,49 +1453,63 @@ export default function MeterProfile() {
                 <Box display="flex" alignItems="center" gap={0.8}>
                   <BoltOutlined
                     sx={{
-                      color:
-                        lcMainsState === "1"
-                          ? colors.greenAccent[500]
-                          : "#db4f4a",
+                      color: actualMainsOn
+                        ? colors.greenAccent[500]
+                        : "#db4f4a",
                       fontSize: 22,
                     }}
                   />
                   <Typography
                     variant="body2"
                     sx={{
-                      color:
-                        lcMainsState === "1"
-                          ? colors.greenAccent[500]
-                          : "#db4f4a",
+                      color: actualMainsOn
+                        ? colors.greenAccent[500]
+                        : "#db4f4a",
                       fontWeight: 600,
                       fontSize: "0.8rem",
                     }}
                   >
-                    Mains {lcMainsState === "1" ? "ON" : "OFF"}
+                    Mains {actualMainsOn ? "ON" : "OFF"}
                   </Typography>
                 </Box>
                 <Box display="flex" alignItems="center" gap={0.8}>
                   <WaterDropOutlined
                     sx={{
-                      color:
-                        lcGeyserState === "1"
-                          ? colors.greenAccent[500]
-                          : "#db4f4a",
+                      color: actualHeaterOn
+                        ? colors.greenAccent[500]
+                        : "#db4f4a",
                       fontSize: 22,
                     }}
                   />
                   <Typography
                     variant="body2"
                     sx={{
-                      color:
-                        lcGeyserState === "1"
-                          ? colors.greenAccent[500]
-                          : "#db4f4a",
+                      color: actualHeaterOn
+                        ? colors.greenAccent[500]
+                        : "#db4f4a",
                       fontWeight: 600,
                       fontSize: "0.8rem",
                     }}
                   >
-                    Heater {lcGeyserState === "1" ? "ON" : "OFF"}
+                    Heater {actualHeaterOn ? "ON" : "OFF"}
+                  </Typography>
+                </Box>
+                <Box display="flex" alignItems="center" gap={0.8}>
+                  <ThermostatOutlined
+                    sx={{
+                      color: isTampered ? "#db4f4a" : colors.greenAccent[500],
+                      fontSize: 22,
+                    }}
+                  />
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color: isTampered ? "#db4f4a" : colors.greenAccent[500],
+                      fontWeight: 600,
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    {isTampered ? "Tamper Detected" : "No Tamper"}
                   </Typography>
                 </Box>
               </Box>
