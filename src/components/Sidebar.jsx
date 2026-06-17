@@ -27,6 +27,7 @@ import PhoneAndroidIcon from "@mui/icons-material/PhoneAndroid";
 import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrowLeft";
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 import CellTowerIcon from "@mui/icons-material/CellTower";
+import WaterDropOutlinedIcon from "@mui/icons-material/WaterDropOutlined";
 
 /* ── Nav Item ── */
 const NavItem = ({ title, to, icon, isCollapsed, accentColor }) => {
@@ -333,6 +334,13 @@ const Sidebar = () => {
           icon={<GppBadIcon />}
           isCollapsed={isCollapsed}
           accentColor="#db4f4a"
+        />
+        <NavItem
+          title="Geyser Detection"
+          to="/geyser-detection"
+          icon={<WaterDropOutlinedIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#0288d1"
         />
         <NavItem
           title="New System Node"

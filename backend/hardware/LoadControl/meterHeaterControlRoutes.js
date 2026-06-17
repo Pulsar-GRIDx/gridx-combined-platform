@@ -75,10 +75,13 @@ router.post("/update/:id", auth, async function (req, res) {
   const drn = req.params.id;
   const state = req.body.state;
 
-  // Send heater/geyser control command via MQTT for immediate delivery
+  // Send heater/geyser control command via MQTT for immediate delivery.
+  // When turning geyser ON, also assert mains ON — the geyser relay is downstream
+  // of the mains relay and will have no effect if mains is currently OFF.
   try {
-    mqttHandler.publishCommand(drn, { gc: state }, 1);
-    console.log(`[HeaterControl] MQTT command sent to ${drn}: state=${state}`);
+    const mqttPayload = state === 1 ? { mc: 1, gc: 1 } : { gc: state };
+    mqttHandler.publishCommand(drn, mqttPayload, 1);
+    console.log(`[HeaterControl] MQTT command sent to ${drn}: ${JSON.stringify(mqttPayload)}`);
   } catch (e) {
     console.error(`[HeaterControl] MQTT publish failed for ${drn}:`, e.message);
   }

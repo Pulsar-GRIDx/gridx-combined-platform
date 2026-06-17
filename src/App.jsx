@@ -32,6 +32,7 @@ import DataUsage from "./pages/DataUsage";
 import SystemAnalysis from "./pages/SystemAnalysis";
 import AreaProfile from "./pages/AreaProfile";
 import GridTopology from "./pages/GridTopology";
+import GeyserDetection from "./pages/GeyserDetection";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -75,6 +76,7 @@ function App() {
               <Route path="data-usage" element={<DataUsage />} />
               <Route path="system-analysis" element={<SystemAnalysis />} />
               <Route path="grid-topology" element={<GridTopology />} />
+              <Route path="geyser-detection" element={<GeyserDetection />} />
             </Route>
           </Routes>
         </AuthProvider>
