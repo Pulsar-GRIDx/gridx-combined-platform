@@ -226,6 +226,54 @@ exports.getLatestReportByDRN = function(req, res) {
     });
 };
 
+// POST - Save a geyser detection result (appends to history, does NOT delete other reports)
+exports.saveGeyserDetection = function(req, res) {
+  const data = req.body;
+  if (!data.DRN) return res.status(400).json({ error: 'DRN is required' });
+
+  const val = (v) => v != null ? v : null;
+  const row = {
+    DRN: data.DRN,
+    report_type: 'geyser_detection',
+    overall_passed: data.detected === true ? 1 : 0,
+    load_off_current: val(data.baseline_current),
+    load_on_current: val(data.geyser_on_current),
+    report_data: JSON.stringify({
+      delta: data.delta,
+      threshold: data.threshold != null ? data.threshold : 0.5,
+      detected: data.detected,
+      confidence: data.confidence,
+      test_source: data.test_source || 'web',
+    }),
+    tester_app_version: val(data.app_version) || null,
+  };
+
+  commissionReportService.insertResult(row)
+    .then(result => res.status(201).json({ success: true, id: result.insertId }))
+    .catch(error => {
+      console.error('Error saving geyser detection:', error);
+      res.status(500).json({ error: 'Failed to save geyser detection', details: error.message });
+    });
+};
+
+// GET - Get geyser detection history for a meter
+exports.getGeyserDetections = function(req, res) {
+  const DRN = req.params.DRN;
+  commissionReportService.getGeyserDetectionsByDRN(DRN)
+    .then(results => {
+      results.forEach(r => {
+        if (r.report_data && typeof r.report_data === 'string') {
+          try { r.report_data = JSON.parse(r.report_data); } catch (e) {}
+        }
+      });
+      res.json(results);
+    })
+    .catch(error => {
+      console.error('Error fetching geyser detections:', error);
+      res.status(500).json({ error: 'Failed to fetch geyser detections', details: error.message });
+    });
+};
+
 // GET - Get a single report by ID
 exports.getReportById = function(req, res) {
   const id = req.params.id;

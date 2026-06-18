@@ -450,6 +450,8 @@ export const commissionReportAPI = {
   getByDRN: (drn) => get(`/settings/commissionReports/${drn}`),
   getLatest: (drn) => get(`/settings/commissionReport/latest/${drn}`),
   getById: (id) => get(`/settings/commissionReport/${id}`),
+  saveGeyserDetection: (data) => post('/commission-report/geyser-detection', data),
+  getGeyserDetections: (drn) => get(`/settings/geyserDetections/${drn}`),
 };
 
 // ===== HOME CLASSIFICATION =====

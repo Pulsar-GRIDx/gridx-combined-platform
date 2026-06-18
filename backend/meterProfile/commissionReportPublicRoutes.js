@@ -14,4 +14,7 @@ router.put('/update/:id', commissionReportController.updateCommission);
 // Legacy: submit a complete report in one go
 router.post('/submit', commissionReportController.saveReport);
 
+// Geyser detection result (no auth — Android posts after BLE test completes)
+router.post('/geyser-detection', commissionReportController.saveGeyserDetection);
+
 module.exports = router;

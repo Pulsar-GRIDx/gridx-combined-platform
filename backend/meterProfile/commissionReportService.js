@@ -103,13 +103,18 @@ const migrationColumns = [
 migrationColumns.forEach(sql => {
   db.query(sql, (err) => {
     if (err && !err.message.includes('Duplicate column')) {
-      // Silently ignore duplicate column errors
       if (!err.message.includes('duplicate') && !err.message.includes('Duplicate')) {
         console.log('Migration note:', err.message);
       }
     }
   });
 });
+
+// Extend ENUM to include geyser_detection and mains_relay types
+db.query(
+  "ALTER TABLE MeterCommissionReport MODIFY COLUMN report_type ENUM('measurement','load','api','auto_calibration','full_system','commissioning','geyser_detection','mains_relay') NOT NULL",
+  (err) => { if (err && !err.message.includes('Duplicate')) console.log('Enum migration note:', err.message); }
+);
 
 // Save a commission report (clears ALL old reports for the DRN, then inserts new)
 exports.saveReport = (reportData) => {
@@ -171,6 +176,28 @@ exports.getReportById = (id) => {
     db.query(sql, [id], (err, results) => {
       if (err) reject(err);
       else resolve(results.length > 0 ? results[0] : null);
+    });
+  });
+};
+
+// Insert a result record WITHOUT deleting existing records (used for geyser detection history)
+exports.insertResult = (reportData) => {
+  return new Promise((resolve, reject) => {
+    const sql = `INSERT INTO MeterCommissionReport SET ?`;
+    db.query(sql, reportData, (err, result) => {
+      if (err) reject(err);
+      else resolve(result);
+    });
+  });
+};
+
+// Get geyser detection history for a meter (newest first)
+exports.getGeyserDetectionsByDRN = (DRN, limit = 20) => {
+  const sql = `SELECT * FROM MeterCommissionReport WHERE DRN = ? AND report_type = 'geyser_detection' ORDER BY date_time DESC LIMIT ?`;
+  return new Promise((resolve, reject) => {
+    db.query(sql, [DRN, limit], (err, results) => {
+      if (err) reject(err);
+      else resolve(results);
     });
   });
 };

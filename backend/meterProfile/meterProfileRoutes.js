@@ -12,6 +12,7 @@ router.post('/commissionReport', commissionReportController.saveReport);
 router.get('/commissionReports/:DRN', commissionReportController.getReportsByDRN);
 router.get('/commissionReport/latest/:DRN', commissionReportController.getLatestReportByDRN);
 router.get('/commissionReport/:id', commissionReportController.getReportById);
+router.get('/geyserDetections/:DRN', commissionReportController.getGeyserDetections);
 
 // Home classification endpoints
 router.post('/homeClassification', homeClassificationController.saveClassification);

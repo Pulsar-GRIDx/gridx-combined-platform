@@ -698,6 +698,14 @@ export default function MeterProfile() {
   const [configStatus, setConfigStatus] = useState(null);
   const [calibrationLog, setCalibrationLog] = useState([]);
   const [calibrationLoading, setCalibrationLoading] = useState(false);
+
+  /* ---------- Commissioning relay control state ---------- */
+  const [commRelayLoading, setCommRelayLoading] = useState(false);
+  const [geyserDetRunning, setGeyserDetRunning] = useState(false);
+  const [geyserDetThreshold, setGeyserDetThreshold] = useState(0.5);
+  const [geyserDetLog, setGeyserDetLog] = useState([]);
+  const [geyserDetResult, setGeyserDetResult] = useState(null);
+  const [geyserDetHistory, setGeyserDetHistory] = useState([]);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: "",
@@ -903,10 +911,9 @@ export default function MeterProfile() {
     fetchPowerChart();
   }, [drn, tab]);
 
-  /* ---------- Auto-refresh commission reports when tab 6 is active ---------- */
+  /* ---------- Auto-refresh commission reports when tab 10 is active ---------- */
   useEffect(() => {
     if (tab !== 10) return;
-    // Fetch immediately on tab switch
     const fetchReports = async () => {
       try {
         const res = await commissionReportAPI.getByDRN(drn);
@@ -914,9 +921,16 @@ export default function MeterProfile() {
       } catch (e) { /* ignore */ }
     };
     fetchReports();
-    // Poll every 5 seconds for live updates during commissioning
     const interval = setInterval(fetchReports, 5000);
     return () => clearInterval(interval);
+  }, [drn, tab]);
+
+  /* ---------- Fetch geyser detection history when tab 10 is active ---------- */
+  useEffect(() => {
+    if (tab !== 10) return;
+    commissionReportAPI.getGeyserDetections(drn)
+      .then(res => { if (Array.isArray(res)) setGeyserDetHistory(res); })
+      .catch(() => {});
   }, [drn, tab]);
 
   /* ---------- fallback mock meter ---------- */
@@ -4006,6 +4020,248 @@ export default function MeterProfile() {
               <Typography color={tk.textDim} fontSize="0.68rem">Auto-refreshing every 5s</Typography>
             </Box>
           </Box>
+
+          {/* ── RELAY CONTROL & COMMISSIONING SECTION ── */}
+          {(() => {
+            const handleCommRelay = async (action) => {
+              setCommRelayLoading(true);
+              try {
+                if (action === "mains_on") await loadControlAPI.setMains(drn, 1, "Commissioning", "manual");
+                else if (action === "mains_off") await loadControlAPI.setMains(drn, 0, "Commissioning", "manual");
+                else if (action === "geyser_on") await loadControlAPI.setHeater(drn, 1, "Commissioning", "manual");
+                else if (action === "geyser_off") await loadControlAPI.setHeater(drn, 0, "Commissioning", "manual");
+                setSnackbar({ open: true, message: "Relay command sent", severity: "success" });
+              } catch (e) {
+                setSnackbar({ open: true, message: `Command failed: ${e.message}`, severity: "error" });
+              } finally {
+                setCommRelayLoading(false);
+              }
+            };
+
+            const runGeyserDetection = async () => {
+              setGeyserDetRunning(true);
+              setGeyserDetLog([]);
+              setGeyserDetResult(null);
+              const logLine = (msg) => setGeyserDetLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+              const delay = (ms) => new Promise(r => setTimeout(r, ms));
+              try {
+                logLine("Step 1: Ensuring mains ON...");
+                await loadControlAPI.setMains(drn, 1, "Commissioning", "geyser-detection");
+                await delay(3000);
+                logLine("Step 2: Setting geyser OFF for baseline measurement...");
+                await loadControlAPI.setHeater(drn, 0, "Commissioning", "geyser-detection");
+                await delay(4000);
+                logLine("Step 3: Reading baseline current (geyser OFF)...");
+                const base = await meterAPI.getPower(drn);
+                const baseCurrent = base ? parseFloat(base.current ?? base.Current ?? base.I ?? 0) : 0;
+                logLine(`Baseline current: ${baseCurrent.toFixed(3)} A`);
+                logLine("Step 4: Turning geyser ON...");
+                await loadControlAPI.setHeater(drn, 1, "Commissioning", "geyser-detection");
+                await delay(6000);
+                logLine("Step 5: Reading current with geyser ON...");
+                const on = await meterAPI.getPower(drn);
+                const onCurrent = on ? parseFloat(on.current ?? on.Current ?? on.I ?? 0) : 0;
+                logLine(`Geyser-ON current: ${onCurrent.toFixed(3)} A`);
+                const delta = onCurrent - baseCurrent;
+                const threshold = geyserDetThreshold;
+                const detected = delta >= threshold;
+                const confidence = Math.min(100, Math.round((Math.abs(delta) / Math.max(threshold, 0.01)) * 60));
+                logLine(`Delta: ${delta >= 0 ? "+" : ""}${delta.toFixed(3)} A — ${detected ? "Geyser DETECTED ✓" : delta >= 0.2 ? "Uncertain" : "Not detected ✗"}`);
+                logLine("Step 6: Restoring geyser OFF...");
+                await loadControlAPI.setHeater(drn, 0, "Commissioning", "geyser-detection");
+                const result = { baseline_current: baseCurrent, geyser_on_current: onCurrent, delta, threshold, detected, confidence, timestamp: new Date().toISOString(), passed: detected };
+                setGeyserDetResult(result);
+                try {
+                  await commissionReportAPI.saveGeyserDetection({ DRN: drn, ...result, test_source: "web" });
+                  const hist = await commissionReportAPI.getGeyserDetections(drn);
+                  if (Array.isArray(hist)) setGeyserDetHistory(hist);
+                } catch (persistErr) { console.warn("Failed to persist geyser result:", persistErr.message); }
+                logLine("Test complete.");
+              } catch (e) {
+                logLine(`ERROR: ${e.message}`);
+              } finally {
+                setGeyserDetRunning(false);
+              }
+            };
+
+            const mainsOn = actualMainsOn;
+            const geyserOn = actualHeaterOn;
+
+            return (
+              <Box mb={3}>
+                {/* Section title */}
+                <Box display="flex" alignItems="center" gap={1.5} mb={2}>
+                  <Box sx={{ width: 4, height: 24, borderRadius: "2px", backgroundColor: tk.blue }} />
+                  <Typography variant="h6" fontWeight={700} color={colors.grey[100]} letterSpacing="0.5px">
+                    RELAY CONTROL &amp; COMMISSIONING
+                  </Typography>
+                </Box>
+
+                <Grid container spacing={2} mb={2}>
+                  {/* Mains Relay */}
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ backgroundColor: tk.panelBg, borderRadius: "10px", overflow: "hidden", boxShadow: tk.shadow, borderLeft: `3px solid ${mainsOn ? tk.pass : tk.fail}` }}>
+                      <Box sx={{ px: 2, py: 1.2, borderBottom: `1px solid ${tk.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <PowerOutlined sx={{ fontSize: 18, color: tk.blue }} />
+                          <Typography fontSize={fs.sub} fontWeight={700} color={colors.grey[100]}>MAINS RELAY</Typography>
+                        </Box>
+                        <Chip size="small" label={mainsOn ? "ON" : "OFF"} sx={{ fontWeight: 700, fontSize: fs.sm, backgroundColor: mainsOn ? tk.passBg : tk.failBg, color: mainsOn ? tk.pass : tk.fail, border: `1px solid ${mainsOn ? tk.passBorder : tk.failBorder}` }} />
+                      </Box>
+                      <Box px={2} py={1.5}>
+                        {mainsState && <Typography color={tk.textDim} fontSize={fs.sm} mb={1.2}>Last update: {formatDateTime(mainsState.date_time)}</Typography>}
+                        <Box display="flex" gap={1} flexWrap="wrap">
+                          <Button size="small" variant="contained" disabled={commRelayLoading || mainsOn} onClick={() => handleCommRelay("mains_on")} sx={{ bgcolor: "#166534", "&:hover": { bgcolor: "#14532d" }, fontSize: fs.sm }}>Turn ON</Button>
+                          <Button size="small" variant="contained" disabled={commRelayLoading || !mainsOn} onClick={() => handleCommRelay("mains_off")} sx={{ bgcolor: "#7f1d1d", "&:hover": { bgcolor: "#6b1919" }, fontSize: fs.sm }}>Turn OFF</Button>
+                        </Box>
+                      </Box>
+                    </Box>
+                  </Grid>
+
+                  {/* Geyser Relay */}
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ backgroundColor: tk.panelBg, borderRadius: "10px", overflow: "hidden", boxShadow: tk.shadow, borderLeft: `3px solid ${geyserOn ? "#38bdf8" : tk.textDim}` }}>
+                      <Box sx={{ px: 2, py: 1.2, borderBottom: `1px solid ${tk.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <WaterDropOutlined sx={{ fontSize: 18, color: "#38bdf8" }} />
+                          <Typography fontSize={fs.sub} fontWeight={700} color={colors.grey[100]}>GEYSER RELAY</Typography>
+                        </Box>
+                        <Chip size="small" label={geyserOn ? "ON" : "OFF"} sx={{ fontWeight: 700, fontSize: fs.sm, backgroundColor: geyserOn ? "rgba(56,189,248,0.12)" : tk.failBg, color: geyserOn ? "#38bdf8" : tk.fail, border: `1px solid ${geyserOn ? "rgba(56,189,248,0.30)" : tk.failBorder}` }} />
+                      </Box>
+                      <Box px={2} py={1.5}>
+                        {heaterState && <Typography color={tk.textDim} fontSize={fs.sm} mb={1.2}>Last update: {formatDateTime(heaterState.date_time)}</Typography>}
+                        <Box display="flex" gap={1} flexWrap="wrap" mb={!mainsOn ? 0.5 : 0}>
+                          <Button size="small" variant="contained" disabled={commRelayLoading || geyserOn || !mainsOn} onClick={() => handleCommRelay("geyser_on")} sx={{ bgcolor: "#0c4a6e", "&:hover": { bgcolor: "#0a3d5e" }, fontSize: fs.sm }}>Turn ON</Button>
+                          <Button size="small" variant="contained" disabled={commRelayLoading || !geyserOn} onClick={() => handleCommRelay("geyser_off")} sx={{ bgcolor: "#7f1d1d", "&:hover": { bgcolor: "#6b1919" }, fontSize: fs.sm }}>Turn OFF</Button>
+                        </Box>
+                        {!mainsOn && <Typography color={tk.amber} fontSize={fs.sm} mt={0.8}>⚠ Mains must be ON before enabling geyser relay</Typography>}
+                      </Box>
+                    </Box>
+                  </Grid>
+                </Grid>
+
+                {/* Geyser Detection Test */}
+                <Box sx={{ backgroundColor: tk.panelBg, borderRadius: "10px", overflow: "hidden", boxShadow: tk.shadow, mb: 2, borderLeft: `3px solid ${tk.purple}` }}>
+                  <Box sx={{ px: 2, py: 1.2, borderBottom: `1px solid ${tk.border}`, display: "flex", alignItems: "center", gap: 1 }}>
+                    <TuneOutlined sx={{ fontSize: 18, color: tk.purple }} />
+                    <Typography fontSize={fs.sub} fontWeight={700} color={colors.grey[100]}>AUTOMATIC GEYSER PRESENCE DETECTION</Typography>
+                  </Box>
+                  <Box px={2} py={1.5}>
+                    <Typography color={tk.textMuted} fontSize={fs.sm} mb={1.5}>
+                      Measures current delta when the geyser relay is toggled. Current increase ≥ threshold confirms a geyser load is present. Mains relay is enabled automatically.
+                    </Typography>
+                    <Box display="flex" alignItems="center" gap={2} mb={1.5} flexWrap="wrap">
+                      <TextField label="Detection Threshold (A)" type="number" size="small"
+                        value={geyserDetThreshold}
+                        onChange={(e) => setGeyserDetThreshold(parseFloat(e.target.value) || 0.5)}
+                        inputProps={{ min: 0.1, max: 10, step: 0.1 }}
+                        sx={{ width: 200, "& .MuiInputBase-root": { fontSize: fs.sm } }}
+                      />
+                      <Button variant="contained" disabled={geyserDetRunning}
+                        startIcon={geyserDetRunning ? <CircularProgress size={14} color="inherit" /> : <PowerOutlined />}
+                        onClick={runGeyserDetection}
+                        sx={{ bgcolor: "#6d28d9", "&:hover": { bgcolor: "#5b21b6" } }}>
+                        {geyserDetRunning ? "Running Test..." : "Run Detection Test"}
+                      </Button>
+                    </Box>
+
+                    {geyserDetRunning && <LinearProgress sx={{ mb: 1.5, borderRadius: "4px", bgcolor: "rgba(129,140,248,0.2)", "& .MuiLinearProgress-bar": { bgcolor: tk.purple } }} />}
+
+                    {geyserDetLog.length > 0 && (
+                      <Box sx={{ bgcolor: "#0d1117", borderRadius: "6px", p: 1.2, fontFamily: "monospace", fontSize: fs.sm, color: "#58a6ff", maxHeight: "140px", overflowY: "auto", mb: geyserDetResult ? 2 : 0 }}>
+                        {geyserDetLog.map((line, i) => <Box key={i}>{line}</Box>)}
+                      </Box>
+                    )}
+
+                    {geyserDetResult && (
+                      <>
+                        <Divider sx={{ mb: 1.5, borderColor: tk.border }} />
+                        <Typography fontSize={fs.sm} fontWeight={700} color={tk.textMuted} mb={1} letterSpacing="0.5px">LATEST DETECTION RESULTS</Typography>
+                        <Grid container spacing={1.5} mb={1.5}>
+                          {[
+                            { label: "Baseline Current", val: `${geyserDetResult.baseline_current.toFixed(3)} A`, color: tk.text },
+                            { label: "Current After Activation", val: `${geyserDetResult.geyser_on_current.toFixed(3)} A`, color: tk.blue },
+                            { label: "Current Difference", val: `${geyserDetResult.delta >= 0 ? "+" : ""}${geyserDetResult.delta.toFixed(3)} A`, color: geyserDetResult.detected ? tk.pass : tk.fail },
+                            { label: "Detection Threshold", val: `${geyserDetResult.threshold.toFixed(2)} A`, color: tk.textMuted },
+                          ].map(m => (
+                            <Grid item xs={6} sm={3} key={m.label}>
+                              <Box sx={{ backgroundColor: tk.innerBg, borderRadius: "8px", p: 1.2, textAlign: "center" }}>
+                                <Typography fontSize="9px" color={tk.textMuted} mb={0.4} textTransform="uppercase" letterSpacing="0.5px">{m.label}</Typography>
+                                <Typography fontSize="1.05rem" fontWeight={700} fontFamily="monospace" color={m.color}>{m.val}</Typography>
+                              </Box>
+                            </Grid>
+                          ))}
+                        </Grid>
+                        <Box sx={{ backgroundColor: tk.innerBg, borderRadius: "8px", p: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1 }}>
+                          <Box display="flex" alignItems="center" gap={2}>
+                            <Box sx={{ width: 36, height: 36, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: geyserDetResult.detected ? tk.passBg : tk.failBg, border: `2px solid ${geyserDetResult.detected ? tk.passBorder : tk.failBorder}` }}>
+                              {geyserDetResult.detected ? <CheckCircleOutlined sx={{ color: tk.pass, fontSize: 20 }} /> : <CancelOutlined sx={{ color: tk.fail, fontSize: 20 }} />}
+                            </Box>
+                            <Box>
+                              <Typography fontSize={fs.sm} color={tk.textMuted}>Geyser Present</Typography>
+                              <Typography fontSize="1.05rem" fontWeight={700} color={geyserDetResult.detected ? tk.pass : tk.fail}>{geyserDetResult.detected ? "YES" : "NO"}</Typography>
+                            </Box>
+                            <Box>
+                              <Typography fontSize={fs.sm} color={tk.textMuted}>Confidence</Typography>
+                              <Typography fontSize="1.05rem" fontWeight={700} color={tk.text}>{geyserDetResult.confidence}%</Typography>
+                            </Box>
+                          </Box>
+                          <Box textAlign="right">
+                            <Typography fontSize={fs.sm} color={tk.textMuted} mb={0.5}>{formatDateTime(geyserDetResult.timestamp)}</Typography>
+                            <PassFailChip passed={geyserDetResult.passed} />
+                          </Box>
+                        </Box>
+                      </>
+                    )}
+                  </Box>
+                </Box>
+
+                {/* Detection History */}
+                {geyserDetHistory.length > 0 && (
+                  <Box sx={{ backgroundColor: tk.panelBg, borderRadius: "10px", overflow: "hidden", boxShadow: tk.shadow, mb: 3, borderLeft: `3px solid ${tk.amber}` }}>
+                    <Box sx={{ px: 2, py: 1.2, borderBottom: `1px solid ${tk.border}`, display: "flex", alignItems: "center", gap: 1 }}>
+                      <HistoryOutlined sx={{ fontSize: 18, color: tk.amber }} />
+                      <Typography fontSize={fs.sub} fontWeight={700} color={colors.grey[100]}>DETECTION HISTORY ({geyserDetHistory.length})</Typography>
+                    </Box>
+                    <Box sx={{ overflowX: "auto" }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            {["Timestamp", "Baseline (A)", "Geyser-ON (A)", "Delta (A)", "Threshold", "Detected", "Source", "Result"].map(h => (
+                              <TableCell key={h} sx={thSx}>{h}</TableCell>
+                            ))}
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {geyserDetHistory.map((r, i) => {
+                            const rd = r.report_data || {};
+                            return (
+                              <TableRow key={r.id || i} sx={{ "&:hover": { backgroundColor: tk.rowHover } }}>
+                                <TableCell sx={tdSx(i)}>{formatDateTime(r.date_time)}</TableCell>
+                                <TableCell sx={tdSx(i)}>{r.load_off_current != null ? Number(r.load_off_current).toFixed(3) : "—"}</TableCell>
+                                <TableCell sx={tdSx(i)}>{r.load_on_current != null ? Number(r.load_on_current).toFixed(3) : "—"}</TableCell>
+                                <TableCell sx={{ ...tdSx(i), color: rd.delta >= (rd.threshold || 0.5) ? tk.pass : tk.fail, fontWeight: 700 }}>
+                                  {rd.delta != null ? `${rd.delta >= 0 ? "+" : ""}${Number(rd.delta).toFixed(3)}` : "—"}
+                                </TableCell>
+                                <TableCell sx={tdSx(i)}>{rd.threshold != null ? `${Number(rd.threshold).toFixed(2)} A` : "—"}</TableCell>
+                                <TableCell sx={{ ...tdSx(i), color: rd.detected ? tk.pass : tk.fail, fontWeight: 700 }}>
+                                  {rd.detected != null ? (rd.detected ? "YES" : "NO") : "—"}
+                                </TableCell>
+                                <TableCell sx={tdSx(i)}>{rd.test_source || "—"}</TableCell>
+                                <TableCell sx={tdSx(i)}><PassFailChip passed={r.overall_passed} /></TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </Box>
+                  </Box>
+                )}
+
+                <Divider sx={{ mb: 3, borderColor: tk.border }} />
+              </Box>
+            );
+          })()}
 
           {commissionReports.length > 0 ? (
             commissionReports.map((report, idx) => (
