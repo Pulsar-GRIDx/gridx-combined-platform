@@ -9,6 +9,64 @@ const { hydroHashHex } = require('../../services/hydroHash');
 // Firmware data directory
 const DATA_DIR = path.join(__dirname, 'Data');
 
+// ─── OTA upload authentication ───
+// This route was reachable with NO authentication and NO firmware
+// signature check — anyone who could reach this server could push
+// arbitrary "firmware" that immediately became what every meter in the
+// fleet downloads. Requires the same OTA_API_KEY bearer token already
+// used by the sibling backend/routes/otaRoutes.js upload endpoint, so a
+// single key covers both.
+function otaUploadAuth(req, res, next) {
+  const apiKey = process.env.OTA_API_KEY;
+  if (!apiKey) {
+    console.warn('[SECURITY] OTA_API_KEY not set — /files/ota/upload is disabled until it is configured');
+    return res.status(503).json({ error: 'OTA uploads not configured' });
+  }
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization' });
+  }
+  if (authHeader.split(' ')[1] !== apiKey) {
+    return res.status(403).json({ error: 'Invalid API key' });
+  }
+  next();
+}
+
+// ─── GRIDx firmware signature verification ───
+// Matches gridx-ota-portal's check — rejects any .bin that doesn't embed
+// a GRIDX_FW_SIG:MFR=260:VER=x.x.x marker, so a valid API key alone isn't
+// enough to push non-GridX binaries to the fleet.
+const GRIDX_SIG_MARKER = 'GRIDX_FW_SIG:';
+const GRIDX_MFR_CODE = 260;
+function verifyGRIDxSignature(fwData) {
+  const sigBuf = Buffer.from(GRIDX_SIG_MARKER, 'ascii');
+  let sigOffset = -1;
+  for (let i = 0; i < fwData.length - sigBuf.length; i++) {
+    if (fwData.compare(sigBuf, 0, sigBuf.length, i, i + sigBuf.length) === 0) {
+      sigOffset = i;
+      break;
+    }
+  }
+  if (sigOffset === -1) {
+    return { valid: false, error: 'No GRIDx firmware signature found in binary' };
+  }
+  let endOffset = sigOffset;
+  while (endOffset < fwData.length && fwData[endOffset] !== 0 && (endOffset - sigOffset) < 128) {
+    endOffset++;
+  }
+  const sigString = fwData.toString('ascii', sigOffset, endOffset);
+  const mfrMatch = sigString.match(/MFR=(\d+)/);
+  const verMatch = sigString.match(/VER=([\d.]+)/);
+  if (!mfrMatch) {
+    return { valid: false, error: 'GRIDx signature found but missing manufacturer code' };
+  }
+  const mfrCode = parseInt(mfrMatch[1]);
+  if (mfrCode !== GRIDX_MFR_CODE) {
+    return { valid: false, error: `Invalid manufacturer code: ${mfrCode} (expected ${GRIDX_MFR_CODE})` };
+  }
+  return { valid: true, mfr: mfrCode, version: verMatch ? verMatch[1] : 'unknown' };
+}
+
 // Multer config for firmware upload
 const fwStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, DATA_DIR),
@@ -74,7 +132,7 @@ router.post('/ota/start', (req, res) => {
 
 // ─── POST /files/ota/upload ─────────────────────────────────
 // Upload firmware .bin, auto-compute libhydrogen hash, generate fw_latest.json
-router.post('/ota/upload', fwUpload.single('firmware'), (req, res) => {
+router.post('/ota/upload', otaUploadAuth, fwUpload.single('firmware'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No firmware file provided' });
   }
@@ -89,6 +147,13 @@ router.post('/ota/upload', fwUpload.single('firmware'), (req, res) => {
     const fwPath = path.join(DATA_DIR, 'firmware.bin');
     const fwData = fs.readFileSync(fwPath);
     const fwSize = fwData.length;
+
+    const sigCheck = verifyGRIDxSignature(fwData);
+    if (!sigCheck.valid) {
+      fs.unlinkSync(fwPath);
+      console.error(`[OTA] Upload rejected: ${sigCheck.error}`);
+      return res.status(400).json({ error: `Firmware rejected: ${sigCheck.error}` });
+    }
 
     // Compute libhydrogen hash (Gimli-based, context "metering")
     const hash = hydroHashHex(fwData, 'metering');
