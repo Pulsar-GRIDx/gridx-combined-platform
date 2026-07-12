@@ -81,11 +81,24 @@ const fwUpload = multer({
   },
 });
 
-// Serve the firmware metadata JSON file
-
-
+// ─── GET /files/firmware-info.json ───────────────────────────
+// This is what the GRIDx Maintenance Android app polls (Configurations.java,
+// FIRMWARE_INFO_URL) to decide "is there an update available for the meter
+// I'm connected to". It was pointing at Data/fw_latest.json — the exact
+// same file the ESP32 fleet's own automatic 3-hour MQTT/HTTP update check
+// reads — meaning the app and the fleet were, despite the differently-named
+// files gridx-ota-portal actually writes on every upload/rollback
+// (fw_latest.json for the fleet, firmware-info.json for the app — see that
+// repo's server.js upload handler comment), collapsed onto a single shared
+// "latest" pointer at the serving layer. That's why a deliberate,
+// fleet-safety-motivated rollback of fw_latest.json (done to keep an
+// incompatible-partition-table test build off the general fleet) also
+// silently blocked the Android app from ever seeing that build, with no
+// way to decouple the two without editing files directly on the server.
+// Fixed by actually serving the file gridx-ota-portal already writes for
+// this exact purpose.
 router.get('/firmware-info.json', (req, res) => {
-  const filePath = path.join(__dirname, './Data/fw_latest.json'); // Adjust path as necessary
+  const filePath = path.join(__dirname, './Data/firmware-info.json');
   res.sendFile(filePath, (err) => {
     if (err) {
       console.error('Error serving firmware-info.json:', err);
@@ -100,6 +113,31 @@ router.get('/firmware.bin', (req, res) => {
   res.sendFile(filePath, (err) => {
     if (err) {
       console.error('Error serving firmware.bin:', err);
+      res.status(500).send(err);
+    }
+  });
+});
+
+// ─── GET /files/firmware/:filename ────────────────────────────
+// Serves a specific historical/versioned firmware backup (e.g.
+// firmware_0_63_1.bin) by exact filename — for deliberately pointing the
+// Android app (via firmware-info.json's url field) at a version other than
+// whatever's currently the fleet-wide "latest", without ever touching
+// firmware.bin/fw_latest.json. Filename strictly pattern-matched (no path
+// traversal possible) and restricted to the same backup-naming convention
+// gridx-ota-portal already uses for every upload.
+router.get('/firmware/:filename', (req, res) => {
+  const filename = req.params.filename;
+  if (!/^firmware_\d+(_\d+)*\.bin$/.test(filename)) {
+    return res.status(400).json({ error: 'Invalid firmware filename' });
+  }
+  const filePath = path.join(DATA_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: `${filename} not found` });
+  }
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      console.error(`Error serving ${filename}:`, err);
       res.status(500).send(err);
     }
   });
