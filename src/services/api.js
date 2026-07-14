@@ -484,6 +484,15 @@ export const mqttActivityAPI = {
   getLog: (drn, limit = 20) => get(`/mqtt/activity-log/${drn}?limit=${limit}`),
 };
 
+// ===== LORA MESH NETWORK (unified LoRa+GSM architecture) =====
+export const loraMeshAPI = {
+  getMeshOverview: () => get('/mqtt/lora/mesh-overview'),
+  getRoutingTable: () => get('/mqtt/lora/routing-table'),
+  getCommunicationLog: ({ limit = 100, offset = 0 } = {}) =>
+    get(`/mqtt/lora/communication-log?limit=${limit}&offset=${offset}`),
+  getReliabilityComparison: () => get('/mqtt/lora/reliability-comparison'),
+};
+
 // ===== METER REGISTRATION =====
 export const meterRegistrationAPI = {
   register: (data) => post('/meter-registration', data),
@@ -726,4 +735,5 @@ export default {
   netMetering: netMeteringAPI,
   dataUsage: dataUsageAPI,
   energyAnalytics: energyAnalyticsAPI,
+  loraMesh: loraMeshAPI,
 };

@@ -1598,4 +1598,175 @@ router.get('/mqtt/thd/:drn/15min', authenticateToken, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// LoRa mesh (unified LoRa+GSM architecture) — see services/mqttHandler.js
+// for the ingestion side (LoraMessageLog / LoraNodeStatus /
+// LoraRouteObservation) these read from.
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /mqtt/lora/mesh-overview
+ * "Online" = LoraNodeStatus row whose meter has a MeterLastSeen.last_seen
+ * within the last 10 minutes. Health score is deliberately a simple
+ * active/total percentage, not a weighted composite — there isn't yet
+ * enough field data to justify weighting factors more elaborate than that.
+ * "Relays" = active, non-gateway meters that have forwarded at least one
+ * packet (packets_forwarded > 0); "Nodes" = all active non-gateway meters,
+ * a superset of relays (a node that hasn't relayed yet is still a node).
+ */
+router.get('/mqtt/lora/mesh-overview', authenticateToken, async (req, res) => {
+  try {
+    const nodes = await queryAll(
+      `SELECT ln.drn, ln.is_gateway, ln.gateway_mode, ln.packets_forwarded,
+              ml.last_seen,
+              (ml.last_seen IS NOT NULL AND ml.last_seen >= NOW() - INTERVAL 10 MINUTE) AS is_online
+       FROM LoraNodeStatus ln
+       LEFT JOIN MeterLastSeen ml ON ml.DRN = ln.drn`
+    );
+
+    const totalMeters = nodes.length;
+    const activeMeters = nodes.filter(n => n.is_online).length;
+    const onlineGateways = nodes.filter(n => n.is_online && n.is_gateway).length;
+    const onlineNodes = nodes.filter(n => n.is_online && !n.is_gateway).length;
+    const onlineRelays = nodes.filter(n => n.is_online && !n.is_gateway && n.packets_forwarded > 0).length;
+    const healthScore = totalMeters > 0 ? Math.round((activeMeters / totalMeters) * 100) : 0;
+
+    const [deliveryStats] = await queryAll(
+      `SELECT COUNT(*) as total, SUM(status = 'ack_sent') as confirmed
+       FROM LoraMessageLog WHERE received_at >= NOW() - INTERVAL 24 HOUR`
+    );
+    const total = deliveryStats?.total || 0;
+    const confirmed = deliveryStats?.confirmed || 0;
+    const deliverySuccessRate = total > 0 ? Math.round((confirmed / total) * 100) : null;
+
+    res.json({
+      success: true,
+      data: {
+        total_meters: totalMeters,
+        active_meters: activeMeters,
+        online_gateways: onlineGateways,
+        online_relays: onlineRelays,
+        online_nodes: onlineNodes,
+        mesh_health_score: healthScore,
+        delivery_success_rate_24h: deliverySuccessRate,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /mqtt/lora/routing-table
+ * One row per (reporting meter, destination) route observation — see
+ * lora_state_populate_routes_json() in the firmware for the source of this
+ * data (every meter's own passively-observed route cache, not an
+ * authoritative forwarding table — flood routing doesn't have one).
+ */
+router.get('/mqtt/lora/routing-table', authenticateToken, async (req, res) => {
+  try {
+    const rows = await queryAll(
+      `SELECT reporting_drn AS source_drn, destination_drn, next_hop_drn, hop_count, path,
+              route_status, observed_at,
+              TIMESTAMPDIFF(SECOND, observed_at, NOW()) AS route_age_seconds
+       FROM LoraRouteObservation
+       ORDER BY observed_at DESC
+       LIMIT 500`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /mqtt/lora/communication-log
+ * Query params: limit, offset (both optional). Backed by LoraMessageLog —
+ * scoped to mesh-relayed telemetry, which is the population that actually
+ * has message IDs, hop counts, and delivery status today. Direct-GSM
+ * telemetry (MeteringPower, source=1) has no message-ID/delivery-state
+ * concept in the base metering pipeline and isn't unified into this log —
+ * see the architecture review's scope notes.
+ */
+router.get('/mqtt/lora/communication-log', authenticateToken, async (req, res) => {
+  const limit = parseInt(req.query.limit) || 100;
+  const offset = parseInt(req.query.offset) || 0;
+  try {
+    const [rows, countResult] = await Promise.all([
+      queryAll(
+        `SELECT CONCAT(source_drn, ':', packet_id) AS message_id, source_drn, gateway_drn AS destination,
+                origin_timestamp, received_at, hop_count, delivery_method, status, retry_count
+         FROM LoraMessageLog
+         ORDER BY received_at DESC
+         LIMIT ? OFFSET ?`,
+        [limit, offset]
+      ),
+      queryAll(`SELECT COUNT(*) as total FROM LoraMessageLog`),
+    ]);
+
+    const data = rows.map(r => ({
+      ...r,
+      communication_type: r.delivery_method === 'GSM_FALLBACK' ? 'GSM Fallback' : 'LoRa',
+      status_label: r.status === 'ack_sent' ? 'Confirmed' : 'Delivered',
+    }));
+
+    res.json({ success: true, data, total: countResult[0]?.total || 0, limit, offset });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /mqtt/lora/reliability-comparison
+ * "LoRa" column = messages that reached the server via a mesh gateway
+ * (delivery_method LORA_DIRECT/LORA_MESH). "GSM" column = messages the
+ * mesh path failed to confirm in time, forcing the meter's own GSM
+ * fallback (delivery_method GSM_FALLBACK) — deliberately NOT all direct-
+ * GSM traffic in general (the base metering pipeline's own periodic
+ * publishes have no message-ID/delivery-state concept to compare against),
+ * so this table specifically quantifies "how often did the mesh actually
+ * save a GSM publish" rather than comparing to GSM traffic at large.
+ */
+router.get('/mqtt/lora/reliability-comparison', authenticateToken, async (req, res) => {
+  try {
+    const rows = await queryAll(
+      `SELECT
+         delivery_method,
+         COUNT(*) as sent,
+         SUM(status = 'ack_sent') as delivered,
+         AVG(TIMESTAMPDIFF(SECOND, FROM_UNIXTIME(origin_timestamp), received_at)) as avg_latency_seconds,
+         SUM(retry_count) as retries
+       FROM LoraMessageLog
+       WHERE origin_timestamp IS NOT NULL AND origin_timestamp > 0
+       GROUP BY delivery_method`
+    );
+
+    const loraRow = { sent: 0, delivered: 0, avg_latency_seconds: 0, retries: 0 };
+    const gsmRow = { sent: 0, delivered: 0, avg_latency_seconds: 0, retries: 0 };
+    rows.forEach(r => {
+      const target = r.delivery_method === 'GSM_FALLBACK' ? gsmRow : loraRow;
+      target.sent += r.sent;
+      target.delivered += r.delivered || 0;
+      target.avg_latency_seconds = r.avg_latency_seconds || 0;
+      target.retries += r.retries || 0;
+    });
+
+    const withDerived = (row) => ({
+      messages_sent: row.sent,
+      messages_delivered: row.delivered,
+      success_rate: row.sent > 0 ? Math.round((row.delivered / row.sent) * 100) : null,
+      average_latency_seconds: row.avg_latency_seconds ? Math.round(row.avg_latency_seconds) : null,
+      failures: row.sent - row.delivered,
+      retries: row.retries,
+    });
+
+    res.json({
+      success: true,
+      data: { lora: withDerived(loraRow), gsm: withDerived(gsmRow) },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

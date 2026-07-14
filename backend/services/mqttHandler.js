@@ -42,6 +42,17 @@ const TOPICS = [
   'gx/+/emergency',
   'gx/+/ota/req',
   'gx/+/nextion/req',
+  // LoRa mesh (unified LoRa+GSM architecture) — these topics were already
+  // defined and published by the firmware (lora_gateway.cpp) but never
+  // ingested here; this was flagged as explicitly deferred in that file's
+  // own comments. gx/+/lora_ack and gx/+/lora_audit_response are downlinks
+  // (backend -> meter, published via publishCommand-style calls below, not
+  // subscribed).
+  'gx/+/lora_mesh_status',
+  'gx/+/lora_neighbors',
+  'gx/+/lora_routes',
+  'gx/+/lora_telemetry',
+  'gx/+/lora_audit_request',
 ];
 
 // ==================== Server-Side Hourly Energy Tracker ====================
@@ -740,6 +751,68 @@ function ensureTables() {
     UNIQUE KEY idx_suburb_date (suburb, energy_date),
     INDEX idx_date (energy_date)
   )`, (err) => { if (err) console.error('[MQTT] SuburbDailyEnergy table error:', err.message); });
+
+  // ==================== LoRa mesh (unified LoRa+GSM architecture) ====================
+  // Message-ID dedup is the primary-key itself, not an extra check in code —
+  // (source_drn, packet_id) is the exact same dedup key the mesh firmware
+  // already uses (lora_mesh_state.cpp's dedup cache), so a duplicate publish
+  // from more than one gateway hearing the same packet becomes a harmless
+  // ON DUPLICATE KEY UPDATE no-op here, not a second row. This is what
+  // satisfies "a message should only be delivered once to the server."
+  db.query(`CREATE TABLE IF NOT EXISTS LoraMessageLog (
+    source_drn VARCHAR(50) NOT NULL,
+    packet_id BIGINT UNSIGNED NOT NULL,
+    gateway_drn VARCHAR(50) NOT NULL,
+    hop_count TINYINT UNSIGNED DEFAULT 0,
+    route_path JSON,
+    delivery_method VARCHAR(20) DEFAULT 'LORA_DIRECT',
+    rssi SMALLINT,
+    snr TINYINT,
+    telemetry JSON,
+    origin_timestamp INT UNSIGNED,
+    status ENUM('delivered_to_server','ack_sent') DEFAULT 'delivered_to_server',
+    received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ack_sent_at TIMESTAMP NULL,
+    retry_count INT UNSIGNED DEFAULT 0,
+    PRIMARY KEY (source_drn, packet_id),
+    INDEX idx_gateway (gateway_drn),
+    INDEX idx_received (received_at)
+  )`, (err) => { if (err) console.error('[MQTT] LoraMessageLog table error:', err.message); });
+
+  // One row per meter — upserted from every gx/{drn}/lora_mesh_status
+  // heartbeat, which every meter now publishes (not just current gateways —
+  // see lora_gateway.cpp's lora_gateway_poll()). This is what "Total
+  // meters / Online gateways / Online relays / Online nodes" is computed
+  // from; "online" itself is derived at query time from MeterLastSeen's
+  // existing last_seen column, not stored again here.
+  db.query(`CREATE TABLE IF NOT EXISTS LoraNodeStatus (
+    drn VARCHAR(50) PRIMARY KEY,
+    is_gateway TINYINT(1) DEFAULT 0,
+    gateway_mode VARCHAR(20) DEFAULT 'auto',
+    neighbor_count INT DEFAULT 0,
+    packets_transmitted INT DEFAULT 0,
+    packets_forwarded INT DEFAULT 0,
+    packets_dropped_duplicate INT DEFAULT 0,
+    packets_dropped_hop_limit INT DEFAULT 0,
+    gsm_fallback_count INT DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  )`, (err) => { if (err) console.error('[MQTT] LoraNodeStatus table error:', err.message); });
+
+  // Upserted from gx/{drn}/lora_routes — each meter's own passively-observed
+  // route cache (see lora_state_populate_routes_json() in the firmware).
+  // "reporting_drn" is which meter is telling us about this route (also
+  // every meter now, not just gateways), "destination_drn" is the source
+  // the route describes reaching.
+  db.query(`CREATE TABLE IF NOT EXISTS LoraRouteObservation (
+    reporting_drn VARCHAR(50) NOT NULL,
+    destination_drn VARCHAR(50) NOT NULL,
+    next_hop_drn VARCHAR(50),
+    hop_count TINYINT UNSIGNED DEFAULT 0,
+    path JSON,
+    route_status VARCHAR(20) DEFAULT 'active',
+    observed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (reporting_drn, destination_drn)
+  )`, (err) => { if (err) console.error('[MQTT] LoraRouteObservation table error:', err.message); });
 }
 
 // ==================== Init ====================
@@ -867,7 +940,8 @@ function handleMessage(topic, buf) {
 
   // JSON-only topics (ack, health, auth_numbers, energy_usage, emergency)
   // Note: relay_log moved to binary path (0x06)
-  if (['ack', 'health', 'auth_numbers', 'energy_usage', 'emergency', 'tou_status'].includes(type)) {
+  if (['ack', 'health', 'auth_numbers', 'energy_usage', 'emergency', 'tou_status',
+       'lora_mesh_status', 'lora_neighbors', 'lora_routes', 'lora_telemetry', 'lora_audit_request'].includes(type)) {
     try {
       const data = JSON.parse(buf.toString());
       switch (type) {
@@ -877,6 +951,11 @@ function handleMessage(topic, buf) {
         case 'energy_usage': handleEnergyUsageJson(drn, data); break;
         case 'emergency':    handleEmergencyJson(drn, data); break;
         case 'tou_status':   handleTouStatusJson(drn, data); break;
+        case 'lora_mesh_status':    handleLoraMeshStatusJson(drn, data); break;
+        case 'lora_neighbors':      handleLoraNeighborsJson(drn, data); break;
+        case 'lora_routes':         handleLoraRoutesJson(drn, data); break;
+        case 'lora_telemetry':      handleLoraTelemetryJson(drn, data); break;
+        case 'lora_audit_request':  handleLoraAuditRequestJson(drn, data); break;
       }
     } catch (e) {
       console.error(`[MQTT] Invalid JSON on ${topic}:`, e.message);
@@ -1654,6 +1733,164 @@ function handleTouStatusJson(drn, data) {
     [drn, data.mode || 0, data.dsm ? 1 : 0, data.current_period || 'STANDARD',
      data.active_tariff_index || 0, data.monthly_consumption_wh || 0, JSON.stringify(data)],
     (err) => { if (err) console.error('[MQTT] TOU status upsert error:', err.message); }
+  );
+}
+
+// ==================== LoRa mesh (unified LoRa+GSM architecture) ====================
+
+// gx/{drn}/lora_telemetry — a gateway forwarding another meter's telemetry
+// that it received over the mesh. (source_drn, packet_id) as the primary
+// key is the whole dedup story: if two gateways both heard the same flood
+// packet and both publish it, the second INSERT becomes a no-op UPDATE, not
+// a second row — "a message should only be delivered once to the server"
+// falls out of the schema, not extra application logic.
+function handleLoraTelemetryJson(drn, data) {
+  const sourceDrn = String(data.source_drn || '');
+  const packetId = parseInt(data.packet_id, 10);
+  if (!sourceDrn || !Number.isFinite(packetId)) {
+    console.warn(`[MQTT] lora_telemetry from ${drn}: missing source_drn/packet_id, dropping`);
+    return;
+  }
+
+  const t = data.telemetry || {};
+  db.query(
+    `INSERT INTO LoraMessageLog
+       (source_drn, packet_id, gateway_drn, hop_count, route_path, delivery_method,
+        rssi, snr, telemetry, origin_timestamp, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'delivered_to_server')
+     ON DUPLICATE KEY UPDATE
+       gateway_drn = VALUES(gateway_drn), hop_count = VALUES(hop_count),
+       route_path = VALUES(route_path), delivery_method = VALUES(delivery_method),
+       rssi = VALUES(rssi), snr = VALUES(snr), telemetry = VALUES(telemetry),
+       retry_count = retry_count + 1`,
+    [sourceDrn, packetId, drn, data.hop_count || 0, JSON.stringify(data.route_path || []),
+     data.delivery_method || 'LORA_DIRECT', data.rssi ?? null, data.snr ?? null,
+     JSON.stringify(t), data.timestamp || null],
+    (err) => {
+      if (err) {
+        console.error('[MQTT] LoraMessageLog upsert error:', err.message);
+        return;
+      }
+      console.log(`[MQTT] lora_telemetry: ${sourceDrn} packet_id=${packetId} via gateway ${drn} (${data.delivery_method}, ${data.hop_count} hops)`);
+      sendLoraServerAck(drn, sourceDrn, packetId);
+    }
+  );
+}
+
+// Reinjects a server-confirmed ACK back through the mesh, addressed to the
+// original source — see lora_mesh_send_server_ack() / LORA_PKT_SERVER_ACK
+// in the firmware. Published to the GATEWAY's own downlink topic (the
+// meter that forwarded the message), not the origin's — the origin has no
+// direct MQTT session for this record in the mesh-delivery case, only the
+// gateway does.
+function sendLoraServerAck(gatewayDrn, sourceDrn, packetId) {
+  if (!mqttClient || !mqttClient.connected) return;
+  const topic = `gx/${gatewayDrn}/lora_ack`;
+  const payload = JSON.stringify({ packet_id: packetId, dest_drn: sourceDrn });
+  mqttClient.publish(topic, payload, { qos: 1 }, (err) => {
+    if (err) {
+      console.error(`[MQTT] Server-ack publish error to ${topic}:`, err.message);
+      return;
+    }
+    db.query(
+      `UPDATE LoraMessageLog SET status = 'ack_sent', ack_sent_at = NOW() WHERE source_drn = ? AND packet_id = ?`,
+      [sourceDrn, packetId],
+      (uerr) => { if (uerr) console.error('[MQTT] LoraMessageLog ack_sent update error:', uerr.message); }
+    );
+  });
+}
+
+// gx/{drn}/lora_mesh_status — now published by EVERY meter, not just
+// gateways (see lora_gateway.cpp's lora_gateway_poll()), so this is the
+// primary source for "Total meters / Online gateways / Online relays /
+// Online nodes" on the Mesh Overview page. "Online" itself is derived at
+// query time from MeterLastSeen.last_seen, already maintained for every
+// topic type generically above — not re-stored here.
+function handleLoraMeshStatusJson(drn, data) {
+  db.query(
+    `INSERT INTO LoraNodeStatus
+       (drn, is_gateway, gateway_mode, neighbor_count, packets_transmitted, packets_forwarded,
+        packets_dropped_duplicate, packets_dropped_hop_limit, gsm_fallback_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       is_gateway = VALUES(is_gateway), gateway_mode = VALUES(gateway_mode),
+       neighbor_count = VALUES(neighbor_count), packets_transmitted = VALUES(packets_transmitted),
+       packets_forwarded = VALUES(packets_forwarded), packets_dropped_duplicate = VALUES(packets_dropped_duplicate),
+       packets_dropped_hop_limit = VALUES(packets_dropped_hop_limit), gsm_fallback_count = VALUES(gsm_fallback_count)`,
+    [drn, data.is_gateway ? 1 : 0, data.gateway_mode || 'auto', data.neighbor_count || 0,
+     data.packets_transmitted || 0, data.packets_forwarded || 0, data.packets_dropped_duplicate || 0,
+     data.packets_dropped_hop_limit || 0, data.gsm_fallback_count || 0],
+    (err) => { if (err) console.error('[MQTT] LoraNodeStatus upsert error:', err.message); }
+  );
+}
+
+// gx/{drn}/lora_neighbors — receipt acknowledged (MeterLastSeen already
+// updated generically above); per-neighbor RSSI/SNR/link-quality detail
+// isn't persisted separately yet, since none of the four new dashboard
+// pages currently surface a per-neighbor-link view (Routing Table works
+// off lora_routes instead). Logged so the data isn't silently dropped
+// without a trace, and easy to extend with a LoraNeighborObservation table
+// later if a link-quality view is added.
+function handleLoraNeighborsJson(drn, data) {
+  const count = Array.isArray(data.neighbors) ? data.neighbors.length : 0;
+  console.log(`[MQTT] lora_neighbors from ${drn}: ${count} neighbor(s) reported (not yet persisted per-link)`);
+}
+
+// gx/{drn}/lora_routes — each meter's own passively-observed route cache.
+// "reporting_drn" (this meter) x "destination_drn" (the source a route
+// describes reaching) is the natural key: a route observation is specific
+// to who's reporting it, not global.
+function handleLoraRoutesJson(drn, data) {
+  const routes = Array.isArray(data.routes) ? data.routes : [];
+  routes.forEach((r) => {
+    if (!r.destination) return;
+    db.query(
+      `INSERT INTO LoraRouteObservation
+         (reporting_drn, destination_drn, next_hop_drn, hop_count, path, route_status)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         next_hop_drn = VALUES(next_hop_drn), hop_count = VALUES(hop_count),
+         path = VALUES(path), route_status = VALUES(route_status), observed_at = NOW()`,
+      [drn, r.destination, r.next_hop || null, r.hop_count || 0,
+       JSON.stringify(r.path || []), r.route_status || 'active'],
+      (err) => { if (err) console.error('[MQTT] LoraRouteObservation upsert error:', err.message); }
+    );
+  });
+}
+
+// gx/{drn}/lora_audit_request — the low-rate GSM safety-net check-in (see
+// lora_audit.cpp). Answers "has the server heard from this DRN recently,
+// via ANY path" — deliberately not LoRa-specific, since the point is
+// confirming the meter's data is reaching the cloud at all, regardless of
+// which transport got it there. GRIDX_AUDIT_GAP_HOURS is intentionally
+// generous relative to the firmware's own 4-hour audit cadence, so a
+// single missed cycle doesn't itself look like a gap.
+const GRIDX_AUDIT_GAP_HOURS = 6;
+
+function handleLoraAuditRequestJson(drn) {
+  db.query(
+    `SELECT last_seen FROM MeterLastSeen WHERE DRN = ?`,
+    [drn],
+    (err, rows) => {
+      if (err) {
+        console.error('[MQTT] Audit lookup error:', err.message);
+        return;
+      }
+      const lastSeen = rows && rows[0] ? rows[0].last_seen : null;
+      const gapDetected = !lastSeen ||
+        (Date.now() - new Date(lastSeen).getTime()) > GRIDX_AUDIT_GAP_HOURS * 3600 * 1000;
+
+      if (!mqttClient || !mqttClient.connected) return;
+      const topic = `gx/${drn}/lora_audit_response`;
+      const payload = JSON.stringify({
+        gap_detected: gapDetected,
+        last_seen_unix: lastSeen ? Math.floor(new Date(lastSeen).getTime() / 1000) : 0,
+      });
+      mqttClient.publish(topic, payload, { qos: 0 }, (perr) => {
+        if (perr) console.error(`[MQTT] Audit response publish error to ${topic}:`, perr.message);
+        else console.log(`[MQTT] Audit response sent to ${drn}: gap_detected=${gapDetected}`);
+      });
+    }
   );
 }
 

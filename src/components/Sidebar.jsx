@@ -28,6 +28,8 @@ import KeyboardDoubleArrowLeftIcon from "@mui/icons-material/KeyboardDoubleArrow
 import KeyboardDoubleArrowRightIcon from "@mui/icons-material/KeyboardDoubleArrowRight";
 import CellTowerIcon from "@mui/icons-material/CellTower";
 import WaterDropOutlinedIcon from "@mui/icons-material/WaterDropOutlined";
+import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
+import ListAltIcon from "@mui/icons-material/ListAlt";
 
 /* ── Nav Item ── */
 const NavItem = ({ title, to, icon, isCollapsed, accentColor }) => {
@@ -452,6 +454,42 @@ const Sidebar = () => {
           accentColor="#6366f1"
         />
         */}
+        {/* LoRa Network */}
+        <SectionHeader
+          title="LoRa Network"
+          isCollapsed={isCollapsed}
+          colors={colors}
+          isDark={isDark}
+        />
+        <NavItem
+          title="Mesh Overview"
+          to="/lora-mesh-overview"
+          icon={<HubIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#06b6d4"
+        />
+        <NavItem
+          title="Routing Table"
+          to="/lora-routing-table"
+          icon={<AccountTreeOutlinedIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#06b6d4"
+        />
+        <NavItem
+          title="Communication Log"
+          to="/lora-communication-log"
+          icon={<ListAltIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#06b6d4"
+        />
+        <NavItem
+          title="Reliability Comparison"
+          to="/lora-reliability-comparison"
+          icon={<SpeedIcon />}
+          isCollapsed={isCollapsed}
+          accentColor="#06b6d4"
+        />
+
         {/* Administration */}
         <SectionHeader
           title="Admin"

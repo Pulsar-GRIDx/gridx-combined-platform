@@ -33,6 +33,10 @@ import SystemAnalysis from "./pages/SystemAnalysis";
 import AreaProfile from "./pages/AreaProfile";
 import GridTopology from "./pages/GridTopology";
 import GeyserDetection from "./pages/GeyserDetection";
+import LoraMeshOverview from "./pages/LoraMeshOverview";
+import LoraRoutingTable from "./pages/LoraRoutingTable";
+import LoraCommunicationLog from "./pages/LoraCommunicationLog";
+import LoraReliabilityComparison from "./pages/LoraReliabilityComparison";
 
 function App() {
   const [theme, colorMode] = useMode();
@@ -77,6 +81,10 @@ function App() {
               <Route path="system-analysis" element={<SystemAnalysis />} />
               <Route path="grid-topology" element={<GridTopology />} />
               <Route path="geyser-detection" element={<GeyserDetection />} />
+              <Route path="lora-mesh-overview" element={<LoraMeshOverview />} />
+              <Route path="lora-routing-table" element={<LoraRoutingTable />} />
+              <Route path="lora-communication-log" element={<LoraCommunicationLog />} />
+              <Route path="lora-reliability-comparison" element={<LoraReliabilityComparison />} />
             </Route>
           </Routes>
         </AuthProvider>
