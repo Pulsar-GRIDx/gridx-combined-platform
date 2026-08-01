@@ -1,6 +1,7 @@
 const express = require("express");
 const meter = require("./models/meterTarrifModel");
 const auth = require("./middleware/hwAuth");
+const adminAuth = require("../admin/authMiddllware");
 const router = express.Router();
 
 router.get("/getAll", auth, async function (req, res, next) {
@@ -62,7 +63,12 @@ router.get("/getLastTariff", auth, function (req, res) {
 });
 
 
-router.post("/updateSytemTariff", auth, async function (req, res) {
+// Fleet-wide: wipes and rewrites the tariff row for every meter's DRN.
+// Admin-dashboard only - no legitimate device caller exists for this (a
+// single meter has no reason to trigger a system-wide tariff rewrite), and
+// the previous device-JWT auth (hwAuth) meant any valid meter credential
+// could rewrite every meter's tariff on the platform.
+router.post("/updateSytemTariff", adminAuth.authenticateToken, adminAuth.requireAdmin, async function (req, res) {
   // Validate request
   if (!req.body) {
     res.status(400).send("400");
@@ -87,7 +93,11 @@ router.post("/update/:id", auth, async function (req, res) {
 
   const meterCell = new meter(req.params.id, req.body);
   // Save power data in the database
-  meter.create(meterCell, (err, data) => {
+  // Calibration.create expects (DRN, data, result) - meterCell already carries
+  // its own DRN plus the data fields, so pass them separately rather than the
+  // whole object as the first arg (previously left `result` undefined, which
+  // threw inside the mysql callback on every call).
+  meter.create(meterCell.DRN, meterCell, (err, data) => {
     if (err) {
       res.send({ err });
     } else {
@@ -115,7 +125,9 @@ router.delete("/deleteByDRN/:id", auth, async function (req, res, next) {
   });
 });
 
-router.delete("/deleteAll", auth, function (req, res) {
+// Wipes the entire tariff table. Admin-dashboard only, same reasoning as
+// updateSytemTariff above.
+router.delete("/deleteAll", adminAuth.authenticateToken, adminAuth.requireAdmin, function (req, res) {
   meter.removeAll((err, data) => {
     if (err)
       res.status(500).send({

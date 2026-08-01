@@ -1,6 +1,7 @@
 const express = require("express");
 const TariffUpdateStatus = require("./models/meterTariffUpdateStatusmodel");
 const auth = require("./middleware/hwAuth");
+const adminAuth = require("../admin/authMiddllware");
 const router = express.Router();
 
 //
@@ -164,9 +165,13 @@ router.post("/updateTariffValue", auth, (req, res) => {
 });
 
 //
-// ❌ Delete all records
+// ❌ Delete all records — wipes the entire table. Admin-dashboard only, same
+// reasoning as meterTariffRoutes.js's deleteAll/updateSytemTariff: no
+// legitimate device caller exists for a fleet-wide wipe, and the previous
+// device-JWT auth meant any valid meter credential could destroy every
+// meter's tariff-update history.
 //
-router.delete("/deleteAll", auth, (req, res) => {
+router.delete("/deleteAll", adminAuth.authenticateToken, adminAuth.requireAdmin, (req, res) => {
   TariffUpdateStatus.deleteAll((err, data) => {
     if (err) {
       res.status(500).send({ message: err.message || "Error deleting tariff update records." });

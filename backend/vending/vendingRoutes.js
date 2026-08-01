@@ -14,6 +14,7 @@ var router = express.Router();
 var db = require('../config/db');
 var authMw = require('../admin/authMiddllware');
 var authenticateToken = authMw.authenticateToken;
+var requireAdmin = authMw.requireAdmin;
 var hsmService = require('./hsmService');
 
 // Promise wrapper for the pool (mysql2 supports this)
@@ -2869,7 +2870,7 @@ router.get('/tariffs/config', authenticateToken, function(req, res) {
   });
 });
 
-router.put('/tariffs/config', authenticateToken, function(req, res) {
+router.put('/tariffs/config', authenticateToken, requireAdmin, function(req, res) {
   var fields = ['vatRate', 'fixedCharge', 'relLevy', 'ecbLevy', 'nefLevy', 'laSurcharge', 'minPurchase', 'arrearsMode', 'arrearsThreshold', 'arrearsPercentage'];
   var updates = [];
   var params = [];
@@ -2903,7 +2904,7 @@ router.get('/tariffs/groups', authenticateToken, function(req, res) {
   });
 });
 
-router.post('/tariffs/groups', authenticateToken, function(req, res) {
+router.post('/tariffs/groups', authenticateToken, requireAdmin, function(req, res) {
   var b = req.body;
   if (!b.name) return res.status(400).json({ error: 'name is required' });
   db.query(
@@ -2923,7 +2924,7 @@ router.post('/tariffs/groups', authenticateToken, function(req, res) {
   );
 });
 
-router.put('/tariffs/groups/:id', authenticateToken, function(req, res) {
+router.put('/tariffs/groups/:id', authenticateToken, requireAdmin, function(req, res) {
   var b = req.body;
   db.query(
     'UPDATE TariffGroups SET name = COALESCE(?, name), sgc = COALESCE(?, sgc), description = COALESCE(?, description), type = COALESCE(?, type), billingType = COALESCE(?, billingType), flatRate = COALESCE(?, flatRate), peakRate = COALESCE(?, peakRate), standardRate = COALESCE(?, standardRate), offPeakRate = COALESCE(?, offPeakRate), capacityCharge = COALESCE(?, capacityCharge), demandCharge = COALESCE(?, demandCharge), networkAccessCharge = COALESCE(?, networkAccessCharge), effectiveDate = COALESCE(?, effectiveDate) WHERE id = ?',
@@ -2948,7 +2949,7 @@ router.put('/tariffs/groups/:id', authenticateToken, function(req, res) {
 
 
 // Delete tariff group
-router.delete('/tariffs/groups/:id', authenticateToken, function(req, res) {
+router.delete('/tariffs/groups/:id', authenticateToken, requireAdmin, function(req, res) {
   db.query('DELETE FROM TariffBlocks WHERE tariffGroupId = ?', [req.params.id], function() {
     db.query('DELETE FROM TariffTOUSchedule WHERE tariffGroupId = ?', [req.params.id], function() {
       db.query('DELETE FROM TariffGroups WHERE id = ?', [req.params.id], function(err, result) {
@@ -2963,7 +2964,7 @@ router.delete('/tariffs/groups/:id', authenticateToken, function(req, res) {
 
 
 // Re-seed Windhoek 2024 tariff categories
-router.post('/tariffs/seed-windhoek', authenticateToken, function(req, res) {
+router.post('/tariffs/seed-windhoek', authenticateToken, requireAdmin, function(req, res) {
   seedDefaults();
   logAudit('Windhoek 2024 tariffs re-seeded', 'SYSTEM', '', getOperatorName(req), getOperatorId(req), req.ip);
   res.json({ success: true, message: 'Windhoek 2024 tariff categories seeded (27 categories). Existing categories not affected.' });
@@ -2982,7 +2983,7 @@ router.get('/tariffs/groups/:id/tou-schedule', authenticateToken, function(req, 
 });
 
 // Set TOU schedule for a tariff group (replaces entire schedule)
-router.put('/tariffs/groups/:id/tou-schedule', authenticateToken, function(req, res) {
+router.put('/tariffs/groups/:id/tou-schedule', authenticateToken, requireAdmin, function(req, res) {
   var schedule = req.body.schedule;
   if (!schedule || !Array.isArray(schedule)) return res.status(400).json({ error: 'schedule array is required' });
 
@@ -3020,7 +3021,7 @@ var mqttHandler;
 try { mqttHandler = require('../services/mqttHandler'); } catch(e) { mqttHandler = null; }
 
 // Push tariff config to a specific meter
-router.post('/tariffs/push/:drn', authenticateToken, function(req, res) {
+router.post('/tariffs/push/:drn', authenticateToken, requireAdmin, function(req, res) {
   if (!mqttHandler) return res.status(500).json({ error: 'MQTT handler not available' });
 
   var drn = req.params.drn;
@@ -3097,7 +3098,7 @@ router.post('/tariffs/push/:drn', authenticateToken, function(req, res) {
 });
 
 // Push tariff to ALL meters of a type
-router.post('/tariffs/push-all', authenticateToken, function(req, res) {
+router.post('/tariffs/push-all', authenticateToken, requireAdmin, function(req, res) {
   if (!mqttHandler) return res.status(500).json({ error: 'MQTT handler not available' });
 
   var tariffGroupName = req.body.tariffGroup;
@@ -3698,7 +3699,7 @@ router.get('/tariffs/all-meters', authenticateToken, function(req, res) {
 });
 
 // Assign tariff to multiple selected meters + push via MQTT
-router.post('/tariff-assign-selected', authenticateToken, function(req, res) {
+router.post('/tariff-assign-selected', authenticateToken, requireAdmin, function(req, res) {
   var drns = req.body.drns;
   var tariffGroup = req.body.tariffGroup;
   if (!drns || !Array.isArray(drns) || drns.length === 0) return res.status(400).json({ error: 'drns array is required' });
@@ -3786,7 +3787,7 @@ router.get('/tariffs/groups/:id/meters', authenticateToken, function(req, res) {
 });
 
 // Assign tariff to a meter + push via MQTT + log history
-router.post('/tariff-assign/:drn', authenticateToken, function(req, res) {
+router.post('/tariff-assign/:drn', authenticateToken, requireAdmin, function(req, res) {
   var drn = req.params.drn;
   var newTariff = req.body.tariffGroup;
   var reason = req.body.reason || 'Manual assignment';
@@ -3867,7 +3868,7 @@ router.post('/tariff-assign/:drn', authenticateToken, function(req, res) {
 });
 
 // Bulk assign tariff to ALL meters
-router.post('/tariff-assign-bulk', authenticateToken, function(req, res) {
+router.post('/tariff-assign-bulk', authenticateToken, requireAdmin, function(req, res) {
   var newTariff = req.body.tariffGroup;
   if (!newTariff) return res.status(400).json({ error: 'tariffGroup is required' });
 
