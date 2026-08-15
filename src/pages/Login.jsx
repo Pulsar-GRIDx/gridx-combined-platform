@@ -21,10 +21,6 @@ import {
   VisibilityOff,
   EmailOutlined,
   LockOutlined,
-  BoltOutlined,
-  SpeedOutlined,
-  TuneOutlined,
-  InsightsOutlined,
   SecurityOutlined,
 } from "@mui/icons-material";
 import { tokens } from "../theme";
@@ -43,7 +39,9 @@ const CircuitBG = () => (
       inset: 0,
       width: "100%",
       height: "100%",
-      opacity: 0.06,
+      // Dropped from 0.06: the scope trace now carries its own graticule, and
+      // two grid systems at equal weight fought each other behind the waveform.
+      opacity: 0.03,
       pointerEvents: "none",
     }}
   >
@@ -90,54 +88,110 @@ const pulseKeyframes = {
     from: { opacity: 0 },
     to: { opacity: 1 },
   },
+  // One full wavelength of travel. Paired with a path drawn several
+  // wavelengths wide, this loops with no visible seam.
+  "@keyframes scopeScroll": {
+    from: { transform: "translateX(0)" },
+    to: { transform: "translateX(-120px)" },
+  },
+  "@keyframes scopeGlow": {
+    "0%, 100%": { opacity: 0.55 },
+    "50%": { opacity: 1 },
+  },
 };
 
-function FeatureItem({ icon, title, desc, delay, colors }) {
+/* ---------------------------------------------------------------------------
+ * ScopeTrace — three-phase mains, drawn the way an oscilloscope would show it.
+ *
+ * Replaces the old feature-bullet list. The point is to show what this platform
+ * actually watches rather than assert things about it: three sine waves 120°
+ * apart, which is simply what a three-phase supply looks like. It is on-brand
+ * for a metering product, it is technically honest, and it claims nothing.
+ *
+ * WAVELENGTH must match the translateX distance in `scopeScroll` above, and the
+ * path is drawn WIDTH + WAVELENGTH wide, so the shape sliding in on the right is
+ * identical to the one leaving on the left.
+ * ------------------------------------------------------------------------- */
+const WAVELENGTH = 120;
+const SCOPE_W = 520;
+const SCOPE_H = 150;
+
+const sinePath = (phaseDeg, amplitude) => {
+  const mid = SCOPE_H / 2;
+  const pts = [];
+  for (let x = 0; x <= SCOPE_W + WAVELENGTH; x += 4) {
+    const rad = ((x / WAVELENGTH) * 360 + phaseDeg) * (Math.PI / 180);
+    pts.push(`${x},${(mid - Math.sin(rad) * amplitude).toFixed(2)}`);
+  }
+  return `M${pts.join(" L")}`;
+};
+
+// 0 / 120 / 240 degrees — a real three-phase relationship, not decoration.
+const PHASES = [
+  { deg: 0, colour: "#4cceac", width: 2, opacity: 0.95 },
+  { deg: 120, colour: "#6870fa", width: 1.6, opacity: 0.6 },
+  { deg: 240, colour: "#4cceac", width: 1.6, opacity: 0.35 },
+];
+
+function ScopeTrace() {
   return (
     <Box
       sx={{
-        display: "flex",
-        gap: 2,
-        animation: `slideUp 0.6s ease ${delay}s both`,
-        ...pulseKeyframes,
+        position: "relative",
+        height: { xs: 120, md: SCOPE_H },
+        // Runs the full width of the panel's content column rather than sitting
+        // in a 420px box — at the smaller size it read as a floating graphic
+        // instead of an instrument.
+        width: "100%",
+        maxWidth: 560,
+        overflow: "hidden",
+        // Fade both ends so the trace reads as a window onto something
+        // continuous rather than a graphic that starts and stops.
+        maskImage: "linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%)",
+        WebkitMaskImage: "linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%)",
+        animation: "fadeIn 0.9s ease 0.45s both",
       }}
     >
+      {/* graticule */}
       <Box
+        component="svg"
+        viewBox={`0 0 ${SCOPE_W} ${SCOPE_H}`}
+        preserveAspectRatio="none"
+        sx={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.12 }}
+      >
+        {[0, 1, 2, 3].map((i) => (
+          <line key={`h${i}`} x1="0" y1={(SCOPE_H / 3) * i} x2={SCOPE_W} y2={(SCOPE_H / 3) * i} stroke="#4cceac" strokeWidth="1" />
+        ))}
+        {Array.from({ length: 9 }, (_, i) => (
+          <line key={`v${i}`} x1={(SCOPE_W / 8) * i} y1="0" x2={(SCOPE_W / 8) * i} y2={SCOPE_H} stroke="#4cceac" strokeWidth="1" />
+        ))}
+      </Box>
+
+      {/* the three phases */}
+      <Box
+        component="svg"
+        viewBox={`0 0 ${SCOPE_W} ${SCOPE_H}`}
+        preserveAspectRatio="none"
         sx={{
-          width: 44,
-          height: 44,
-          minWidth: 44,
-          borderRadius: "10px",
-          background: "linear-gradient(135deg, rgba(76,206,172,0.15) 0%, rgba(76,206,172,0.05) 100%)",
-          border: "1px solid rgba(76,206,172,0.2)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          position: "absolute",
+          inset: 0,
+          width: `${((SCOPE_W + WAVELENGTH) / SCOPE_W) * 100}%`,
+          height: "100%",
+          animation: "scopeScroll 2.4s linear infinite",
         }}
       >
-        {icon}
-      </Box>
-      <Box>
-        <Typography
-          sx={{
-            color: "#fff",
-            fontWeight: 700,
-            fontSize: "0.88rem",
-            letterSpacing: "0.02em",
-            mb: 0.2,
-          }}
-        >
-          {title}
-        </Typography>
-        <Typography
-          sx={{
-            color: colors.grey[400],
-            fontSize: "0.74rem",
-            lineHeight: 1.5,
-          }}
-        >
-          {desc}
-        </Typography>
+        {PHASES.map((p) => (
+          <path
+            key={p.deg}
+            d={sinePath(p.deg, SCOPE_H * 0.3)}
+            fill="none"
+            stroke={p.colour}
+            strokeWidth={p.width}
+            strokeLinecap="round"
+            opacity={p.opacity}
+            style={{ filter: `drop-shadow(0 0 6px ${p.colour}55)` }}
+          />
+        ))}
       </Box>
     </Box>
   );
@@ -417,19 +471,9 @@ export default function Login() {
               animation: "slideUp 0.5s ease 0.2s both",
             }}
           >
-            Intelligent energy{" "}
-            <Box
-              component="span"
-              sx={{
-                background: `linear-gradient(90deg, ${ACCENT}, #6870fa)`,
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }}
-            >
-              management
-            </Box>
+            Every meter.
             <br />
-            at your fingertips
+            One screen.
           </Typography>
 
           <Typography
@@ -437,21 +481,15 @@ export default function Login() {
               color: colors.grey[400],
               fontSize: "0.85rem",
               lineHeight: 1.6,
-              mb: 5,
+              mb: 4,
               maxWidth: 380,
               animation: "slideUp 0.5s ease 0.3s both",
             }}
           >
-            Monitor, control, and optimize your electricity grid with real-time
-            telemetry from every smart meter in the network.
+            Three-phase telemetry, straight off the meter.
           </Typography>
 
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2.8 }}>
-            <FeatureItem icon={<SpeedOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="Real-time Monitoring" desc="Live voltage, current, and power readings from every meter" delay={0.4} colors={colors} />
-            <FeatureItem icon={<BoltOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="Smart Load Control" desc="Enable or disable mains and heater relays remotely" delay={0.5} colors={colors} />
-            <FeatureItem icon={<TuneOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="STS Token Vending" desc="Generate and manage prepaid electricity tokens" delay={0.6} colors={colors} />
-            <FeatureItem icon={<InsightsOutlined sx={{ color: ACCENT, fontSize: 22 }} />} title="Grid Analytics" desc="Area-level insights, transformer mapping, and consumption trends" delay={0.7} colors={colors} />
-          </Box>
+          <ScopeTrace />
         </Box>
 
         <Box
@@ -467,17 +505,21 @@ export default function Login() {
             animation: "fadeIn 0.8s ease 0.9s both",
           }}
         >
+          {/* Replaces the old uptime/latency/monitoring figures. Those were
+              unverifiable marketing numbers; these are the Namibian mains
+              specification the trace above is drawn to — factual, and they
+              caption the visual instead of making a claim. */}
           {[
-            { val: "99.9%", label: "Uptime" },
-            { val: "<200ms", label: "Latency" },
-            { val: "24/7", label: "Monitoring" },
-          ].map((stat) => (
-            <Box key={stat.label}>
+            { val: "50 Hz", label: "Frequency" },
+            { val: "230 V", label: "Nominal" },
+            { val: "3-phase", label: "Supply" },
+          ].map((spec) => (
+            <Box key={spec.label}>
               <Typography sx={{ color: ACCENT, fontWeight: 800, fontSize: "1.1rem", fontFamily: "monospace" }}>
-                {stat.val}
+                {spec.val}
               </Typography>
               <Typography sx={{ color: colors.grey[500], fontSize: "0.65rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                {stat.label}
+                {spec.label}
               </Typography>
             </Box>
           ))}
@@ -759,34 +801,11 @@ export default function Login() {
                 </Button>
               </Box>
 
-              {/* Divider */}
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2, my: 3.5 }}>
-                <Box sx={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
-                <Typography sx={{ color: colors.grey[500], fontSize: "0.72rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                  Secured by
-                </Typography>
-                <Box sx={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
-              </Box>
-
-              {/* Security badges */}
-              <Box sx={{ display: "flex", justifyContent: "center", gap: 3 }}>
-                {["256-bit SSL", "JWT Auth", "2FA Ready", "Role-Based"].map((badge) => (
-                  <Box
-                    key={badge}
-                    sx={{
-                      px: 1.5,
-                      py: 0.6,
-                      borderRadius: "6px",
-                      border: "1px solid rgba(255,255,255,0.06)",
-                      backgroundColor: "rgba(255,255,255,0.02)",
-                    }}
-                  >
-                    <Typography sx={{ color: colors.grey[500], fontSize: "0.64rem", fontWeight: 600, letterSpacing: "0.05em" }}>
-                      {badge}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
+              {/* The "Secured by / 256-bit SSL / JWT Auth / 2FA Ready /
+                  Role-Based" strip that sat here has been removed. Those badges
+                  asserted things a visitor cannot check, and "2FA Ready" in
+                  particular says nothing — the padlock in the address bar
+                  already carries the TLS claim honestly. */}
             </>
           )}
         </Box>
