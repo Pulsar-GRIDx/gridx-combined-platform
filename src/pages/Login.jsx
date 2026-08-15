@@ -197,6 +197,139 @@ function ScopeTrace() {
   );
 }
 
+/* ---------------------------------------------------------------------------
+ * MeshNetwork — the LoRa mesh, drawn as it actually behaves.
+ *
+ * Replaces the old "50 Hz / 230 V / 3-phase" spec strip. GRIDx meters really do
+ * form a LoRa mesh and hop readings toward a gateway, so this shows the thing
+ * the platform is rather than stating numbers about it.
+ *
+ * Nodes are drawn as small meter boxes, not generic dots, so they read as
+ * hardware. The gateway is the ringed node on the right. The travelling pulses
+ * follow the same edges the routing would, all converging on it.
+ * ------------------------------------------------------------------------- */
+const MESH_W = 520;
+const MESH_H = 200;
+const GATEWAY = { x: 452, y: 100 };
+
+// Hand-placed rather than random so the layout is stable and legible.
+const METERS = [
+  { x: 40, y: 44 }, { x: 112, y: 100 }, { x: 68, y: 158 },
+  { x: 168, y: 32 }, { x: 152, y: 150 }, { x: 236, y: 74 },
+  { x: 248, y: 162 }, { x: 322, y: 40 }, { x: 334, y: 126 },
+  { x: 388, y: 176 }, { x: 400, y: 64 },
+];
+
+// [fromIndex, toIndex] — -1 means the gateway.
+const LINKS = [
+  [0, 1], [2, 1], [3, 1], [1, 5], [4, 5], [4, 6],
+  [5, 7], [6, 8], [7, 10], [8, 10], [9, 8], [10, -1], [8, -1],
+];
+
+const nodeAt = (i) => (i === -1 ? GATEWAY : METERS[i]);
+
+// Edges that carry a visible pulse, with staggered starts so traffic looks
+// asynchronous rather than choreographed.
+const PULSES = [
+  { link: [0, 1], delay: 0 }, { link: [1, 5], delay: 0.9 },
+  { link: [5, 7], delay: 1.7 }, { link: [7, 10], delay: 2.4 },
+  { link: [10, -1], delay: 3.1 }, { link: [4, 6], delay: 1.2 },
+  { link: [6, 8], delay: 2.0 }, { link: [8, -1], delay: 2.9 },
+];
+
+function MeterNode({ x, y, i }) {
+  return (
+    <g opacity="0.9">
+      <rect
+        x={x - 6} y={y - 7} width="12" height="14" rx="3"
+        fill="#0c101b" stroke="#4cceac" strokeWidth="1.4"
+      />
+      <line x1={x - 3} y1={y - 2.5} x2={x + 3} y2={y - 2.5} stroke="#4cceac" strokeWidth="1.2" opacity="0.85" />
+      <circle cx={x} cy={y + 3} r="1.6" fill="#4cceac">
+        <animate
+          attributeName="opacity" values="0.25;1;0.25" dur="3s"
+          begin={`${(i % 5) * 0.6}s`} repeatCount="indefinite"
+        />
+      </circle>
+    </g>
+  );
+}
+
+function MeshNetwork() {
+  return (
+    <Box
+      sx={{
+        width: "100%",
+        maxWidth: 560,
+        mt: { xs: 3, md: 4 },
+        animation: "fadeIn 1s ease 0.7s both",
+      }}
+    >
+      <Box
+        component="svg"
+        viewBox={`0 0 ${MESH_W} ${MESH_H}`}
+        sx={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}
+      >
+        {/* links */}
+        {LINKS.map(([a, b], i) => {
+          const p = nodeAt(a);
+          const q = nodeAt(b);
+          return (
+            <line
+              key={`l${i}`}
+              x1={p.x} y1={p.y} x2={q.x} y2={q.y}
+              stroke="#4cceac" strokeWidth="1.1" opacity="0.28"
+            />
+          );
+        })}
+
+        {/* travelling packets, each following its own link toward the gateway */}
+        {PULSES.map(({ link: [a, b], delay }, i) => {
+          const p = nodeAt(a);
+          const q = nodeAt(b);
+          return (
+            <circle key={`p${i}`} r="3" fill="#4cceac" opacity="0.95">
+              <animateMotion
+                path={`M${p.x},${p.y} L${q.x},${q.y}`}
+                dur="1.6s"
+                begin={`${delay}s`}
+                repeatCount="indefinite"
+              />
+              <animate
+                attributeName="opacity" values="0;1;1;0" dur="1.6s"
+                begin={`${delay}s`} repeatCount="indefinite"
+              />
+            </circle>
+          );
+        })}
+
+        {METERS.map((m, i) => <MeterNode key={`m${i}`} x={m.x} y={m.y} i={i} />)}
+
+        {/* gateway — ringed, so it reads as the uplink rather than another meter */}
+        <g>
+          {[13, 20].map((r, i) => (
+            <circle
+              key={`g${i}`} cx={GATEWAY.x} cy={GATEWAY.y} r={r}
+              fill="none" stroke="#6870fa" strokeWidth="1" opacity="0.35"
+            >
+              <animate
+                attributeName="r" values={`${r};${r + 9};${r}`} dur="3.2s"
+                begin={`${i * 0.5}s`} repeatCount="indefinite"
+              />
+              <animate
+                attributeName="opacity" values="0.4;0;0.4" dur="3.2s"
+                begin={`${i * 0.5}s`} repeatCount="indefinite"
+              />
+            </circle>
+          ))}
+          <circle cx={GATEWAY.x} cy={GATEWAY.y} r="8" fill="#6870fa" opacity="0.9" />
+          <circle cx={GATEWAY.x} cy={GATEWAY.y} r="3.5" fill="#0c101b" />
+        </g>
+      </Box>
+    </Box>
+  );
+}
+
 /* MUI dark input styling shared across fields */
 const darkInputSx = (accent, colors) => ({
   "& .MuiOutlinedInput-root": {
@@ -490,40 +623,12 @@ export default function Login() {
           </Typography>
 
           <ScopeTrace />
+          <MeshNetwork />
         </Box>
 
-        <Box
-          sx={{
-            position: { xs: "relative", md: "absolute" },
-            bottom: { md: 40 },
-            left: { md: 56 },
-            right: { md: 56 },
-            mt: { xs: 5, md: 0 },
-            display: "flex",
-            gap: 3,
-            zIndex: 2,
-            animation: "fadeIn 0.8s ease 0.9s both",
-          }}
-        >
-          {/* Replaces the old uptime/latency/monitoring figures. Those were
-              unverifiable marketing numbers; these are the Namibian mains
-              specification the trace above is drawn to — factual, and they
-              caption the visual instead of making a claim. */}
-          {[
-            { val: "50 Hz", label: "Frequency" },
-            { val: "230 V", label: "Nominal" },
-            { val: "3-phase", label: "Supply" },
-          ].map((spec) => (
-            <Box key={spec.label}>
-              <Typography sx={{ color: ACCENT, fontWeight: 800, fontSize: "1.1rem", fontFamily: "monospace" }}>
-                {spec.val}
-              </Typography>
-              <Typography sx={{ color: colors.grey[500], fontSize: "0.65rem", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                {spec.label}
-              </Typography>
-            </Box>
-          ))}
-        </Box>
+        {/* The "50 Hz / 230 V / 3-phase" strip that sat here has been removed —
+            the mesh diagram above carries the panel now, and a row of static
+            figures underneath it was just more text to read. */}
       </Box>
 
       {/* ====== RIGHT PANEL ====== */}
