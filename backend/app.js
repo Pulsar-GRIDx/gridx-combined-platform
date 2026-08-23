@@ -220,6 +220,11 @@ apiRouter.get('/meters-list', authenticateToken, (req, res) => {
 });
 
 // Mount all API routes under /cb prefix
+// BLE maintenance-access certificate issuance. Mounted BEFORE the /cb
+// apiRouter so it is not swallowed by that router's own middleware chain.
+const bleAuthRoutes = require('./routes/bleAuthRoutes');
+app.use('/cb/ble', bleAuthRoutes);
+
 app.use('/cb', apiRouter);
 
 // Relay events (used by both hardware routes and API)
