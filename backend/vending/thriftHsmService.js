@@ -512,7 +512,20 @@ function issueDitkChangeTokens(meterConfig, callback) {
 
         console.log('[ThriftHSM] DITK change tokens issued for DRN %s: %d token(s) in %dms',
           config.drn, tokens.length, elapsed);
-        callback(null, tokens);
+
+        // Same result shape as issueKeyChangeTokens, so callers and routes can
+        // treat both key-change paths identically.
+        callback(null, {
+          tokens: tokens,
+          numTokens: tokens.length,
+          meterConfig: {
+            drn: config.drn, ea: config.ea, tct: config.tct,
+            sgc: config.sgc, krn: config.krn, ti: config.ti
+          },
+          durationMs: elapsed,
+          messageId: msgId,
+          timestamp: new Date().toISOString()
+        });
       }
     );
   });
