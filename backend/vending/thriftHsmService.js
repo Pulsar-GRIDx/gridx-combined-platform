@@ -74,12 +74,15 @@ function connect(callback) {
     thriftConfig.host, port);
 
   try {
-    _connection = thrift.createConnection(thriftConfig.host, port, {
+    // createSSLConnection, NOT createConnection: the latter opens a plain TCP
+    // socket and silently ignores a nested tls:{} block, so the HSM's TLS
+    // listener on 9443 sees raw framed binary and resets. rejectUnauthorized
+    // must sit at the TOP level here - nested under tls: it is ignored and the
+    // self-signed PrismToken certificate is refused.
+    _connection = thrift.createSSLConnection(thriftConfig.host, port, {
       transport: thrift.TFramedTransport,
       protocol: thrift.TBinaryProtocol,
-      tls: {
-        rejectUnauthorized: false  // PrismToken uses self-signed certs
-      }
+      rejectUnauthorized: false  // PrismToken uses a self-signed certificate
     });
 
     var callbackFired = false;
@@ -458,6 +461,63 @@ function issueMseToken(meterConfig, subclass, transferAmount, callback) {
  * @param {object} newConfig - MeterConfigAmendment { toSgc, toKrn, toTi }
  * @param {function} callback - callback(err, tokenList)
  */
+/**
+ * Issue the DITK change token set that moves a meter off its Decoder
+ * Initialization Transfer Key (the "Dispenser ROM key") onto its operational
+ * key. This is the manufacturing-firmware-only call; it requires a DITK to be
+ * present in the HSM's slot for the meter's EA, loaded via the KCED by the
+ * Crypto Officers. With an empty slot the HSM returns
+ * "Security Module error '22': STS API error CSP_RECORD_EMPTY".
+ *
+ * @param {object|MeterConfigIn} meterConfig - drn, ea, tct, sgc, krn, ti, ken
+ * @param {function} callback - (err, tokens[])
+ */
+function issueDitkChangeTokens(meterConfig, callback) {
+  if (!thriftConfig.connected || !_client) {
+    return callback(new Error('Not connected to PrismToken'));
+  }
+
+  ensureAuthenticated(function(authErr) {
+    if (authErr) return callback(authErr);
+
+    var msgId = genMessageId();
+    var config = (meterConfig instanceof ttypes.MeterConfigIn) ? meterConfig : buildMeterConfig(meterConfig);
+
+    console.log('[ThriftHSM] Issuing DITK change tokens for DRN %s (EA=%d, SGC=%d, KRN=%d, TI=%d)',
+      config.drn, config.ea, config.sgc, config.krn, config.ti);
+
+    var startTime = Date.now();
+
+    _client.issueDitkChangeTokens(
+      msgId,
+      thriftConfig.accessToken,
+      config,
+      function(err, result) {
+        var elapsed = Date.now() - startTime;
+
+        if (err) {
+          var errMsg = (err.eMsgEn || err.message || String(err));
+          console.error('[ThriftHSM] issueDitkChangeTokens failed: %s', errMsg);
+          return callback(new Error('issueDitkChangeTokens failed: ' + errMsg));
+        }
+
+        var tokens = [];
+        if (result && Array.isArray(result)) {
+          for (var i = 0; i < result.length; i++) {
+            tokens.push(serializeToken(result[i]));
+          }
+        } else if (result) {
+          tokens.push(serializeToken(result));
+        }
+
+        console.log('[ThriftHSM] DITK change tokens issued for DRN %s: %d token(s) in %dms',
+          config.drn, tokens.length, elapsed);
+        callback(null, tokens);
+      }
+    );
+  });
+}
+
 function issueKeyChangeTokens(meterConfig, newConfig, callback) {
   if (!thriftConfig.connected || !_client) {
     return callback(new Error('Not connected to PrismToken'));
@@ -822,6 +882,7 @@ module.exports = {
   issueCreditToken: issueCreditToken,
   issueMseToken: issueMseToken,
   issueKeyChangeTokens: issueKeyChangeTokens,
+  issueDitkChangeTokens: issueDitkChangeTokens,
   verifyToken: verifyToken,
   parseIdRecord: parseIdRecord,
   checkConnection: checkConnection,
