@@ -492,7 +492,7 @@ export default function VsmTesting() {
       const res = await fetch("/cb/vending/thrift-connect", { method: "POST", headers: thriftAuthHeaders(), body: JSON.stringify(thriftConfig) });
       const data = await res.json();
       if (data.success) {
-        setThriftStatus({ connected: true, status: "connected", message: "Connected to " + thriftConfig.host + ":" + thriftConfig.port });
+        setThriftStatus({ connected: true, status: "connected", message: "Connected via the local HSM agent" });
       } else {
         setThriftStatus({ connected: false, status: "error", message: data.error || "Connection failed" });
       }
@@ -528,7 +528,8 @@ export default function VsmTesting() {
   async function signInThrift() {
     setThriftOpLoading(true);
     try {
-      const res = await fetch("/cb/vending/thrift-signin", { method: "POST", headers: thriftAuthHeaders(), body: JSON.stringify({ username: thriftConfig.username, password: thriftConfig.password, realm: thriftConfig.realm }) });
+      const res = await fetch("/cb/vending/thrift-signin", { method: "POST", headers: thriftAuthHeaders(), /* Credentials live on the agent; nothing to send from the browser. */
+        body: JSON.stringify({}) });
       const data = await res.json();
       if (data.success) {
         setThriftStatus((prev) => ({ ...prev, authenticated: true, message: (prev?.message || "") + " | Signed in" }));
@@ -1244,30 +1245,23 @@ export default function VsmTesting() {
               <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, mb: 3 }}>
                 {/* Thrift Connection Config */}
                 <Box sx={{ p: 3, borderRadius: "12px", bgcolor: cardBg, border: `1px solid ${cardBorder}` }}>
-                  <Typography sx={{ fontWeight: 700, fontSize: "15px", mb: 1 }}>PrismToken Thrift Connection</Typography>
+                  <Typography sx={{ fontWeight: 700, fontSize: "15px", mb: 1 }}>PrismToken HSM Connection</Typography>
                   <Typography sx={{ fontSize: "12px", color: colors.grey[400], mb: 2 }}>
-                    Direct TLS connection to PrismToken Thrift API (port 9443). Bypasses PrismVend Web API.
+                    Opened by the local agent inside the factory network over TLS/Thrift. The HSM
+                    address and credentials live on the agent and are never sent to the browser.
                   </Typography>
-                  <Box sx={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 2, mb: 2 }}>
-                    <TextField size="small" label="Host IP" value={thriftConfig.host}
-                      onChange={(e) => setThriftConfig({ ...thriftConfig, host: e.target.value })}
-                      placeholder="e.g. 192.168.1.100" fullWidth />
-                    <TextField size="small" label="Port" value={thriftConfig.port}
-                      onChange={(e) => setThriftConfig({ ...thriftConfig, port: e.target.value })}
-                      placeholder="9443" fullWidth />
-                  </Box>
-                  <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 2, mb: 2 }}>
-                    <TextField size="small" label="Username" value={thriftConfig.username}
-                      onChange={(e) => setThriftConfig({ ...thriftConfig, username: e.target.value })} fullWidth />
-                    <TextField size="small" label="Password" type="password" value={thriftConfig.password}
-                      onChange={(e) => setThriftConfig({ ...thriftConfig, password: e.target.value })} fullWidth />
-                    <TextField size="small" label="Realm" value={thriftConfig.realm}
-                      onChange={(e) => setThriftConfig({ ...thriftConfig, realm: e.target.value })} fullWidth />
+                  <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, mb: 2 }}>
+                    <TextField size="small" label="HSM (via agent)" fullWidth
+                      value={agentStatus?.agent?.hsmHost || "agent offline"}
+                      InputProps={{ readOnly: true }} />
+                    <TextField size="small" label="Agent" fullWidth
+                      value={agentStatus?.agent?.name || "-"}
+                      InputProps={{ readOnly: true }} />
                   </Box>
                   <Box sx={{ display: "flex", gap: 1 }}>
                     <Button variant="contained" onClick={connectThrift} /* In agent mode the host and credentials live on the agent, not in this
                          form, so an online agent is sufficient to connect. */
-                      disabled={thriftConnecting || (!thriftConfig.host && !agentStatus?.online)}
+                      disabled={thriftConnecting || !agentStatus?.online}
                       startIcon={thriftConnecting ? <CircularProgress size={16} color="inherit" /> : <WifiIcon />}
                       sx={{ bgcolor: realAccent, "&:hover": { bgcolor: "#009688" } }}>
                       {thriftConnecting ? "Connecting..." : "Connect"}
@@ -1317,7 +1311,7 @@ export default function VsmTesting() {
                     </Box>
                   ) : (
                     <Typography sx={{ fontSize: "13px", color: colors.grey[500], fontStyle: "italic" }}>
-                      Not connected. Configure host and credentials, then click Connect.
+                      Not connected. Click Connect to open a session through the local agent.
                     </Typography>
                   )}
                   <Divider sx={{ my: 2, borderColor: cardBorder }} />
