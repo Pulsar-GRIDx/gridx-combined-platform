@@ -31,3 +31,4 @@ backend/firmware/
 hsm-agent/agent.config.json
 hsm-agent/last_tokens.json
 hsm-agent/SERVER_ENV.txt
+hsm-agent/service/logs/
