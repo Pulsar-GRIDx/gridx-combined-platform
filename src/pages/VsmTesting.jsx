@@ -332,6 +332,31 @@ export default function VsmTesting() {
 
   // HSM Backend Config
   const [hsmBackendConfig, setHsmBackendConfig] = useState(null);
+
+  // ---- Local HSM agent -----------------------------------------------------
+  // The cloud backend has no route into the factory LAN (a direct attempt returns
+  // ENETUNREACH), so HSM work is dispatched to an agent running there. This shows
+  // whether that agent is currently dialled in.
+  const [agentStatus, setAgentStatus] = useState(null);
+
+  const fetchAgentStatus = useCallback(async () => {
+    try {
+      const token = sessionStorage.getItem("token");
+      const res = await fetch("/cb/hsm-agent/status", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) setAgentStatus(data.data);
+    } catch {
+      setAgentStatus((prev) => prev || { online: false });
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAgentStatus();
+    const iv = setInterval(fetchAgentStatus, 15000);
+    return () => clearInterval(iv);
+  }, [fetchAgentStatus]);
   const [hsmConfigLoading, setHsmConfigLoading] = useState(false);
   const [hsmConfigSaving, setHsmConfigSaving] = useState(false);
   const [hsmConfigForm, setHsmConfigForm] = useState({ host: "", port: "8080", uiPort: "80", tlsPort: "9443", useTLS: false, timeout: 15000 });
@@ -1221,6 +1246,29 @@ export default function VsmTesting() {
       </Alert>
 
         <Box>
+          {/* Local HSM agent. All HSM operations run on this agent inside the
+              factory network; the cloud backend never connects to the HSM. */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2, p: 2, borderRadius: "12px", bgcolor: cardBg, border: `1px solid ${cardBorder}` }}>
+            <Chip
+              label={agentStatus?.online ? "Agent Online" : (agentStatus?.channelConfigured === false ? "Not Configured" : "Agent Offline")}
+              size="small"
+              sx={{ bgcolor: agentStatus?.online ? "#4caf50" : (agentStatus?.channelConfigured === false ? "#9e9e9e" : "#f44336"), color: "#fff", fontSize: "10px", height: 20, fontWeight: 700 }}
+            />
+            <Box sx={{ flex: 1 }}>
+              <Typography sx={{ fontSize: "13px", fontWeight: 600 }}>Local HSM Agent</Typography>
+              <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>
+                {agentStatus?.online
+                  ? `${agentStatus?.agent?.name || "agent"} -> HSM ${agentStatus?.agent?.hsmHost || ""} | last seen ${agentStatus?.lastSeenAt ? new Date(agentStatus.lastSeenAt).toLocaleTimeString() : "-"}`
+                  : agentStatus?.channelConfigured === false
+                    ? "Agent channel not configured on the server (HSM_AGENT_TOKEN unset)."
+                    : "No agent connected. HSM operations are unavailable until the agent is started on the factory PC."}
+              </Typography>
+            </Box>
+            <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={fetchAgentStatus}>
+              Refresh
+            </Button>
+          </Box>
+
           {/* Connection status bar */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3, p: 2, borderRadius: "12px", bgcolor: cardBg, border: `1px solid ${cardBorder}` }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

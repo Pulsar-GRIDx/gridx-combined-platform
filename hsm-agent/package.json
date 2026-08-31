@@ -1,0 +1,12 @@
+{
+  "name": "gridx-hsm-agent",
+  "version": "1.0.0",
+  "description": "Local HSM agent - runs on the factory PC that can reach the PrismToken HSM, so the cloud backend never needs a route into the factory network.",
+  "type": "commonjs",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "selftest": "node selftest.js"
+  },
+  "private": true
+}

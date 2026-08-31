@@ -3928,7 +3928,9 @@ router.get('/tariff-history/:drn', authenticateToken, function(req, res) {
 // DIRECT THRIFT HSM ROUTES — PrismToken Thrift API (port 9443)
 // ═══════════════════════════════════════════════════════════════════════════
 
-var thriftHsm = require('./thriftHsmService');
+// Routed through hsmProvider so the same code works whether the HSM is reached
+// directly (backend inside the factory LAN) or via the local HSM agent (cloud).
+var thriftHsm = require('./hsmProvider');
 
 // GET /vending/thrift-status — Direct HSM connection status via Thrift
 router.get('/thrift-status', authenticateToken, function(req, res) {
