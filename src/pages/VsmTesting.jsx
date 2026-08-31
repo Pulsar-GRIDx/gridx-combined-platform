@@ -2479,7 +2479,9 @@ export default function VsmTesting() {
                       onChange={(e) => setThriftConfig({ ...thriftConfig, realm: e.target.value })} fullWidth />
                   </Box>
                   <Box sx={{ display: "flex", gap: 1 }}>
-                    <Button variant="contained" onClick={connectThrift} disabled={thriftConnecting || !thriftConfig.host}
+                    <Button variant="contained" onClick={connectThrift} /* In agent mode the host and credentials live on the agent, not in this
+                         form, so an online agent is sufficient to connect. */
+                      disabled={thriftConnecting || (!thriftConfig.host && !agentStatus?.online)}
                       startIcon={thriftConnecting ? <CircularProgress size={16} color="inherit" /> : <WifiIcon />}
                       sx={{ bgcolor: realAccent, "&:hover": { bgcolor: "#009688" } }}>
                       {thriftConnecting ? "Connecting..." : "Connect"}
