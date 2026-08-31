@@ -220,6 +220,12 @@ apiRouter.get('/meters-list', authenticateToken, (req, res) => {
 });
 
 // Mount all API routes under /cb prefix
+// Local HSM agent channel. Mounted ahead of apiRouter so the agent's long-poll
+// is not caught by that router's middleware chain. The agent dials in from the
+// factory network; the cloud never dials out to the HSM.
+const hsmAgentRoutes = require('./vending/hsmAgentRoutes');
+app.use('/cb', hsmAgentRoutes);
+
 app.use('/cb', apiRouter);
 
 // Relay events (used by both hardware routes and API)
