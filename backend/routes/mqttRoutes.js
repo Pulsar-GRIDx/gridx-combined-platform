@@ -1160,20 +1160,43 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
        FROM MeterNetEnergyDaily`
     );
 
+    // Selected date for the hourly breakdown — was hardcoded to CURDATE(),
+    // which made it impossible for the frontend's date picker to ever show
+    // a historical day's hourly chart. Validate strictly (YYYY-MM-DD) before
+    // it reaches SQL; anything else silently falls back to today rather than
+    // erroring, since this only affects which day's chart is drawn.
+    const requestedDate = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : null;
+
+    // Uses MySQL's own CURDATE() when no date is given, rather than computing
+    // "today" in Node — the app server's process timezone isn't guaranteed to
+    // match the DB's, and every other "today" bucket in this table (written by
+    // handleNetEnergyBin) is stamped with CURDATE() too, so this stays consistent
+    // with however that's configured rather than introducing a second notion of "today".
     const hourly = await queryAll(
       `SELECT hour,
         SUM(max_import_wh - min_import_wh) as \`import\`,
         SUM(max_export_wh - min_export_wh) as \`export\`
        FROM MeterNetEnergyHourly
-       WHERE date = CURDATE()
-       GROUP BY hour ORDER BY hour`
+       WHERE date = ${requestedDate ? '?' : 'CURDATE()'}
+       GROUP BY hour ORDER BY hour`,
+      requestedDate ? [requestedDate] : []
     );
+
+    // MySQL date bounds for the calendar picker, so it never lets a user
+    // request a day with no data at all.
+    // DATE_FORMAT in SQL, not a JS Date + toISOString() round-trip — the
+    // latter shifts across a UTC boundary for any timezone ahead of UTC
+    // (Namibia is UTC+2), turning a local midnight into the previous
+    // calendar day once .toISOString() re-renders it.
+    const dateBounds = await queryOne(
+      "SELECT DATE_FORMAT(MIN(date), '%Y-%m-%d') as earliestDate, DATE_FORMAT(MAX(date), '%Y-%m-%d') as latestDate FROM MeterNetEnergyDaily"
+    ).catch(() => null);
 
     const period = req.query.period || 'daily';
     let daily;
     if (period === 'weekly') {
       daily = await queryAll(
-        `SELECT MIN(date) as date,
+        `SELECT DATE_FORMAT(MIN(date), '%Y-%m-%d') as date,
           CONCAT('W', WEEK(date)) as label,
           SUM(max_import_wh - min_import_wh) as \`import\`,
           SUM(max_export_wh - min_export_wh) as \`export\`
@@ -1183,7 +1206,7 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
       );
     } else if (period === 'monthly') {
       daily = await queryAll(
-        `SELECT MIN(date) as date,
+        `SELECT DATE_FORMAT(MIN(date), '%Y-%m-%d') as date,
           DATE_FORMAT(MIN(date), '%b %Y') as label,
           SUM(max_import_wh - min_import_wh) as \`import\`,
           SUM(max_export_wh - min_export_wh) as \`export\`
@@ -1193,7 +1216,7 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
       );
     } else if (period === 'yearly') {
       daily = await queryAll(
-        `SELECT MIN(date) as date,
+        `SELECT DATE_FORMAT(MIN(date), '%Y-%m-%d') as date,
           YEAR(date) as label,
           SUM(max_import_wh - min_import_wh) as \`import\`,
           SUM(max_export_wh - min_export_wh) as \`export\`
@@ -1202,7 +1225,7 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
       );
     } else {
       daily = await queryAll(
-        `SELECT date, DATE_FORMAT(date, '%b %d') as label,
+        `SELECT DATE_FORMAT(date, '%Y-%m-%d') as date, DATE_FORMAT(date, '%b %d') as label,
           SUM(max_import_wh - min_import_wh) as \`import\`,
           SUM(max_export_wh - min_export_wh) as \`export\`
          FROM MeterNetEnergyDaily
@@ -1234,6 +1257,9 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
         daily: daily,
         peak_export_hour: peakExport.hour,
         peak_import_hour: peakImport.hour,
+        hourly_date: requestedDate,
+        earliest_date: dateBounds?.earliestDate || null,
+        latest_date: dateBounds?.latestDate || null,
       }
     });
   } catch (err) { res.status(500).json({ error: err.message }); }

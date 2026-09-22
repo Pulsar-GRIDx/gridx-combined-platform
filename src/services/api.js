@@ -657,7 +657,12 @@ export const netMeteringAPI = {
   getHistory: (drn, limit = 30) => get(`/mqtt/net-energy/${drn}/history?limit=${limit}`),
   getHourly: (drn, date) => get(`/mqtt/net-energy/${drn}/hourly${date ? '?date=' + date : ''}`),
   getDaily: (drn, days = 30) => get(`/mqtt/net-energy/${drn}/daily?days=${days}`),
-  getDashboard: (period) => get('/mqtt/net-energy/dashboard' + (period ? '?period=' + period : '')),
+  getDashboard: (period, date) => {
+    var params = [];
+    if (period) params.push('period=' + period);
+    if (date) params.push('date=' + date);
+    return get('/mqtt/net-energy/dashboard' + (params.length ? '?' + params.join('&') : ''));
+  },
   getActiveMeters: () => get('/mqtt/net-energy/active-meters'),
   getConfig: (drn) => get(`/mqtt/net-metering-config/${drn}`),
   setConfig: (drn, data) => post(`/mqtt/net-metering-config/${drn}`, data),
