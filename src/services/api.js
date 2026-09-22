@@ -664,6 +664,7 @@ export const netMeteringAPI = {
     return get('/mqtt/net-energy/dashboard' + (params.length ? '?' + params.join('&') : ''));
   },
   getActiveMeters: () => get('/mqtt/net-energy/active-meters'),
+  getMapData: () => get('/mqtt/net-energy/map-data'),
   getConfig: (drn) => get(`/mqtt/net-metering-config/${drn}`),
   setConfig: (drn, data) => post(`/mqtt/net-metering-config/${drn}`, data),
   getAllConfigs: () => get('/mqtt/net-metering-configs'),

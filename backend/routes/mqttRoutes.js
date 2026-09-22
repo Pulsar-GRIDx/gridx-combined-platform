@@ -1265,6 +1265,82 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Grid Flow Map — per-meter GPS + substation GPS + live direction, joined in
+// one query so the map doesn't need N+1 requests. Reuses the exact same
+// power_direction/status derivation as /active-meters (verified authoritative
+// against the ATmega's signed real-time power reading, not inferred) — do not
+// let this drift from that logic. GPS for both the meter and its parent
+// substation/transformer already live on the same MeterLocationInfoTable row
+// (populated at commissioning time, see meterService.js insertIntoMeterRealInfo),
+// so no separate join is needed to place the connection line's two endpoints.
+// Per-meter tariff rate/period is deliberately NOT included here — resolving
+// TOU periods for every meter in one bulk query would be expensive and this
+// data is already served correctly by GET /vending/tariff-info/:drn; the
+// frontend fetches that lazily only when a marker popup is actually opened.
+router.get('/mqtt/net-energy/map-data', authenticateToken, async (req, res) => {
+  try {
+    const rows = await queryAll(
+      `SELECT
+        ne.DRN,
+        COALESCE(CONCAT(mpr.Name, ' ', mpr.Surname), ne.DRN) as customer_name,
+        mpr.City as location,
+        ml.Lat as meter_lat,
+        ml.Longitude as meter_lng,
+        ml.plat as substation_lat,
+        ml.plng as substation_lng,
+        ti.Name as substation_name,
+        ne.import_energy_wh as total_import,
+        ne.export_energy_wh as total_export,
+        ne.created_at as last_reading,
+        p.active_power as live_power,
+        COALESCE(today.today_import_wh, 0) as today_import_wh,
+        COALESCE(today.today_export_wh, 0) as today_export_wh,
+        COALESCE(month.month_import_wh, 0) as month_import_wh,
+        COALESCE(month.month_export_wh, 0) as month_export_wh,
+        CASE WHEN p.active_power IS NOT NULL AND p.active_power < 0 THEN 'EXPORT'
+             WHEN p.active_power IS NOT NULL AND p.active_power > 0 THEN 'IMPORT'
+             ELSE 'IDLE' END as power_direction,
+        CASE WHEN ne.created_at >= NOW() - INTERVAL 10 MINUTE THEN 'Online'
+             ELSE 'Offline' END as status
+       FROM (
+         SELECT n1.*
+         FROM MeterNetEnergy n1
+         INNER JOIN (
+           SELECT DRN, MAX(created_at) as max_time
+           FROM MeterNetEnergy GROUP BY DRN
+         ) n2 ON n1.DRN = n2.DRN AND n1.created_at = n2.max_time
+       ) ne
+       LEFT JOIN MeterProfileReal mpr ON ne.DRN = mpr.DRN
+       LEFT JOIN MeterLocationInfoTable ml ON ne.DRN = ml.DRN
+       LEFT JOIN TransformerInformation ti ON mpr.TransformerDRN = ti.DRN
+       LEFT JOIN (
+         SELECT p1.*
+         FROM MeteringPower p1
+         INNER JOIN (
+           SELECT DRN, MAX(date_time) as max_time
+           FROM MeteringPower GROUP BY DRN
+         ) p2 ON p1.DRN = p2.DRN AND p1.date_time = p2.max_time
+       ) p ON ne.DRN = p.DRN
+       LEFT JOIN (
+         SELECT DRN,
+           (max_import_wh - min_import_wh) as today_import_wh,
+           (max_export_wh - min_export_wh) as today_export_wh
+         FROM MeterNetEnergyDaily WHERE date = CURDATE()
+       ) today ON ne.DRN = today.DRN
+       LEFT JOIN (
+         SELECT DRN,
+           SUM(max_import_wh - min_import_wh) as month_import_wh,
+           SUM(max_export_wh - min_export_wh) as month_export_wh
+         FROM MeterNetEnergyDaily
+         WHERE date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+         GROUP BY DRN
+       ) month ON ne.DRN = month.DRN
+       ORDER BY ne.created_at DESC`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/mqtt/net-energy/active-meters', authenticateToken, async (req, res) => {
   try {
     const rows = await queryAll(

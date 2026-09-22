@@ -11,9 +11,10 @@ import {
   XAxis, YAxis, CartesianGrid,
   Tooltip as RechartsTooltip, ResponsiveContainer, Legend,
 } from "recharts";
+import { GoogleMap, useJsApiLoader, Marker, Polyline, InfoWindow } from "@react-google-maps/api";
 import Header from "../components/Header";
 import { tokens } from "../theme";
-import { netMeteringAPI } from "../services/api";
+import { netMeteringAPI, vendingAPI } from "../services/api";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import TrendingDownIcon from "@mui/icons-material/TrendingDown";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -31,6 +32,8 @@ import ChevronLeftOutlinedIcon from "@mui/icons-material/ChevronLeftOutlined";
 import ChevronRightOutlinedIcon from "@mui/icons-material/ChevronRightOutlined";
 import CalendarTodayOutlinedIcon from "@mui/icons-material/CalendarTodayOutlined";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
+import HubOutlinedIcon from "@mui/icons-material/HubOutlined";
+import MyLocationOutlinedIcon from "@mui/icons-material/MyLocationOutlined";
 import { useNavigate } from "react-router-dom";
 
 // ─── Shared date helpers (day-level, calendar-driven navigation) ───────────
@@ -233,6 +236,373 @@ function CompactPeriodHeader({ colors, isDark, title, subtitle, label, onPrev, o
         <IconButton size="small" disabled={disableNext} onClick={onNext} sx={{ width: 28, height: 28 }}>
           <ChevronRightOutlinedIcon sx={{ fontSize: 16 }} />
         </IconButton>
+      </Box>
+    </Box>
+  );
+}
+
+// ─── Grid Flow Map ──────────────────────────────────────────────────────────
+// Same Google Maps key already live in src/pages/Map.jsx — one Google Cloud
+// project, already authorized for this domain, no new credential needed.
+var GOOGLE_MAPS_KEY = "AIzaSyCdPt-Y9HoyNJF5I-sbyuS4n6U1KhKaIzk";
+var MAP_LIBRARIES = ["geometry"];
+var DEFAULT_MAP_CENTER = { lat: -22.57, lng: 17.08 }; // Windhoek — used only when no meter has GPS yet
+
+// Standard muted dark Google Maps theme so the map doesn't jar against the
+// rest of a dark-mode admin page.
+var DARK_MAP_STYLE = [
+  { elementType: "geometry", stylers: [{ color: "#1d2530" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1d2530" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8a97a8" }] },
+  { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#3a4552" }] },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2a3542" }] },
+  { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#7d8ba0" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#111820" }] },
+];
+
+var FLOW_STATE_COLOR = {
+  IMPORT: "#2196f3",
+  EXPORT: "#ff9800",
+  IDLE: "#9e9e9e",
+  OFFLINE: "#f44336",
+};
+var FLOW_STATE_LABEL = {
+  IMPORT: "Importing from grid",
+  EXPORT: "Exporting to grid",
+  IDLE: "Neutral / no significant flow",
+  OFFLINE: "Offline / stale data",
+};
+
+// Encodes each state as BOTH a color and a distinct glyph (arrow in/out, dot,
+// cross) so direction is never conveyed by color alone.
+function meterGlyphPath(state) {
+  if (state === "IMPORT") return "M12 5 L12 16 M7 11 L12 16 L17 11"; // arrow pointing down/in
+  if (state === "EXPORT") return "M12 19 L12 8 M7 13 L12 8 L17 13"; // arrow pointing up/out
+  if (state === "OFFLINE") return "M8 8 L16 16 M16 8 L8 16"; // x
+  return "M12 12 m -2.2 0 a 2.2 2.2 0 1 0 4.4 0 a 2.2 2.2 0 1 0 -4.4 0"; // dot
+}
+
+function meterMarkerIcon(state) {
+  var color = FLOW_STATE_COLOR[state] || FLOW_STATE_COLOR.IDLE;
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24">' +
+    '<circle cx="12" cy="12" r="10" fill="' + color + '" stroke="#ffffff" stroke-width="2"/>' +
+    '<path d="' + meterGlyphPath(state) + '" stroke="#ffffff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '</svg>';
+  var hasGoogle = typeof window !== "undefined" && window.google && window.google.maps;
+  return {
+    url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg),
+    scaledSize: hasGoogle ? new window.google.maps.Size(30, 30) : undefined,
+    anchor: hasGoogle ? new window.google.maps.Point(15, 15) : undefined,
+  };
+}
+
+function substationMarkerIcon() {
+  var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24">' +
+    '<rect x="3" y="3" width="18" height="18" rx="4" fill="#37474f" stroke="#ffffff" stroke-width="2"/>' +
+    '<path d="M9 6 L9 18 M15 6 L15 18 M9 12 L15 12" stroke="#ffffff" stroke-width="1.6" fill="none"/>' +
+    '</svg>';
+  var hasGoogle = typeof window !== "undefined" && window.google && window.google.maps;
+  return {
+    url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg),
+    scaledSize: hasGoogle ? new window.google.maps.Size(26, 26) : undefined,
+    anchor: hasGoogle ? new window.google.maps.Point(13, 13) : undefined,
+  };
+}
+
+// Cap on how many flowing connection lines get the moving-arrow animation at
+// once. Above this, lines still show direction via color+dashing, just
+// without the per-frame icon-offset animation — avoids re-rendering hundreds
+// of Polyline objects on every tick (Phase 24's performance requirement).
+var MAX_ANIMATED_LINES = 120;
+
+function GridFlowMap({ colors, isDark }) {
+  var jsApi = useJsApiLoader({ googleMapsApiKey: GOOGLE_MAPS_KEY, libraries: MAP_LIBRARIES });
+  var isLoaded = jsApi.isLoaded;
+  var _metersState = useState([]);
+  var meters = _metersState[0]; var setMeters = _metersState[1];
+  var _mapLoadingState = useState(true);
+  var mapLoading = _mapLoadingState[0]; var setMapLoading = _mapLoadingState[1];
+  var _filterState = useState("all");
+  var filter = _filterState[0]; var setFilter = _filterState[1];
+  var _selectedState = useState(null);
+  var selected = _selectedState[0]; var setSelected = _selectedState[1];
+  var _tariffState = useState(null);
+  var selectedTariff = _tariffState[0]; var setSelectedTariff = _tariffState[1];
+  var _tariffLoadingState = useState(false);
+  var tariffLoading = _tariffLoadingState[0]; var setTariffLoading = _tariffLoadingState[1];
+  var _animState = useState(0);
+  var animTick = _animState[0]; var setAnimTick = _animState[1];
+  var _lastFetchState = useState(null);
+  var lastFetch = _lastFetchState[0]; var setLastFetch = _lastFetchState[1];
+
+  var fetchMapData = useCallback(function() {
+    netMeteringAPI.getMapData().then(function(res) {
+      setMeters((res && res.data) || []);
+      setLastFetch(new Date());
+    }).catch(function(err) { console.error(err); }).finally(function() { setMapLoading(false); });
+  }, []);
+
+  useEffect(function() {
+    fetchMapData();
+    var interval = setInterval(fetchMapData, 30000); // same cadence as the rest of the page, not a separate aggressive poll
+    return function() { clearInterval(interval); };
+  }, [fetchMapData]);
+
+  // One shared animation clock for every flowing line, instead of N
+  // independent intervals — a single state update per tick regardless of
+  // fleet size.
+  useEffect(function() {
+    var interval = setInterval(function() { setAnimTick(function(t) { return (t + 2) % 100; }); }, 200);
+    return function() { clearInterval(interval); };
+  }, []);
+
+  // Stale telemetry must never be shown as a live directional flow — a meter
+  // whose last reading is more than 10 minutes old (same threshold the
+  // backend uses for its own Online/Offline status) is always OFFLINE on the
+  // map regardless of what power_direction its last-known reading implied.
+  var located = useMemo(function() {
+    return (meters || [])
+      .filter(function(m) { return m.meter_lat != null && m.meter_lng != null; })
+      .map(function(m) {
+        var mapState = m.status !== "Online" ? "OFFLINE" : (m.power_direction || "IDLE");
+        return Object.assign({}, m, { mapState: mapState });
+      });
+  }, [meters]);
+
+  var filtered = filter === "all" ? located : located.filter(function(m) { return m.mapState === filter; });
+  var animateLines = filtered.length <= MAX_ANIMATED_LINES;
+
+  var counts = useMemo(function() {
+    var c = { total: located.length, IMPORT: 0, EXPORT: 0, IDLE: 0, OFFLINE: 0, importPower: 0, exportPower: 0 };
+    located.forEach(function(m) {
+      c[m.mapState] = (c[m.mapState] || 0) + 1;
+      var p = Number(m.live_power) || 0;
+      if (m.mapState === "IMPORT") c.importPower += p;
+      else if (m.mapState === "EXPORT") c.exportPower += Math.abs(p);
+    });
+    return c;
+  }, [located]);
+
+  var mapCenter = useMemo(function() {
+    if (located.length === 0) return DEFAULT_MAP_CENTER;
+    var sumLat = 0, sumLng = 0;
+    located.forEach(function(m) { sumLat += Number(m.meter_lat); sumLng += Number(m.meter_lng); });
+    return { lat: sumLat / located.length, lng: sumLng / located.length };
+  }, [located]);
+
+  // Unique substation positions among the currently filtered meters, so one
+  // substation serving many meters gets exactly one marker.
+  var substations = useMemo(function() {
+    var seen = {};
+    var list = [];
+    filtered.forEach(function(m) {
+      if (m.substation_lat == null || m.substation_lng == null) return;
+      var key = m.substation_lat + "," + m.substation_lng;
+      if (seen[key]) return;
+      seen[key] = true;
+      list.push({ key: key, lat: Number(m.substation_lat), lng: Number(m.substation_lng), name: m.substation_name || "Substation" });
+    });
+    return list;
+  }, [filtered]);
+
+  function openMeter(m) {
+    setSelected(m);
+    setSelectedTariff(null);
+    setTariffLoading(true);
+    vendingAPI.getTariffInfo(m.DRN).then(function(res) {
+      setSelectedTariff((res && res.data) || null);
+    }).catch(function() { setSelectedTariff(null); }).finally(function() { setTariffLoading(false); });
+  }
+
+  var filterChips = [
+    { key: "all", label: "All", count: counts.total },
+    { key: "IMPORT", label: "Importing", count: counts.IMPORT },
+    { key: "EXPORT", label: "Exporting", count: counts.EXPORT },
+    { key: "IDLE", label: "Neutral", count: counts.IDLE },
+    { key: "OFFLINE", label: "Offline", count: counts.OFFLINE },
+  ];
+
+  return (
+    <Box sx={{ ...{ p: "24px", borderRadius: "12px", bgcolor: colors.primary[400], border: "1px solid " + (isDark ? colors.primary[500] : "#e8e8e8") }, mb: 0 }}>
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: "14px", flexWrap: "wrap", gap: "10px" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <Box sx={{ width: 5, height: 28, borderRadius: "3px", background: "linear-gradient(180deg, " + COLOR_DELIVERED + ", " + COLOR_RECEIVED + ")" }} />
+          <Box>
+            <Typography sx={{ fontSize: "18px", fontWeight: 800, color: colors.grey[100], letterSpacing: "-0.3px" }}>Grid Flow Map</Typography>
+            <Typography sx={{ fontSize: "12px", color: colors.grey[400] }}>Real-time power-flow direction between each net-metering meter and its substation</Typography>
+          </Box>
+        </Box>
+        <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {lastFetch && <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Updated {lastFetch.toLocaleTimeString()}</Typography>}
+          <IconButton size="small" onClick={fetchMapData} sx={{ color: colors.grey[400], "&:hover": { color: COLOR_DELIVERED } }}>
+            <RefreshIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Box>
+      </Box>
+
+      {/* KPI overlay */}
+      <Box display="flex" gap="12px" mb="14px" flexWrap="wrap">
+        <Box sx={{ flex: 1, minWidth: 130, p: "12px 14px", borderRadius: "10px", bgcolor: isDark ? colors.primary[500] : "#fafbfc", border: "1px solid " + (isDark ? colors.primary[600] || colors.grey[700] : "#eee") }}>
+          <Typography sx={{ fontSize: "9px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase" }}>Total Meters</Typography>
+          <Typography sx={{ fontSize: "20px", fontWeight: 800, color: colors.grey[100] }}>{counts.total}</Typography>
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 130, p: "12px 14px", borderRadius: "10px", bgcolor: isDark ? colors.primary[500] : "#fafbfc", border: "1px solid " + FLOW_STATE_COLOR.IMPORT + "55" }}>
+          <Typography sx={{ fontSize: "9px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase" }}>Importing</Typography>
+          <Typography sx={{ fontSize: "20px", fontWeight: 800, color: FLOW_STATE_COLOR.IMPORT }}>{counts.IMPORT}</Typography>
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 130, p: "12px 14px", borderRadius: "10px", bgcolor: isDark ? colors.primary[500] : "#fafbfc", border: "1px solid " + FLOW_STATE_COLOR.EXPORT + "55" }}>
+          <Typography sx={{ fontSize: "9px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase" }}>Exporting</Typography>
+          <Typography sx={{ fontSize: "20px", fontWeight: 800, color: FLOW_STATE_COLOR.EXPORT }}>{counts.EXPORT}</Typography>
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 130, p: "12px 14px", borderRadius: "10px", bgcolor: isDark ? colors.primary[500] : "#fafbfc", border: "1px solid " + (isDark ? colors.grey[700] : "#eee") }}>
+          <Typography sx={{ fontSize: "9px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase" }}>Neutral / Offline</Typography>
+          <Typography sx={{ fontSize: "20px", fontWeight: 800, color: colors.grey[100] }}>{counts.IDLE} / {counts.OFFLINE}</Typography>
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 130, p: "12px 14px", borderRadius: "10px", bgcolor: isDark ? colors.primary[500] : "#fafbfc", border: "1px solid " + (isDark ? colors.grey[700] : "#eee") }}>
+          <Typography sx={{ fontSize: "9px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase" }}>Import / Export Power</Typography>
+          <Typography sx={{ fontSize: "16px", fontWeight: 800, color: colors.grey[100] }}>{formatPower(counts.importPower)} / {formatPower(counts.exportPower)}</Typography>
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 130, p: "12px 14px", borderRadius: "10px", bgcolor: isDark ? colors.primary[500] : "#fafbfc", border: "1px solid " + (isDark ? colors.grey[700] : "#eee") }}>
+          <Typography sx={{ fontSize: "9px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase" }}>Net Power</Typography>
+          <Typography sx={{ fontSize: "16px", fontWeight: 800, color: (counts.importPower - counts.exportPower) >= 0 ? FLOW_STATE_COLOR.IMPORT : FLOW_STATE_COLOR.EXPORT }}>
+            {formatPower(counts.importPower - counts.exportPower)}
+          </Typography>
+        </Box>
+      </Box>
+
+      {/* Filters */}
+      <Box display="flex" gap="8px" mb="14px" flexWrap="wrap">
+        {filterChips.map(function(f) {
+          var active = filter === f.key;
+          var chipColor = FLOW_STATE_COLOR[f.key] || COLOR_DELIVERED;
+          return (
+            <Chip key={f.key} label={f.label + " (" + f.count + ")"} onClick={function() { setFilter(f.key); }}
+              size="small"
+              sx={{
+                fontWeight: 700, fontSize: "11px", cursor: "pointer",
+                bgcolor: active ? chipColor : (isDark ? colors.primary[500] : "#f0f0f0"),
+                color: active ? "#fff" : colors.grey[300],
+                border: "1px solid " + (active ? chipColor : (isDark ? colors.grey[700] : "#ddd")),
+              }} />
+          );
+        })}
+      </Box>
+
+      {/* Map */}
+      <Box sx={{ borderRadius: "10px", overflow: "hidden", border: "1px solid " + (isDark ? colors.grey[700] : "#eee"), position: "relative" }}>
+        {(!isLoaded || mapLoading) ? (
+          <Box sx={{ height: 480, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: isDark ? colors.primary[500] : "#f5f5f5" }}>
+            <CircularProgress size={28} sx={{ color: COLOR_DELIVERED }} />
+          </Box>
+        ) : located.length === 0 ? (
+          <Box sx={{ height: 480, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px", bgcolor: isDark ? colors.primary[500] : "#f5f5f5" }}>
+            <MyLocationOutlinedIcon sx={{ fontSize: 40, color: colors.grey[500], opacity: 0.5 }} />
+            <Typography sx={{ color: colors.grey[400], fontSize: "13px" }}>No net-metering meters have GPS coordinates on file yet</Typography>
+          </Box>
+        ) : (
+          <GoogleMap
+            mapContainerStyle={{ width: "100%", height: "480px" }}
+            center={mapCenter}
+            zoom={12}
+            options={{
+              styles: isDark ? DARK_MAP_STYLE : undefined,
+              streetViewControl: false, mapTypeControl: false, fullscreenControl: true,
+            }}
+          >
+            {substations.map(function(s) {
+              return (
+                <Marker key={"sub-" + s.key} position={{ lat: s.lat, lng: s.lng }} icon={substationMarkerIcon()} title={s.name} zIndex={1} />
+              );
+            })}
+            {filtered.map(function(m) {
+              if (m.substation_lat == null || m.substation_lng == null) return null;
+              var color = FLOW_STATE_COLOR[m.mapState];
+              var flowing = m.mapState === "IMPORT" || m.mapState === "EXPORT";
+              // IMPORT: substation -> meter. EXPORT: meter -> substation.
+              // The arrow icon's direction is set by the path order, not by
+              // reversing offsets, so it always points the true way.
+              var path = m.mapState === "IMPORT"
+                ? [{ lat: Number(m.substation_lat), lng: Number(m.substation_lng) }, { lat: Number(m.meter_lat), lng: Number(m.meter_lng) }]
+                : [{ lat: Number(m.meter_lat), lng: Number(m.meter_lng) }, { lat: Number(m.substation_lat), lng: Number(m.substation_lng) }];
+              var icons = flowing && window.google ? [{
+                icon: { path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, strokeColor: color },
+                offset: (animateLines ? animTick : 50) + "%",
+                repeat: "90px",
+              }] : undefined;
+              return (
+                <Polyline key={"line-" + m.DRN} path={path} options={{
+                  strokeColor: color,
+                  strokeOpacity: flowing ? 0.55 : 0.25,
+                  strokeWeight: 2,
+                  icons: icons,
+                }} />
+              );
+            })}
+            {filtered.map(function(m) {
+              return (
+                <Marker key={"meter-" + m.DRN} position={{ lat: Number(m.meter_lat), lng: Number(m.meter_lng) }}
+                  icon={meterMarkerIcon(m.mapState)} title={m.DRN} zIndex={2}
+                  onClick={function() { openMeter(m); }} />
+              );
+            })}
+            {selected && selected.meter_lat != null && (
+              <InfoWindow position={{ lat: Number(selected.meter_lat), lng: Number(selected.meter_lng) }} onCloseClick={function() { setSelected(null); }}>
+                <Box sx={{ minWidth: 220, color: "#1a1a1a" }}>
+                  <Typography sx={{ fontSize: "11px", fontWeight: 700, color: "#666" }}>GRIDx METER</Typography>
+                  <Typography sx={{ fontSize: "14px", fontWeight: 800, mb: "6px" }}>{selected.DRN}</Typography>
+                  <Chip label={FLOW_STATE_LABEL[selected.mapState]} size="small" sx={{
+                    bgcolor: FLOW_STATE_COLOR[selected.mapState] + "22", color: FLOW_STATE_COLOR[selected.mapState],
+                    fontWeight: 700, fontSize: "10px", mb: "8px",
+                  }} />
+                  <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", fontSize: "12px" }}>
+                    <Box><b>Power:</b> {selected.live_power != null ? formatPower(selected.live_power) : "--"}</Box>
+                    <Box><b>Status:</b> {selected.status}</Box>
+                    <Box><b>Import today:</b> {toKwh(selected.today_import_wh)} kWh</Box>
+                    <Box><b>Export today:</b> {toKwh(selected.today_export_wh)} kWh</Box>
+                    <Box><b>Import (mo.):</b> {toKwh(selected.month_import_wh)} kWh</Box>
+                    <Box><b>Export (mo.):</b> {toKwh(selected.month_export_wh)} kWh</Box>
+                  </Box>
+                  <Box sx={{ mt: "8px", pt: "8px", borderTop: "1px solid #eee" }}>
+                    {tariffLoading ? (
+                      <Typography sx={{ fontSize: "11px", color: "#888" }}>Loading tariff…</Typography>
+                    ) : selectedTariff && selectedTariff.tariffGroup ? (
+                      <>
+                        <Typography sx={{ fontSize: "11px" }}><b>Tariff:</b> {selectedTariff.tariffGroup.name}</Typography>
+                        <Typography sx={{ fontSize: "11px" }}><b>Period:</b> {selectedTariff.currentPeriod || "—"} · N$ {Number(selectedTariff.currentRate || 0).toFixed(2)}/kWh</Typography>
+                      </>
+                    ) : (
+                      <Typography sx={{ fontSize: "11px", color: "#888" }}>Tariff not available</Typography>
+                    )}
+                  </Box>
+                  <Typography sx={{ fontSize: "10px", color: "#999", mt: "6px" }}>
+                    Updated {selected.last_reading ? timeAgo(selected.last_reading) : "--"}
+                  </Typography>
+                </Box>
+              </InfoWindow>
+            )}
+          </GoogleMap>
+        )}
+      </Box>
+
+      {/* Legend */}
+      <Box display="flex" gap="16px" mt="12px" flexWrap="wrap">
+        {["IMPORT", "EXPORT", "IDLE", "OFFLINE"].map(function(state) {
+          return (
+            <Box key={state} sx={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <Box component="svg" width={16} height={16} viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" fill={FLOW_STATE_COLOR[state]} />
+                <path d={meterGlyphPath(state)} stroke="#fff" strokeWidth="2.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              </Box>
+              <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>{FLOW_STATE_LABEL[state]}</Typography>
+            </Box>
+          );
+        })}
+        <Box sx={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <HubOutlinedIcon sx={{ fontSize: 16, color: "#37474f" }} />
+          <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Substation / grid node</Typography>
+        </Box>
       </Box>
     </Box>
   );
@@ -624,6 +994,11 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
           <RefreshIcon sx={{ fontSize: 18 }} />
         </IconButton>
       </Box>
+
+      {/* ===== GRID FLOW MAP ===== */}
+      <GridFlowMap colors={colors} isDark={isDark} />
+
+      <Box sx={sectionDividerSx} />
 
       {/* ===== FLEET HOURLY ENERGY FLOW ===== */}
       <ChartDateHeader
