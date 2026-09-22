@@ -60,10 +60,12 @@ PostpaidBillingConfigModel.getByBillingType = (billingType, result) => {
 
 PostpaidBillingConfigModel.getAll = (DRN, result) => {
   let query = "SELECT * FROM BillingConfigurations";
+  const params = [];
   if (DRN) {
-    query += ` WHERE DRN = ${DRN}`;
+    query += " WHERE DRN = ?";
+    params.push(DRN);
   }
-  connection.query(query, (err, res) => {
+  connection.query(query, params, (err, res) => {
     if (err) {
       result(null, err);
       return;
@@ -74,7 +76,8 @@ PostpaidBillingConfigModel.getAll = (DRN, result) => {
 
 PostpaidBillingConfigModel.findById = (DRN, result) => {
   connection.query(
-    `SELECT * FROM BillingConfigurations WHERE DRN = ${DRN}`,
+    "SELECT * FROM BillingConfigurations WHERE DRN = ?",
+    [DRN],
     (err, res) => {
       if (err) {
         result(err, null);
@@ -136,8 +139,11 @@ PostpaidBillingConfigModel.removeAll = (result) => {
   });
 };
 
+// The subquery referenced PostpaidBillingConfigurations, a differently-named
+// table from the one this model actually reads/writes (BillingConfigurations)
+// everywhere else — caused ER_NO_SUCH_TABLE / a silent null result on every call.
 PostpaidBillingConfigModel.getLastUpdate= (DRN, result) => {
-    const query = "SELECT * FROM BillingConfigurations WHERE ID = (SELECT MAX(ID) FROM PostpaidBillingConfigurations WHERE DRN = ?)";
+    const query = "SELECT * FROM BillingConfigurations WHERE ID = (SELECT MAX(ID) FROM BillingConfigurations WHERE DRN = ?)";
   
   
     connection.query(query,[DRN],

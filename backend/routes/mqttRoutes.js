@@ -39,6 +39,25 @@ db.query(`CREATE TABLE IF NOT EXISTS MeterNetMeteringConfig (
   updated_at DATETIME
 )`, (err) => { if (err) console.warn('MeterNetMeteringConfig table init:', err.message); });
 
+// Track how much exported energy has already been credited, so the export
+// credit endpoint (vendingRoutes.js POST /net-metering-credit/:drn) only
+// credits energy exported since the last run, not the whole cumulative total.
+function addColumnIfNotExists(table, column, definition) {
+  const checkSql = "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?";
+  db.query(checkSql, [table, column], (err, results) => {
+    if (err) { console.warn(`[NetMeteringConfig] Check column error: ${err.message}`); return; }
+    if (results[0].cnt === 0) {
+      db.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`, (err2) => {
+        if (err2 && err2.message.indexOf('Duplicate column') === -1) {
+          console.warn(`[NetMeteringConfig] Add column error: ${err2.message}`);
+        }
+      });
+    }
+  });
+}
+addColumnIfNotExists('MeterNetMeteringConfig', 'last_credited_at', 'DATETIME DEFAULT NULL');
+addColumnIfNotExists('MeterNetMeteringConfig', 'total_credited_export_wh', 'INT UNSIGNED DEFAULT 0');
+
 // ═══════════════════════════════════════════════════════════════════════
 // GENERIC COMMAND
 // ═══════════════════════════════════════════════════════════════════════
