@@ -662,6 +662,7 @@ export const netMeteringAPI = {
   getConfig: (drn) => get(`/mqtt/net-metering-config/${drn}`),
   setConfig: (drn, data) => post(`/mqtt/net-metering-config/${drn}`, data),
   getAllConfigs: () => get('/mqtt/net-metering-configs'),
+  getTariffRates: () => get('/mqtt/net-energy/tariff-rates'),
 };
 
 // ===== ACTUAL ENERGY =====

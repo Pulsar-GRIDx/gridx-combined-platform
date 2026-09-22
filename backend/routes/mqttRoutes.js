@@ -1113,6 +1113,43 @@ router.get('/mqtt/tou-config/:drn', authenticateToken, async (req, res) => {
 // Net Energy — System-wide endpoints (must be before :drn routes)
 // ═══════════════════════════════════════════════════════════════════════
 
+// Fleet-representative retail/feed-in rates for the admin Net Metering
+// dashboard, which previously used hardcoded N$2.45/N$1.60 constants for
+// every revenue figure. Not a per-meter tariff calculation (that's the
+// authoritative /tariff-info/:drn and /net-metering-config/:drn endpoints) —
+// this exists only so fleet-wide aggregate views have a real, backend-sourced
+// number instead of a fabricated one. retailRate comes from the default/
+// residential TariffGroups row; feedInRate is the average configured
+// feed_in_rate across meters actually set up for net metering.
+router.get('/mqtt/net-energy/tariff-rates', authenticateToken, async (req, res) => {
+  try {
+    let defaultGroup = await queryOne(
+      "SELECT * FROM TariffGroups WHERE name = 'Residential Prepaid' LIMIT 1"
+    ).catch(() => null);
+    if (!defaultGroup) {
+      defaultGroup = await queryOne(
+        "SELECT * FROM TariffGroups WHERE type = 'Flat' LIMIT 1"
+      ).catch(() => null);
+    }
+    const feedInAgg = await queryOne(
+      'SELECT AVG(feed_in_rate) as avgRate, COUNT(*) as cnt FROM MeterNetMeteringConfig WHERE nm_mode > 0 AND feed_in_rate > 0'
+    ).catch(() => null);
+
+    const hasRetail = defaultGroup && defaultGroup.flatRate != null;
+    const hasFeedIn = feedInAgg && Number(feedInAgg.cnt) > 0;
+
+    res.json({
+      success: true,
+      data: {
+        retailRate: hasRetail ? parseFloat(defaultGroup.flatRate) : null,
+        retailSource: hasRetail ? ('TariffGroups: ' + defaultGroup.name) : null,
+        feedInRate: hasFeedIn ? parseFloat(feedInAgg.avgRate) : null,
+        feedInSource: hasFeedIn ? ('Average of ' + feedInAgg.cnt + ' configured net-metering meter(s)') : null,
+      }
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => {
   try {
     const totals = await queryOne(

@@ -4,7 +4,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Select, MenuItem,
   TextField, Button, Snackbar, Alert, FormControl, InputLabel,
-  IconButton, InputAdornment, Tooltip,
+  IconButton, InputAdornment, Tooltip, Tabs, Tab,
 } from "@mui/material";
 import {
   AreaChart, Area, BarChart, Bar,
@@ -23,7 +23,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import ElectricMeterOutlinedIcon from "@mui/icons-material/ElectricMeterOutlined";
 import BoltIcon from "@mui/icons-material/Bolt";
-import SolarPowerIcon from "@mui/icons-material/SolarPower";
+import UploadOutlinedIcon from "@mui/icons-material/UploadOutlined";
 import OpenInNewOutlinedIcon from "@mui/icons-material/OpenInNewOutlined";
 import ElectricBoltIcon from "@mui/icons-material/ElectricBolt";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
@@ -31,9 +31,13 @@ import ChevronLeftOutlinedIcon from "@mui/icons-material/ChevronLeftOutlined";
 import ChevronRightOutlinedIcon from "@mui/icons-material/ChevronRightOutlined";
 import { useNavigate } from "react-router-dom";
 
-// Tariff rates (N$ per kWh)
-var TARIFF_RETAIL = 2.45;
-var TARIFF_FEEDIN = 1.60;
+// Last-resort fallback rates (N$ per kWh) — used only if the backend
+// /mqtt/net-energy/tariff-rates fetch fails, so a revenue figure never goes
+// blank. The real numbers come from the backend (TariffGroups /
+// MeterNetMeteringConfig), not from these constants — see fetchDashboard()
+// in the exported NetMetering component below.
+var FALLBACK_RETAIL = 2.45;
+var FALLBACK_FEEDIN = 1.60;
 
 // Utility-perspective color scheme
 var COLOR_DELIVERED = "#2196f3";
@@ -110,7 +114,7 @@ function EnergyBarChart({ colors, isDark, title, data, height }) {
           <YAxis tick={{ fontSize: 10, fill: colors.grey[400] }} label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
           <RechartsTooltip contentStyle={{ backgroundColor: isDark ? colors.primary[500] : "#fff", border: "1px solid " + colors.grey[600], borderRadius: "8px", fontSize: "12px" }} />
           <Bar dataKey="delivered" fill={COLOR_DELIVERED} name="Delivered to Customer (kWh)" radius={[4, 4, 0, 0]} />
-          <Bar dataKey="received" fill={COLOR_RECEIVED} name="Received from Solar (kWh)" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="received" fill={COLOR_RECEIVED} name="Exported to Grid (kWh)" radius={[4, 4, 0, 0]} />
           <Legend wrapperStyle={{ fontSize: "10px" }} />
         </BarChart>
       </ResponsiveContainer>
@@ -145,7 +149,7 @@ function safeNum(val) {
   return isNaN(n) ? 0 : n;
 }
 
-function processChartData(raw) {
+function processChartData(raw, retailRate, feedInRate) {
   return (raw || []).map(function(d) {
     var deliveredKwh = safeNum(d.import) / 1000;
     var receivedKwh = safeNum(d.export) / 1000;
@@ -154,13 +158,13 @@ function processChartData(raw) {
       date: d.date || d.label || "",
       delivered: safeNum(deliveredKwh.toFixed(2)),
       received: safeNum(receivedKwh.toFixed(2)),
-      revenue: safeNum((deliveredKwh * TARIFF_RETAIL).toFixed(2)),
-      feedInCost: safeNum((receivedKwh * TARIFF_FEEDIN).toFixed(2)),
+      revenue: safeNum((deliveredKwh * retailRate).toFixed(2)),
+      feedInCost: safeNum((receivedKwh * feedInRate).toFixed(2)),
     };
   });
 }
 
-function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated, allPeriodData, fetchDashboard }) {
+function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated, allPeriodData, fetchDashboard, tariffRetail, tariffFeedIn, tariffIsFallback }) {
   // Navigation offsets: 0 = current, -1 = previous, etc.
   var _weekState = useState(0);
   var weekOffset = _weekState[0]; var setWeekOffset = _weekState[1];
@@ -172,13 +176,13 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
   var totalDelivered = safeNum(dashData?.total_import);
   var totalReceived = safeNum(dashData?.total_export);
   var totalMeters = safeNum(dashData?.total_meters) || activeMeters.length || 0;
-  var salesRevenue = (totalDelivered / 1000) * TARIFF_RETAIL;
-  var feedInCost = (totalReceived / 1000) * TARIFF_FEEDIN;
+  var salesRevenue = (totalDelivered / 1000) * tariffRetail;
+  var feedInCost = (totalReceived / 1000) * tariffFeedIn;
   var netRevenue = salesRevenue - feedInCost;
   var todayDelivered = safeNum(dashData?.today_import);
   var todayReceived = safeNum(dashData?.today_export);
-  var todayRevenue = (todayDelivered / 1000) * TARIFF_RETAIL;
-  var todayFeedIn = (todayReceived / 1000) * TARIFF_FEEDIN;
+  var todayRevenue = (todayDelivered / 1000) * tariffRetail;
+  var todayFeedIn = (todayReceived / 1000) * tariffFeedIn;
 
   var hourlyData = (dashData?.hourly || []).map(function(h, i) {
     return {
@@ -188,9 +192,9 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
     };
   });
 
-  var allDailyData = processChartData(allPeriodData.daily);
-  var allMonthlyData = processChartData(allPeriodData.thisyear);
-  var allYearlyData = processChartData(allPeriodData.yearly);
+  var allDailyData = processChartData(allPeriodData.daily, tariffRetail, tariffFeedIn);
+  var allMonthlyData = processChartData(allPeriodData.thisyear, tariffRetail, tariffFeedIn);
+  var allYearlyData = processChartData(allPeriodData.yearly, tariffRetail, tariffFeedIn);
 
   // ---- Date helpers ----
   var MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -371,8 +375,8 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
     weekTotalExport += safeNum(d.received);
     if (safeNum(d.received) > bestExportVal) { bestExportVal = safeNum(d.received); bestExportDay = d.label; }
   });
-  var weekSavings = weekTotalExport * TARIFF_FEEDIN;
-  var weekRevenue = weekTotalImport * TARIFF_RETAIL;
+  var weekSavings = weekTotalExport * tariffFeedIn;
+  var weekRevenue = weekTotalImport * tariffRetail;
   var weekNetRevenue = weekRevenue - weekSavings;
 
   // --- Monthly insights ---
@@ -381,15 +385,15 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
   var monthNetBalance = (monthTotalImport - monthTotalExport);
   var selfConsumptionRate = (monthTotalImport + monthTotalExport) > 0
     ? (monthTotalImport / (monthTotalImport + monthTotalExport) * 100) : 0;
-  var monthRevenue = monthTotalImport * TARIFF_RETAIL;
-  var monthFeedInCost = monthTotalExport * TARIFF_FEEDIN;
+  var monthRevenue = monthTotalImport * tariffRetail;
+  var monthFeedInCost = monthTotalExport * tariffFeedIn;
   var monthNetRevenue = monthRevenue - monthFeedInCost;
 
   // --- Yearly insights ---
   var yearTotalImport = 0; var yearTotalExport = 0;
   yearlyChartData.forEach(function(d) { yearTotalImport += safeNum(d.delivered); yearTotalExport += safeNum(d.received); });
-  var yearRevenue = yearTotalImport * TARIFF_RETAIL;
-  var yearFeedInCost = yearTotalExport * TARIFF_FEEDIN;
+  var yearRevenue = yearTotalImport * tariffRetail;
+  var yearFeedInCost = yearTotalExport * tariffFeedIn;
   var yearNetRevenue = yearRevenue - yearFeedInCost;
   var gridDepScore = (yearTotalImport + yearTotalExport) > 0
     ? (yearTotalImport / (yearTotalImport + yearTotalExport) * 100) : 0;
@@ -464,7 +468,7 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
           subtitle={consumingMeters + " consuming, " + feedingMeters + " feeding in"} />
         <SummaryCard colors={colors} isDark={isDark} label="Today's Grid Supply" value={toKwh(todayDelivered) + " kWh"} icon={ElectricBoltIcon} color={COLOR_DELIVERED}
           subtitle={"Revenue: " + fmtCurrency(todayRevenue)} />
-        <SummaryCard colors={colors} isDark={isDark} label="Today's Solar Feed-in" value={toKwh(todayReceived) + " kWh"} icon={SolarPowerIcon} color={COLOR_RECEIVED}
+        <SummaryCard colors={colors} isDark={isDark} label="Today's Exported to Grid" value={toKwh(todayReceived) + " kWh"} icon={UploadOutlinedIcon} color={COLOR_RECEIVED}
           subtitle={"Feed-in credit: " + fmtCurrency(todayFeedIn)} />
         <SummaryCard colors={colors} isDark={isDark} label="Net Revenue" value={fmtCurrency(netRevenue)} icon={AttachMoneyIcon} color={netRevenue >= 0 ? COLOR_REVENUE : COLOR_COST}
           subtitle={netRevenue >= 0 ? "Positive margin" : "Feed-in exceeds sales"} />
@@ -483,7 +487,7 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
           <Box sx={{ width: 5, height: 28, borderRadius: "3px", background: "linear-gradient(180deg, " + COLOR_DELIVERED + ", " + COLOR_RECEIVED + ")" }} />
           <Box>
             <Typography sx={{ fontSize: "18px", fontWeight: 800, color: colors.grey[100], letterSpacing: "-0.3px" }}>Hourly Grid Activity</Typography>
-            <Typography sx={{ fontSize: "12px", color: colors.grey[400] }}>Real-time energy flow for today — import vs solar feed-in by hour</Typography>
+            <Typography sx={{ fontSize: "12px", color: colors.grey[400] }}>Real-time energy flow for today — grid import vs export by hour</Typography>
           </Box>
         </Box>
       </Box>
@@ -497,7 +501,7 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
         <Box sx={kpiCardSx(COLOR_RECEIVED)}>
           <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Current Hour Export</Typography>
           <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{currentHourExport.toFixed(2)} kWh</Typography>
-          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>Solar feed-in this hour</Typography>
+          <Typography sx={{ fontSize: "10px", color: colors.grey[500], mt: "2px" }}>Exported to grid this hour</Typography>
         </Box>
         <Box sx={kpiCardSx("#ab47bc")}>
           <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Peak Hour Today</Typography>
@@ -508,7 +512,7 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
           <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Grid Dependency</Typography>
           <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{gridDependencyPct.toFixed(1)}%</Typography>
           <Typography sx={{ fontSize: "10px", color: gridDependencyPct > 60 ? COLOR_COST : COLOR_REVENUE, fontWeight: 600, mt: "2px" }}>
-            {gridDependencyPct > 60 ? "High grid reliance" : "Good solar offset"}
+            {gridDependencyPct > 60 ? "High grid reliance" : "Good export offset"}
           </Typography>
         </Box>
       </Box>
@@ -532,7 +536,7 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
               label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
             <RechartsTooltip contentStyle={tooltipStyle} />
             <Area type="monotone" dataKey="delivered" stroke={COLOR_DELIVERED} fill="url(#gradDeliveredFull)" name="Grid Supply (kWh)" strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2 }} />
-            <Area type="monotone" dataKey="received" stroke={COLOR_RECEIVED} fill="url(#gradReceivedFull)" name="Solar Feed-in (kWh)" strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2 }} />
+            <Area type="monotone" dataKey="received" stroke={COLOR_RECEIVED} fill="url(#gradReceivedFull)" name="Exported to Grid (kWh)" strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2 }} />
             <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "12px" }} />
           </AreaChart>
         </ResponsiveContainer>
@@ -572,7 +576,7 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
         <Box sx={kpiCardSx("#66bb6a")}>
           <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Best Export Day</Typography>
           <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{bestExportDay || "--"}</Typography>
-          <Typography sx={{ fontSize: "10px", color: COLOR_RECEIVED, fontWeight: 600, mt: "2px" }}>{bestExportVal.toFixed(1)} kWh solar feed-in</Typography>
+          <Typography sx={{ fontSize: "10px", color: COLOR_RECEIVED, fontWeight: 600, mt: "2px" }}>{bestExportVal.toFixed(1)} kWh exported</Typography>
         </Box>
         <Box sx={kpiCardSx(COLOR_REVENUE)}>
           <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Weekly Net Revenue</Typography>
@@ -604,7 +608,7 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
                 label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
               <RechartsTooltip contentStyle={tooltipStyle} />
               <Bar dataKey="delivered" fill="url(#barGradDelivered)" name="Grid Supply (kWh)" radius={[6, 6, 0, 0]} maxBarSize={48} />
-              <Bar dataKey="received" fill="url(#barGradReceived)" name="Solar Feed-in (kWh)" radius={[6, 6, 0, 0]} maxBarSize={48} />
+              <Bar dataKey="received" fill="url(#barGradReceived)" name="Exported to Grid (kWh)" radius={[6, 6, 0, 0]} maxBarSize={48} />
               <Legend wrapperStyle={{ fontSize: "10px", paddingTop: "12px" }} />
             </BarChart>
           </ResponsiveContainer>
@@ -694,7 +698,7 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
                 label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
               <RechartsTooltip contentStyle={tooltipStyle} />
               <Bar dataKey="delivered" fill="url(#barGradMonthDel)" name="Grid Supply (kWh)" radius={[4, 4, 0, 0]} maxBarSize={20} />
-              <Bar dataKey="received" fill="url(#barGradMonthRec)" name="Solar Feed-in (kWh)" radius={[4, 4, 0, 0]} maxBarSize={20} />
+              <Bar dataKey="received" fill="url(#barGradMonthRec)" name="Exported to Grid (kWh)" radius={[4, 4, 0, 0]} maxBarSize={20} />
               <Legend wrapperStyle={{ fontSize: "10px", paddingTop: "12px" }} />
             </BarChart>
           </ResponsiveContainer>
@@ -761,7 +765,7 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
           <Typography sx={{ fontSize: "10px", fontWeight: 600, color: colors.grey[400], textTransform: "uppercase", letterSpacing: "0.5px" }}>Grid Dependency Score</Typography>
           <Typography sx={{ fontSize: "22px", fontWeight: 800, color: colors.grey[100], mt: "4px" }}>{gridDepScore.toFixed(1)}%</Typography>
           <Typography sx={{ fontSize: "10px", color: gridDepScore > 60 ? COLOR_COST : COLOR_REVENUE, fontWeight: 600, mt: "2px" }}>
-            {gridDepScore > 75 ? "Highly grid dependent" : gridDepScore > 50 ? "Moderate dependency" : "Solar-forward fleet"}
+            {gridDepScore > 75 ? "Highly grid dependent" : gridDepScore > 50 ? "Moderate dependency" : "Net exporting fleet"}
           </Typography>
         </Box>
       </Box>
@@ -787,7 +791,7 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
                 label={{ value: "kWh", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: colors.grey[400] } }} />
               <RechartsTooltip contentStyle={tooltipStyle} />
               <Bar dataKey="delivered" fill="url(#barGradYearDel)" name="Grid Supply (kWh)" radius={[8, 8, 0, 0]} maxBarSize={56} />
-              <Bar dataKey="received" fill="url(#barGradYearRec)" name="Solar Feed-in (kWh)" radius={[8, 8, 0, 0]} maxBarSize={56} />
+              <Bar dataKey="received" fill="url(#barGradYearRec)" name="Exported to Grid (kWh)" radius={[8, 8, 0, 0]} maxBarSize={56} />
               <Legend wrapperStyle={{ fontSize: "10px", paddingTop: "12px" }} />
             </BarChart>
           </ResponsiveContainer>
@@ -819,26 +823,34 @@ function FleetDashboardTab({ colors, isDark, dashData, activeMeters, lastUpdated
       }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: COLOR_DELIVERED }} />
-          <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Retail Tariff:</Typography>
-          <Typography sx={{ fontSize: "12px", fontWeight: 700, color: colors.grey[100] }}>N$ {TARIFF_RETAIL}/kWh</Typography>
+          <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Fleet Retail Tariff:</Typography>
+          <Typography sx={{ fontSize: "12px", fontWeight: 700, color: colors.grey[100] }}>N$ {tariffRetail.toFixed(2)}/kWh</Typography>
         </Box>
         <Box sx={{ width: "1px", height: "20px", bgcolor: colors.grey[700] }} />
         <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: COLOR_RECEIVED }} />
-          <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Feed-in Tariff:</Typography>
-          <Typography sx={{ fontSize: "12px", fontWeight: 700, color: colors.grey[100] }}>N$ {TARIFF_FEEDIN}/kWh</Typography>
+          <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Fleet Feed-in Tariff:</Typography>
+          <Typography sx={{ fontSize: "12px", fontWeight: 700, color: colors.grey[100] }}>N$ {tariffFeedIn.toFixed(2)}/kWh</Typography>
         </Box>
         <Box sx={{ width: "1px", height: "20px", bgcolor: colors.grey[700] }} />
         <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <Typography sx={{ fontSize: "11px", color: colors.grey[400] }}>Spread:</Typography>
-          <Typography sx={{ fontSize: "12px", fontWeight: 700, color: COLOR_REVENUE }}>N$ {(TARIFF_RETAIL - TARIFF_FEEDIN).toFixed(2)}/kWh</Typography>
+          <Typography sx={{ fontSize: "12px", fontWeight: 700, color: COLOR_REVENUE }}>N$ {(tariffRetail - tariffFeedIn).toFixed(2)}/kWh</Typography>
         </Box>
+        {tariffIsFallback && (
+          <Tooltip title="Could not load real tariff rates from the backend — showing fallback defaults, not an authoritative figure.">
+            <Chip label="Fallback rate" size="small" sx={{ height: 20, fontSize: "9px", fontWeight: 700, bgcolor: COLOR_COST + "18", color: COLOR_COST }} />
+          </Tooltip>
+        )}
       </Box>
+      <Typography sx={{ fontSize: "10px", color: colors.grey[500], textAlign: "center", mt: "8px" }}>
+        Fleet-representative rate, not necessarily each customer's actual tariff — see the Configuration tab for per-meter billing mode and feed-in rate.
+      </Typography>
     </>
   );
 }
 
-function ActiveMetersTab({ colors, isDark, activeMeters, fetchDashboard, lastUpdated }) {
+function ActiveMetersTab({ colors, isDark, activeMeters, fetchDashboard, lastUpdated, tariffRetail, tariffFeedIn }) {
   var navigate = useNavigate();
   var [search, setSearch] = useState("");
   var [statusFilter, setStatusFilter] = useState("all");
@@ -864,7 +876,7 @@ function ActiveMetersTab({ colors, isDark, activeMeters, fetchDashboard, lastUpd
       <Box display="flex" gap="12px" mb="16px" flexWrap="wrap">
         <SummaryCard colors={colors} label="Net Metered Customers" value={activeMeters.length} icon={ElectricMeterOutlinedIcon} color={COLOR_DELIVERED} subtitle={onlineCnt + " online"} />
         <SummaryCard colors={colors} label="Consuming (Grid Supply)" value={consumingCnt} icon={ElectricBoltIcon} color={COLOR_DELIVERED} subtitle="Drawing from grid" />
-        <SummaryCard colors={colors} label="Feeding In (Solar)" value={feedingCnt} icon={SolarPowerIcon} color={COLOR_RECEIVED} subtitle="Sending to grid" />
+        <SummaryCard colors={colors} label="Feeding In (Export)" value={feedingCnt} icon={UploadOutlinedIcon} color={COLOR_RECEIVED} subtitle="Sending to grid" />
         <SummaryCard colors={colors} label="Offline" value={offlineCnt} icon={BoltIcon} color="#ff7043" subtitle="No signal > 5m" />
       </Box>
 
@@ -879,7 +891,7 @@ function ActiveMetersTab({ colors, isDark, activeMeters, fetchDashboard, lastUpd
           <Select value={statusFilter} label="Filter" onChange={function(e) { setStatusFilter(e.target.value); }}>
             <MenuItem value="all">All Meters</MenuItem>
             <MenuItem value="consuming">Consuming (Grid)</MenuItem>
-            <MenuItem value="feeding">Feeding In (Solar)</MenuItem>
+            <MenuItem value="feeding">Feeding In (Export)</MenuItem>
             <MenuItem value="idle">Idle</MenuItem>
             <MenuItem value="online">Online</MenuItem>
             <MenuItem value="offline">Offline</MenuItem>
@@ -896,7 +908,7 @@ function ActiveMetersTab({ colors, isDark, activeMeters, fetchDashboard, lastUpd
       <Box sx={{ backgroundColor: colors.primary[400], borderRadius: "8px", overflow: "hidden" }}>
         {filtered.length === 0 ? (
           <Box display="flex" flexDirection="column" alignItems="center" py="60px" gap="8px">
-            <SolarPowerIcon sx={{ fontSize: 48, color: COLOR_DELIVERED, opacity: 0.4 }} />
+            <UploadOutlinedIcon sx={{ fontSize: 48, color: COLOR_DELIVERED, opacity: 0.4 }} />
             <Typography color={colors.grey[400]}>No net metering customers found</Typography>
           </Box>
         ) : (
@@ -904,9 +916,9 @@ function ActiveMetersTab({ colors, isDark, activeMeters, fetchDashboard, lastUpd
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
-                  {["DRN", "Customer", "Flow Direction", "Live Power", "Grid Supply (kWh)", "Solar Feed-in (kWh)", "Net (kWh)", "Revenue", "Last Seen", "Status", ""].map(function(h) {
+                  {["DRN", "Customer", "Flow Direction", "Live Power", "Grid Supply (kWh)", "Exported (kWh)", "Net (kWh)", "Revenue", "Last Seen", "Status", ""].map(function(h) {
                     return <TableCell key={h} sx={{ backgroundColor: colors.primary[400], color: colors.grey[100], fontWeight: 700, borderBottom: "1px solid " + colors.grey[700], fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}
-                      align={["Live Power", "Grid Supply (kWh)", "Solar Feed-in (kWh)", "Net (kWh)", "Revenue"].includes(h) ? "right" : "left"}>{h}</TableCell>;
+                      align={["Live Power", "Grid Supply (kWh)", "Exported (kWh)", "Net (kWh)", "Revenue"].includes(h) ? "right" : "left"}>{h}</TableCell>;
                   })}
                 </TableRow>
               </TableHead>
@@ -915,7 +927,7 @@ function ActiveMetersTab({ colors, isDark, activeMeters, fetchDashboard, lastUpd
                   var delivered = m.total_import || 0;
                   var received = m.total_export || 0;
                   var netKwh = (delivered - received) / 1000;
-                  var meterRevenue = (delivered / 1000) * TARIFF_RETAIL - (received / 1000) * TARIFF_FEEDIN;
+                  var meterRevenue = (delivered / 1000) * tariffRetail - (received / 1000) * tariffFeedIn;
                   var isOnline = m.status === "Online";
                   var rawDirection = m.power_direction || "IDLE";
                   var dirLabel = rawDirection === "IMPORT" ? "CONSUMING" : rawDirection === "EXPORT" ? "FEEDING IN" : "IDLE";
@@ -967,9 +979,9 @@ function ConfigurationTab({ colors, isDark, activeMeters }) {
   var [snack, setSnack] = useState({ open: false, msg: "", severity: "success" });
 
   var NM_MODES = [
-    { value: 0, label: "Gross Metering", desc: "Energy billed at full retail rate. Solar feed-in is recorded but not credited against consumption." },
+    { value: 0, label: "Gross Metering", desc: "Energy billed at full retail rate. Exported energy is recorded but not credited against consumption." },
     { value: 1, label: "Net Billing", desc: "Customer pays net of consumption minus generation. Feed-in offsets grid supply in the same billing period." },
-    { value: 2, label: "Feed-in Tariff", desc: "Solar feed-in is credited at a separate feed-in rate (typically lower than retail). Configurable per meter." },
+    { value: 2, label: "Feed-in Tariff", desc: "Exported energy is credited at a separate feed-in rate (typically lower than retail). Configurable per meter." },
     { value: 3, label: "TOU Net Metering", desc: "Time-of-Use aware. Feed-in during peak hours earns higher credits. Off-peak feed-in at base rate." },
   ];
 
@@ -1004,7 +1016,7 @@ function ConfigurationTab({ colors, isDark, activeMeters }) {
       <Box sx={{ backgroundColor: colors.primary[400], borderRadius: "8px", p: "20px", mb: 2 }}>
         <Typography sx={{ fontSize: "14px", fontWeight: 700, color: colors.grey[100], mb: 1 }}>Net Metering Billing Mode</Typography>
         <Typography sx={{ fontSize: "12px", color: colors.grey[300], mb: 3 }}>
-          Configure how the utility bills each net metered customer. Determines how solar feed-in is credited against grid consumption. Changes are pushed to meters via MQTT.
+          Configure how the utility bills each net metered customer. Determines how exported energy is credited against grid consumption. Changes are pushed to meters via MQTT.
         </Typography>
         <Grid container spacing={2}>
           {NM_MODES.map(function(m) {
@@ -1115,17 +1127,20 @@ export default function NetMetering() {
   var [activeMeters, setActiveMeters] = useState([]);
   var [lastUpdated, setLastUpdated] = useState(null);
   var [allPeriodData, setAllPeriodData] = useState({ daily: [], thisweek: [], thisyear: [], yearly: [] });
+  var [tariffRates, setTariffRates] = useState({ retailRate: null, feedInRate: null });
+  var [activeTab, setActiveTab] = useState(0);
 
   var fetchDashboard = useCallback(async function(showLoading) {
     if (showLoading) setLoading(true);
     try {
-      var [dashRes, metersRes, dailyRes, weekRes, monthRes, yearRes] = await Promise.allSettled([
+      var [dashRes, metersRes, dailyRes, weekRes, monthRes, yearRes, tariffRes] = await Promise.allSettled([
         netMeteringAPI.getDashboard(),
         netMeteringAPI.getActiveMeters(),
         netMeteringAPI.getDashboard("daily"),
         netMeteringAPI.getDashboard("thisweek"),
         netMeteringAPI.getDashboard("thisyear"),
         netMeteringAPI.getDashboard("yearly"),
+        netMeteringAPI.getTariffRates(),
       ]);
       if (dashRes.status === "fulfilled" && dashRes.value?.data) setDashData(dashRes.value.data);
       if (metersRes.status === "fulfilled" && metersRes.value?.data) setActiveMeters(metersRes.value.data);
@@ -1135,6 +1150,9 @@ export default function NetMetering() {
         thisyear: monthRes.status === "fulfilled" ? monthRes.value?.data?.daily || [] : [],
         yearly: yearRes.status === "fulfilled" ? yearRes.value?.data?.daily || [] : [],
       });
+      if (tariffRes.status === "fulfilled" && tariffRes.value?.data) {
+        setTariffRates({ retailRate: tariffRes.value.data.retailRate, feedInRate: tariffRes.value.data.feedInRate });
+      }
       setLastUpdated(new Date());
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -1155,10 +1173,33 @@ export default function NetMetering() {
     );
   }
 
+  // Real backend rates when available; fall back to the last-resort
+  // constants only if the tariff-rates fetch failed or returned nothing yet.
+  var tariffIsFallback = tariffRates.retailRate == null || tariffRates.feedInRate == null;
+  var tariffRetail = tariffRates.retailRate != null ? tariffRates.retailRate : FALLBACK_RETAIL;
+  var tariffFeedIn = tariffRates.feedInRate != null ? tariffRates.feedInRate : FALLBACK_FEEDIN;
+
+  var tabSharedProps = { colors: colors, isDark: isDark, tariffRetail: tariffRetail, tariffFeedIn: tariffFeedIn };
+
   return (
     <Box m="20px">
-      <Header title="NET METERING" subtitle="Utility-wide net metering analytics - grid supply vs solar feed-in" />
-      <FleetDashboardTab colors={colors} isDark={isDark} dashData={dashData} activeMeters={activeMeters} lastUpdated={lastUpdated} allPeriodData={allPeriodData} fetchDashboard={fetchDashboard} />
+      <Header title="NET METERING" subtitle="Utility-wide net metering analytics — grid import vs export" />
+
+      <Tabs value={activeTab} onChange={function(e, v) { setActiveTab(v); }} sx={{ mb: "20px", minHeight: 36, "& .MuiTab-root": { minHeight: 36, textTransform: "none", fontWeight: 600, fontSize: "13px" } }}>
+        <Tab label="Fleet Dashboard" />
+        <Tab label={"Active Meters (" + activeMeters.length + ")"} />
+        <Tab label="Configuration" />
+      </Tabs>
+
+      {activeTab === 0 && (
+        <FleetDashboardTab {...tabSharedProps} dashData={dashData} activeMeters={activeMeters} lastUpdated={lastUpdated} allPeriodData={allPeriodData} fetchDashboard={fetchDashboard} tariffIsFallback={tariffIsFallback} />
+      )}
+      {activeTab === 1 && (
+        <ActiveMetersTab {...tabSharedProps} activeMeters={activeMeters} fetchDashboard={fetchDashboard} lastUpdated={lastUpdated} />
+      )}
+      {activeTab === 2 && (
+        <ConfigurationTab colors={colors} isDark={isDark} activeMeters={activeMeters} />
+      )}
     </Box>
   );
 }
