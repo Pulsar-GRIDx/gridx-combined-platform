@@ -6,6 +6,7 @@ import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import Tooltip from "@mui/material/Tooltip";
 import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
 import { useNavigate } from "react-router-dom";
+import UtilityTasksButton from "./tasks/UtilityTasksButton";
 
 const Topbar = () => {
   const theme = useTheme();
@@ -36,6 +37,7 @@ const Topbar = () => {
       py={1}
     >
       <Box display="flex" alignItems="center" gap="2px">
+        <UtilityTasksButton />
         <Tooltip title={isDark ? "Light Mode" : "Dark Mode"}>
           <IconButton
             onClick={colorMode.toggleColorMode}
