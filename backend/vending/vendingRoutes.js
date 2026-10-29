@@ -16,6 +16,8 @@ var authMw = require('../admin/authMiddllware');
 var authenticateToken = authMw.authenticateToken;
 var requireAdmin = authMw.requireAdmin;
 var hsmService = require('./hsmService');
+var stsGuard = require('./stsGuard');
+var tariffResolver = require('./tariffResolver');
 
 // Promise wrapper for the pool (mysql2 supports this)
 var promisePool = db.promise();
@@ -345,6 +347,9 @@ TABLES.forEach(function(sql) {
       addVendorApiColumns();
       seedDefaults();
       migrateStsParams();
+      // STS key-state verification + per-tariff charges (nullable columns).
+      require('../migrations/20261029_sts_tariff_guards').migrate(db)
+        .catch(function(e) { console.error('[migrate:sts_tariff_guards] FAILED:', e.message); });
     }
   });
 });
@@ -434,16 +439,11 @@ function addVendorApiColumns() {
   });
 }
 
-function migrateStsParams() {
-  db.query(
-    "UPDATE MeterSecurityParams SET sgc = '999907', keyRevisionNumber = 2, bdt = '02' WHERE sgc = '600675' OR keyRevisionNumber = 1 OR bdt = '01'",
-    function(err, result) {
-      if (!err && result && result.affectedRows > 0) {
-        console.log('[Vending] Migrated ' + result.affectedRows + ' MeterSecurityParams rows to SGC=999901, KRN=2, BDT=02');
-      }
-    }
-  );
-}
+// This used to rewrite every SGC 600675 / KRN 1 / BDT 01 row to 999907/2/02 on
+// each start, silently undoing any meter that had been key-changed into
+// another supply group. An SGC is only ever changed by a key change
+// (/key-change, /thrift-issue-keychange), which records it.
+function migrateStsParams() {}
 
 function seedDefaults() {
   db.query('SELECT COUNT(*) as c FROM TariffConfig', function(err, rows) {
@@ -532,7 +532,7 @@ router.get('/hsm-status', authenticateToken, function(req, res) {
   res.json({ success: true, data: status });
 });
 
-router.put('/hsm-config', authenticateToken, function(req, res) {
+router.put('/hsm-config', authenticateToken, requireAdmin, function(req, res) {
   var b = req.body;
   if (b.host !== undefined) hsmService.hsmConfig.host = b.host || null;
   if (b.port !== undefined) hsmService.hsmConfig.port = parseInt(b.port) || 8080;
@@ -576,7 +576,7 @@ router.get('/prismvend-check', authenticateToken, function(req, res) {
 });
 
 // POST /vending/prismvend-connect — Test connection with optional host/port override
-router.post('/prismvend-connect', authenticateToken, function(req, res) {
+router.post('/prismvend-connect', authenticateToken, requireAdmin, function(req, res) {
   var b = req.body;
   // Apply host/port from request body if provided
   if (b.host !== undefined && b.host) {
@@ -821,8 +821,80 @@ router.post('/vend-engineering', authenticateToken, function(req, res) {
   });
 });
 
+// ─── STS parameter verification ───────────────────────────────────────────
+// GET  /vending/sts-params/:drn               backend vs meter, and why vending is (not) allowed
+// POST /vending/sts-params/:drn/meter-report  record the key state read from the meter
+//      body { sgc, krn, ti, keyType ('DITK'|'DDTK'|'DUTK'|'DCTK' or 0-3), ken?, ea?, via? }
+// POST /vending/sts-params/:drn/confirm-sgc   admin confirms a factory-default SGC is the allocated one
+//      body { sgc, reference } — reference to the STS Association SGC allocation / HSM key load record
+
+router.get('/sts-params/:drn', authenticateToken, requireAdmin, function(req, res) {
+  stsGuard.verifyMeter(db, req.params.drn, function(err, check, row) {
+    if (err) return res.status(500).json({ error: err.message });
+    var KT = stsGuard.KEY_TYPES;
+    res.json({
+      success: true,
+      data: {
+        drn: req.params.drn,
+        vendingAllowed: check.ok,
+        status: check.ok ? 'OK' : check.code,
+        message: check.ok ? null : check.message,
+        details: check.ok ? null : check.details,
+        backend: row ? { sgc: row.sgc, krn: row.keyRevisionNumber, ti: row.tariffIndex, keyType: KT[row.keyType] || row.keyType, ken: row.keyExpiryNumber, ea: row.ea } : null,
+        meter: row && row.meterReportedAt ? {
+          sgc: row.meterReportedSgc, krn: row.meterReportedKrn, ti: row.meterReportedTi,
+          keyType: KT[row.meterReportedKeyType] || row.meterReportedKeyType, ken: row.meterReportedKen, ea: row.meterReportedEa,
+          readAt: row.meterReportedAt, readBy: row.meterReportedBy
+        } : null,
+        sgcConfirmation: row && row.sgcConfirmedAt ? { at: row.sgcConfirmedAt, by: row.sgcConfirmedBy, reference: row.sgcConfirmationRef } : null
+      }
+    });
+  });
+});
+
+router.post('/sts-params/:drn/meter-report', authenticateToken, requireAdmin, function(req, res) {
+  var drn = req.params.drn;
+  var parsed = stsGuard.parseMeterReport(req.body || {});
+  if (!parsed.ok) return res.status(400).json({ error: parsed.message, code: parsed.code });
+  var r = parsed.report;
+  var by = getOperatorName(req) + (req.body.via ? ' via ' + String(req.body.via).slice(0, 40) : '');
+  db.query(
+    'UPDATE MeterSecurityParams SET meterReportedSgc = ?, meterReportedKrn = ?, meterReportedTi = ?, meterReportedKeyType = ?, ' +
+    'meterReportedKen = ?, meterReportedEa = ?, meterReportedAt = NOW(), meterReportedBy = ? WHERE meterNumber = ?',
+    [r.sgc, r.krn, r.ti, r.keyType, r.ken, r.ea, by.slice(0, 100), drn],
+    function(err, result) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!result.affectedRows) {
+        return res.status(404).json({ error: 'Meter ' + drn + ' has no STS security parameters; register it first', code: 'STS_PARAMS_MISSING' });
+      }
+      logAudit('Meter key state recorded for ' + drn + ': SGC ' + r.sgc + ' KRN ' + r.krn + ' TI ' + r.ti + ' ' + stsGuard.KEY_TYPES[r.keyType],
+        'SYSTEM', by, getOperatorName(req), getOperatorId(req), req.ip);
+      stsGuard.verifyMeter(db, drn, function(e2, check) {
+        res.json({ success: true, data: { vendingAllowed: !!(check && check.ok), status: check && check.ok ? 'OK' : check && check.code, message: check && !check.ok ? check.message : null, details: check && !check.ok ? check.details : null } });
+      });
+    }
+  );
+});
+
+router.post('/sts-params/:drn/confirm-sgc', authenticateToken, requireAdmin, function(req, res) {
+  var drn = req.params.drn;
+  var sgc = String((req.body && req.body.sgc) || '');
+  var reference = String((req.body && req.body.reference) || '').trim();
+  if (!/^\d{6}$/.test(sgc)) return res.status(400).json({ error: 'sgc must be 6 digits' });
+  if (reference.length < 6) return res.status(400).json({ error: 'reference to the SGC allocation or HSM key-load record is required' });
+  // Only the SGC the record already holds can be confirmed; changing it is a key change.
+  db.query('UPDATE MeterSecurityParams SET sgcConfirmedAt = NOW(), sgcConfirmedBy = ?, sgcConfirmationRef = ? WHERE meterNumber = ? AND sgc = ?',
+    [getOperatorName(req).slice(0, 100), reference.slice(0, 255), drn, sgc],
+    function(err, result) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!result.affectedRows) return res.status(409).json({ error: 'Meter ' + drn + ' is not configured with SGC ' + sgc, code: 'STS_SGC_MISMATCH' });
+      logAudit('SGC ' + sgc + ' confirmed for ' + drn, 'SYSTEM', 'Reference: ' + reference, getOperatorName(req), getOperatorId(req), req.ip);
+      res.json({ success: true });
+    });
+});
+
 // POST /vending/key-change — Execute key change via PrismVend API
-router.post('/key-change', authenticateToken, function(req, res) {
+router.post('/key-change', authenticateToken, requireAdmin, function(req, res) {
   var meterId = req.body.meterId;
   var fromSgc = req.body.fromSgc;
   var fromKrn = req.body.fromKrn;
@@ -840,8 +912,11 @@ router.post('/key-change', authenticateToken, function(req, res) {
       return res.status(503).json({ success: false, error: 'PrismVend not connected: ' + connStatus.message, connectionStatus: connStatus });
     }
     var startTime = Date.now();
+    // generateKeyChangeTokens reads the FROM values out of meterParams; passing
+    // only the PAN made every key change start from the 999907/2/1 defaults.
     hsmService.generateKeyChangeTokens(
-      { meterPAN: meterId }, String(toSgc), parseInt(toKrn), parseInt(toTi),
+      { meterPAN: meterId, sgc: String(fromSgc), krn: parseInt(fromKrn), ti: parseInt(fromTi) },
+      String(toSgc), parseInt(toKrn), parseInt(toTi),
       function(err, result) {
         var durationMs = Date.now() - startTime;
         if (err) {
@@ -851,6 +926,7 @@ router.post('/key-change', authenticateToken, function(req, res) {
         }
         logPrismVendOperation('key-change', meterId, { fromSgc: fromSgc, fromKrn: fromKrn, toSgc: toSgc, toKrn: toKrn }, result, 'success', messageId, null, getOperatorName(req), getOperatorId(req), durationMs);
         logAudit('Key change executed: ' + meterId + ' from ' + fromSgc + '/' + fromKrn + ' to ' + toSgc + '/' + toKrn, 'VEND', JSON.stringify(result), getOperatorName(req), getOperatorId(req), req.ip);
+        recordKeyChangeIssued(meterId, toSgc, toKrn, toTi, null, getOperatorName(req));
         res.json({ success: true, data: result });
       },
       { fromSgc: String(fromSgc), fromKrn: parseInt(fromKrn), fromTi: parseInt(fromTi), messageId: messageId }
@@ -991,11 +1067,15 @@ router.post('/gridx-register', authenticateToken, function(req, res) {
           logPrismVendOperation('gridx-register', drn, regParams, regResult, 'success', null, null, operatorName, operatorId, regDurationMs);
         }
 
-        // Step 4: Always upsert into MeterSecurityParams (local registration)
+        // Step 4: Always upsert into MeterSecurityParams (local registration).
+        // A new row starts at the firmware's factory key state (SGC 999907,
+        // KRN 2, TI 1, DITK = key type 0). An existing row keeps its STS
+        // parameters: re-registering must never revert a meter that has been
+        // key-changed into another supply group.
         var upsertSql =
           "INSERT INTO MeterSecurityParams (meterNumber, sgc, tariffIndex, keyRevisionNumber, keyType, keyExpiryNumber, tct, dkga, ea, bdt, supplyGroupCode, decoderReferenceNumber, meterPAN, isActive) " +
-          "VALUES (?, '999907', 1, 2, 3, 255, '02', '02', '07', '02', '999907', ?, ?, 1) " +
-          "ON DUPLICATE KEY UPDATE sgc='999907', tariffIndex=1, keyRevisionNumber=2, tct='02', ea='07', isActive=1, updated_at=NOW()";
+          "VALUES (?, '999907', 1, 2, 0, 255, '02', '02', '07', '02', '999907', ?, ?, 1) " +
+          "ON DUPLICATE KEY UPDATE isActive=1, updated_at=NOW()";
 
         db.query(upsertSql, [drn, drn, drn], function(upsertErr) {
           if (upsertErr) {
@@ -1326,7 +1406,43 @@ function generateToken() {
   return token;
 }
 
+// After key change tokens are issued the backend records the TARGET values
+// and forgets the meter's last key-state reading: until the meter is read
+// again nobody knows whether it accepted them, so vending stays blocked.
+function recordKeyChangeIssued(meterNo, toSgc, toKrn, toTi, toKeyType, operator) {
+  var sets = 'sgc = ?, supplyGroupCode = ?, keyRevisionNumber = ?, tariffIndex = ?, ' +
+    'meterReportedAt = NULL, sgcConfirmedAt = NULL, sgcConfirmedBy = NULL, sgcConfirmationRef = NULL';
+  var params = [String(toSgc), String(toSgc), parseInt(toKrn), parseInt(toTi)];
+  if (toKeyType !== null && toKeyType !== undefined) { sets += ', keyType = ?'; params.push(parseInt(toKeyType)); }
+  params.push(meterNo);
+  db.query('UPDATE MeterSecurityParams SET ' + sets + ' WHERE meterNumber = ?', params, function(err, r) {
+    if (err) console.error('[STS] Could not record key change for %s: %s', meterNo, err.message);
+    else if (!r.affectedRows) console.error('[STS] Key change issued for %s, which has no MeterSecurityParams row', meterNo);
+    logAudit('STS target parameters set for ' + meterNo + ': SGC ' + toSgc + ' KRN ' + toKrn + ' TI ' + toTi +
+      ' (meter must be re-read before vending)', 'SYSTEM', null, operator, null, null);
+  });
+}
+
+function stsRefusal(meterNo, check) {
+  var e = new Error(check.message);
+  e.code = check.code;
+  e.status = 409;
+  e.details = check.details;
+  logPrismVendOperation('vend-refused', meterNo, null, null, 'refused', null, check.code + ': ' + check.message);
+  return e;
+}
+
 function generateSTSTokenForMeter(meterNo, energyKwh, callback) {
+  // The STS parameters are checked before the HSM: a configuration problem
+  // must be reported as such even while the HSM is unreachable.
+  stsGuard.verifyMeter(db, meterNo, function(guardErr, check) {
+    if (guardErr) return callback(guardErr);
+    if (!check.ok) return callback(stsRefusal(meterNo, check));
+    issueVerifiedSTSToken(meterNo, energyKwh, callback);
+  });
+}
+
+function issueVerifiedSTSToken(meterNo, energyKwh, callback) {
   hsmService.requireConnection(function(connErr, connStatus) {
     if (connErr) {
       var e = new Error('PrismVend not connected: ' + connStatus.message);
@@ -1874,116 +1990,43 @@ function doVend(meterNo, totalAmount, vendorId, idempotencyKey, req, res) {
     lookupCustomer(meterNo, function(custErr, customer) {
       if (custErr) return res.status(404).json({ error: custErr.message });
 
-      // Step 3: Get tariff group and blocks
-      var tariffName = customer.tariffGroup || 'Prepaid Residential';
-      db.query(
-        'SELECT tg.id as groupId, tg.type as groupType, tg.flatRate, tb.* FROM TariffBlocks tb JOIN TariffGroups tg ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder',
-        [tariffName],
-        function(blkErr, rawBlocks) {
-          if (blkErr) return res.status(500).json({ error: blkErr.message });
-          if (!rawBlocks || rawBlocks.length === 0) {
-            // Fallback: try partial name match
-            db.query(
-              'SELECT tg.id as groupId, tg.type as groupType, tg.flatRate, tb.* FROM TariffBlocks tb JOIN TariffGroups tg ON tb.tariffGroupId = tg.id WHERE tg.name LIKE ? ORDER BY tb.sortOrder',
-              ['%' + tariffName + '%'],
-              function(blkErr2, rawBlocks2) {
-                if (!rawBlocks2 || rawBlocks2.length === 0) {
-                  rawBlocks2 = [{ groupId: 0, groupType: 'Flat', name: 'Default', rate: 1.68, minKwh: 0, maxKwh: 999999 }];
-                }
-                processVend(rawBlocks2);
-              }
-            );
-            return;
-          }
-          processVend(rawBlocks);
-        }
-      );
+      // Step 3: Resolve the meter's explicitly assigned tariff. No fallback
+      // rate: an unassigned or unknown tariff is a configuration error.
+      tariffResolver.resolveMeterTariff(db, meterNo, function(tErr, tariff) {
+        if (tErr) return res.status(500).json({ error: tErr.message });
+        if (!tariff.ok) return res.status(409).json({ error: tariff.message, code: tariff.code, details: tariff.details });
+        config = tariffResolver.effectiveConfig(config, tariff.group);
+        processVend(tariff.blocks.map(function(b) {
+          return Object.assign({ groupId: tariff.group.id, groupType: tariff.group.type, flatRate: tariff.group.flatRate }, b);
+        }));
+      });
 
       function processVend(rawBlocks) {
-        var groupType = rawBlocks[0].groupType || 'Block';
+        var groupType = rawBlocks[0].groupType;
         var groupId = rawBlocks[0].groupId;
 
         function doCalc(blocks, touPeriod) {
-          // Step 4: Calculate breakdown
-          var vatRate = parseFloat(config.vatRate) / 100;
-          var vatAmount = round2(totalAmount - (totalAmount / (1 + vatRate)));
-          var afterVat = round2(totalAmount - vatAmount);
-          var fixedCharge = round2(parseFloat(config.fixedCharge));
-          var relLevy = round2(parseFloat(config.relLevy));
-
-          // Arrears deduction
-          var arrearsDeducted = 0;
-          var customerArrears = parseFloat(customer.arrears) || 0;
-          if (config.arrearsMode === 'auto-deduct' && customerArrears > 0) {
-            arrearsDeducted = round2(Math.min(
-              customerArrears,
-              afterVat * (parseFloat(config.arrearsPercentage) / 100)
-            ));
-          }
-
-          var energyAmount = round2(afterVat - fixedCharge - relLevy - arrearsDeducted);
-          if (energyAmount <= 0) {
-            return res.status(400).json({ error: 'Amount too low to generate energy units after deductions' });
-          }
-
-          // Calculate kWh based on tariff type
-          var remainingAmount = energyAmount;
-          var totalKwh = 0;
-          var blockBreakdown = [];
-
-          if (groupType === 'TOU') {
-            // TOU: use the rate for the current period
-            var touBlock = blocks.find(function(b) { return b.period === touPeriod; }) || blocks[0];
-            var rate = parseFloat(touBlock.rate);
-            totalKwh = round2(remainingAmount / rate);
-            blockBreakdown.push({
-              block: touBlock.name + ' (' + (touPeriod || 'standard').toUpperCase() + ')',
-              rate: rate,
-              kWh: totalKwh,
-              amount: round2(remainingAmount),
-              period: touPeriod
-            });
-          } else if (groupType === 'Flat') {
-            var flatRate = parseFloat(blocks[0].rate) || parseFloat(rawBlocks[0].flatRate) || 2.45;
-            totalKwh = round2(remainingAmount / flatRate);
-            blockBreakdown.push({
-              block: blocks[0].name || 'Flat Rate',
-              rate: flatRate,
-              kWh: totalKwh,
-              amount: round2(remainingAmount)
-            });
-          } else {
-            // Block tariff (inclining)
-            for (var i = 0; i < blocks.length; i++) {
-              if (remainingAmount <= 0) break;
-              var block = blocks[i];
-              var blockRange = (parseFloat(block.maxKwh) || 999999) - (parseFloat(block.minKwh) || 0);
-              var blockCost = blockRange * parseFloat(block.rate);
-              var usedAmount = Math.min(remainingAmount, blockCost);
-              var usedKwh = usedAmount / parseFloat(block.rate);
-              totalKwh += usedKwh;
-              remainingAmount -= usedAmount;
-              blockBreakdown.push({
-                block: block.name,
-                rate: parseFloat(block.rate),
-                kWh: round2(usedKwh),
-                amount: round2(usedAmount)
-              });
-            }
-            totalKwh = round2(totalKwh);
-          }
-
-          // Compute per-kWh regulatory levies
-          var ecbLevyAmount = round2(totalKwh * parseFloat(config.ecbLevy || 0));
-          var nefLevyAmount = round2(totalKwh * parseFloat(config.nefLevy || 0));
-          var laSurchargeAmount = round2(totalKwh * parseFloat(config.laSurcharge || 0));
+          // Step 4: Calculate breakdown (shared with /token-preview)
+          var calc = tariffResolver.computeBreakdown(totalAmount, config, groupType, blocks, touPeriod, parseFloat(customer.arrears) || 0);
+          if (calc.error) return res.status(400).json({ error: calc.error });
+          var vatAmount = calc.vatAmount;
+          var afterVat = calc.afterVat;
+          var fixedCharge = calc.fixedCharge;
+          var relLevy = calc.relLevy;
+          var arrearsDeducted = calc.arrearsDeducted;
+          var energyAmount = calc.energyAmount;
+          var totalKwh = calc.totalKwh;
+          var blockBreakdown = calc.blockBreakdown;
+          var ecbLevyAmount = calc.ecbLevyAmount;
+          var nefLevyAmount = calc.nefLevyAmount;
+          var laSurchargeAmount = calc.laSurchargeAmount;
 
           // Step 5: Generate STS token via HSM and ref
           var refNo = generateRefNo();
 
           generateSTSTokenForMeter(meterNo, totalKwh, function(tokenErr, tokenResult) {
           if (tokenErr) {
-            return res.status(502).json({ error: tokenErr.message, hsmStatus: hsmService.getHSMStatus() });
+            return res.status(tokenErr.status || 502).json({ error: tokenErr.message, code: tokenErr.code, details: tokenErr.details, hsmStatus: hsmService.getHSMStatus() });
           }
           var token = tokenResult.token;
           var stsData = tokenResult;
@@ -2216,26 +2259,68 @@ function getOpenBatch(vendorId, callback) {
 
 
 // POST /vending/free-token - Issue free/engineering token
-router.post('/free-token', authenticateToken, function(req, res) {
+router.post('/free-token', authenticateToken, requireAdmin, function(req, res) {
   var meterNo = req.body.meterNo;
   var kWh = req.body.kWh;
   var type = req.body.type || 'Free Token';
   if (!meterNo) return res.status(400).json({ error: 'meterNo is required' });
+  kWh = parseFloat(kWh);
+  if (!(kWh > 0)) return res.status(400).json({ error: 'kWh must be greater than 0' });
 
-  var token = generateToken();
   var refNo = generateRefNo();
   var operatorName = getOperatorName(req);
   var operatorId = getOperatorId(req);
 
-  db.query(
-    'INSERT INTO VendingTransactions (refNo, meterNo, amount, kWh, token, operator, operatorId, type, status) VALUES (?, ?, 0, ?, ?, ?, ?, ?, "Completed")',
-    [refNo, meterNo, kWh || 0, token, operatorName, operatorId, type],
-    function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-      logAudit(type + ' issued to meter ' + meterNo, 'VEND', 'kWh: ' + (kWh || 0), operatorName, operatorId, req.ip);
-      res.json({ success: true, data: { refNo: refNo, token: token, meterNo: meterNo, kWh: kWh || 0, type: type } });
+  // A free token is still a real STS credit token from the HSM, under the
+  // meter's verified STS parameters. It used to be a random 20-digit number
+  // recorded as Completed, which no meter could accept.
+  //
+  // It goes through the PrismToken (Thrift) interface, whose transfer amount
+  // is in STS units of 0.1 kWh (IEC 62055-41 electricity, class 0 subclass 0),
+  // so the token carries exactly kWh x 10. The PrismVend Web vend takes a
+  // currency value and applies its own tariff, which is wrong for a fixed kWh.
+  var stsUnits = Math.round(kWh * 10);
+  if (Math.abs(stsUnits - kWh * 10) > 1e-9) return res.status(400).json({ error: 'kWh must be a multiple of 0.1' });
+  stsGuard.verifyMeter(db, meterNo, function(gErr, check) {
+    if (gErr) return res.status(500).json({ error: gErr.message });
+    if (!check.ok) {
+      stsRefusal(meterNo, check);
+      return res.status(409).json({ error: check.message, code: check.code, details: check.details });
     }
-  );
+    var sp = check.params;
+    var meterParams = { drn: meterNo, ea: parseInt(sp.ea, 10) || 7, tct: 2, sgc: sp.sgc, krn: sp.krn, ti: sp.ti, ken: sp.ken === null ? 255 : sp.ken };
+    var startTime = Date.now();
+    thriftHsm.issueCreditToken(meterParams, 0, stsUnits, function(hsmErr, result) {
+    var durationMs = Date.now() - startTime;
+    if (hsmErr) {
+      logPrismVendOperation('free-token', meterNo, { kWh: kWh, stsUnits: stsUnits }, null, 'error', null, hsmErr.message, operatorName, operatorId, durationMs);
+      return res.status(502).json({ error: 'HSM token generation failed: ' + hsmErr.message, code: 'HSM_UNAVAILABLE' });
+    }
+    var t0 = (result && result.tokens && result.tokens[0]) || {};
+    var token = t0.tokenDec || t0.token;
+    if (!/^\d{20}$/.test(String(token || ''))) {
+      logPrismVendOperation('free-token', meterNo, { kWh: kWh, stsUnits: stsUnits }, result, 'error', null, 'HSM returned no 20-digit token', operatorName, operatorId, durationMs);
+      return res.status(502).json({ error: 'The HSM did not return a 20-digit token; nothing was recorded' });
+    }
+    // The HSM echoes the parameters it encoded; refuse a token for anything
+    // other than the verified supply group, key revision, tariff index and amount.
+    var echoed = stsGuard.checkIssuedToken(t0, { drn: meterNo, sgc: sp.sgc, krn: sp.krn, ti: sp.ti, transferAmount: stsUnits });
+    if (!echoed.ok) {
+      logPrismVendOperation('free-token', meterNo, { kWh: kWh, stsUnits: stsUnits }, null, 'error', null, echoed.message, operatorName, operatorId, durationMs);
+      return res.status(502).json({ error: echoed.message, code: echoed.code, details: echoed.details });
+    }
+    logPrismVendOperation('free-token', meterNo, { kWh: kWh, stsUnits: stsUnits, sgc: sp.sgc, krn: sp.krn, ti: sp.ti }, { numTokens: result.numTokens }, 'success', result.messageId, null, operatorName, operatorId, durationMs);
+    db.query(
+      'INSERT INTO VendingTransactions (refNo, meterNo, amount, kWh, token, operator, operatorId, type, status) VALUES (?, ?, 0, ?, ?, ?, ?, ?, "Completed")',
+      [refNo, meterNo, kWh, token, operatorName, operatorId, type],
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message, token: token, refNo: refNo });
+        logAudit(type + ' issued to meter ' + meterNo, 'VEND', 'kWh: ' + kWh + ', Ref: ' + refNo, operatorName, operatorId, req.ip);
+        res.json({ success: true, data: { refNo: refNo, token: token, meterNo: meterNo, kWh: kWh, stsUnits: stsUnits, type: type, stsGenerated: true } });
+      }
+    );
+    });
+  });
 });
 
 
@@ -3207,33 +3292,16 @@ router.put('/dsm/:drn', authenticateToken, function(req, res) {
 
 router.get('/tariff-info/:drn', authenticateToken, function(req, res) {
   var drn = req.params.drn;
-  lookupCustomer(drn, function(custErr, customer) {
-    var tariffName = (customer && customer.tariffGroup) || 'Residential Prepaid';
+  tariffResolver.resolveMeterTariff(db, drn, function(tErr, tariff) {
+    if (tErr) return res.status(500).json({ error: tErr.message });
 
     db.query('SELECT * FROM TariffConfig LIMIT 1', function(err, configRows) {
       if (err) return res.status(500).json({ error: err.message });
-      var config = (configRows && configRows[0]) || {};
-
-      db.query(
-        'SELECT tg.*, GROUP_CONCAT(tb.name ORDER BY tb.sortOrder) as blockNames, GROUP_CONCAT(tb.rate ORDER BY tb.sortOrder) as blockRates FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name = ? GROUP BY tg.id',
-        [tariffName],
-        function(tgErr, tgRows) {
-          if (tgErr) return res.status(500).json({ error: tgErr.message });
-          var tariffGroup = (tgRows && tgRows[0]) || null;
-
-          if (!tariffGroup) {
-            db.query(
-              'SELECT tg.*, GROUP_CONCAT(tb.name ORDER BY tb.sortOrder) as blockNames, GROUP_CONCAT(tb.rate ORDER BY tb.sortOrder) as blockRates FROM TariffGroups tg LEFT JOIN TariffBlocks tb ON tb.tariffGroupId = tg.id WHERE tg.name LIKE ? GROUP BY tg.id LIMIT 1',
-              ['%' + tariffName + '%'],
-              function(e2, r2) {
-                tariffGroup = (r2 && r2[0]) || null;
-                finishTariffInfo();
-              }
-            );
-          } else {
-            finishTariffInfo();
-          }
-
+      // A meter without a valid tariff reports why (tariffStatus) instead of
+      // being shown a guessed one; older apps already handle tariffGroup null.
+      var tariffGroup = tariff.ok ? tariff.group : null;
+      var config = tariffResolver.effectiveConfig((configRows && configRows[0]) || {}, tariffGroup);
+      finishTariffInfo();
           function finishTariffInfo() {
             var now = new Date();
             var dow = now.getDay();
@@ -3304,6 +3372,9 @@ router.get('/tariff-info/:drn', authenticateToken, function(req, res) {
                     offPeakRate: tariffGroup.offPeakRate,
                     effectiveDate: tariffGroup.effectiveDate
                   } : null,
+                  tariffStatus: tariff.ok ? 'OK' : tariff.code,
+                  tariffMessage: tariff.ok ? null : tariff.message,
+                  tariffSource: tariff.ok ? tariff.source : (tariff.details && tariff.details.source) || null,
                   currentRate: currentRate,
                   currentPeriod: currentPeriod,
                   nextPeriodChange: nextPeriodChange,
@@ -3319,8 +3390,6 @@ router.get('/tariff-info/:drn', authenticateToken, function(req, res) {
               });
             }
           }
-        }
-      );
     });
   });
 });
@@ -3335,120 +3404,55 @@ router.post('/token-preview', authenticateToken, function(req, res) {
 
   db.query('SELECT * FROM TariffConfig LIMIT 1', function(err, configRows) {
     if (err) return res.status(500).json({ error: err.message });
-    var config = (configRows && configRows[0]) || { vatRate: 15, fixedCharge: 8.50, relLevy: 2.40, ecbLevy: 0.0212, nefLevy: 0.0160, laSurcharge: 0.1200, arrearsPercentage: 25, arrearsMode: 'auto-deduct', minPurchase: 5 };
+    var baseConfig = (configRows && configRows[0]) || { vatRate: 15, fixedCharge: 8.50, relLevy: 2.40, ecbLevy: 0.0212, nefLevy: 0.0160, laSurcharge: 0.1100, arrearsPercentage: 25, arrearsMode: 'auto-deduct', minPurchase: 5 };
 
     lookupCustomer(meterNo, function(custErr, customer) {
-      var tariffName = (customer && customer.tariffGroup) || 'Residential Prepaid';
       var customerArrears = (customer && parseFloat(customer.arrears)) || 0;
 
-      db.query(
-        'SELECT tg.id as groupId, tg.type as groupType, tg.flatRate, tg.peakRate, tg.standardRate, tg.offPeakRate, tb.* FROM TariffBlocks tb JOIN TariffGroups tg ON tb.tariffGroupId = tg.id WHERE tg.name = ? ORDER BY tb.sortOrder',
-        [tariffName],
-        function(blkErr, rawBlocks) {
-          if (!rawBlocks || rawBlocks.length === 0) {
-            db.query(
-              'SELECT tg.id as groupId, tg.type as groupType, tg.flatRate, tg.peakRate, tg.standardRate, tg.offPeakRate, tb.* FROM TariffBlocks tb JOIN TariffGroups tg ON tb.tariffGroupId = tg.id WHERE tg.name LIKE ? ORDER BY tb.sortOrder',
-              ['%' + tariffName + '%'],
-              function(e2, r2) {
-                if (!r2 || r2.length === 0) {
-                  r2 = [{ groupId: 0, groupType: 'Flat', name: 'Default', rate: 2.32, minKwh: 0, maxKwh: 999999 }];
-                }
-                calcPreview(r2);
-              }
-            );
-            return;
-          }
-          calcPreview(rawBlocks);
-        }
-      );
+      // Same resolution and calculation as /vend, so the quote is the sale.
+      tariffResolver.resolveMeterTariff(db, meterNo, function(tErr, tariff) {
+        if (tErr) return res.status(500).json({ error: tErr.message });
+        if (!tariff.ok) return res.status(409).json({ error: tariff.message, code: tariff.code, details: tariff.details });
+        var config = tariffResolver.effectiveConfig(baseConfig, tariff.group);
+        var groupType = tariff.group.type;
 
-      function calcPreview(rawBlocks) {
-        var groupType = rawBlocks[0].groupType || 'Flat';
-        var groupId = rawBlocks[0].groupId;
-
-        function doCalc(blocks, touPeriod) {
-          var vatRate = parseFloat(config.vatRate) / 100;
-          var vatAmount = round2(totalAmount - (totalAmount / (1 + vatRate)));
-          var afterVat = round2(totalAmount - vatAmount);
-          var fixedCharge = round2(parseFloat(config.fixedCharge));
-          var relLevy = round2(parseFloat(config.relLevy));
-
-          var arrearsDeducted = 0;
-          if (config.arrearsMode === 'auto-deduct' && customerArrears > 0) {
-            arrearsDeducted = round2(Math.min(customerArrears, afterVat * (parseFloat(config.arrearsPercentage) / 100)));
-          }
-
-          var energyAmount = round2(afterVat - fixedCharge - relLevy - arrearsDeducted);
-          if (energyAmount <= 0) {
-            return res.status(400).json({ error: 'Amount too low after deductions' });
-          }
-
-          var totalKwh = 0;
-          var blockBreakdown = [];
-
-          if (groupType === 'TOU') {
-            var touBlock = blocks.find(function(b) { return b.period === touPeriod; }) || blocks[0];
-            var rate = parseFloat(touBlock.rate);
-            totalKwh = round2(energyAmount / rate);
-            blockBreakdown.push({ block: touBlock.name + ' (' + (touPeriod || 'standard').toUpperCase() + ')', rate: rate, kWh: totalKwh, amount: round2(energyAmount) });
-          } else if (groupType === 'Flat') {
-            var flatRate = parseFloat(blocks[0].rate) || parseFloat(rawBlocks[0].flatRate) || 2.32;
-            totalKwh = round2(energyAmount / flatRate);
-            blockBreakdown.push({ block: 'Flat Rate', rate: flatRate, kWh: totalKwh, amount: round2(energyAmount) });
-          } else {
-            var remaining = energyAmount;
-            for (var i = 0; i < blocks.length && remaining > 0; i++) {
-              var block = blocks[i];
-              var blockRange = (parseFloat(block.maxKwh) || 999999) - (parseFloat(block.minKwh) || 0);
-              var blockCost = blockRange * parseFloat(block.rate);
-              var usedAmount = Math.min(remaining, blockCost);
-              var usedKwh = usedAmount / parseFloat(block.rate);
-              totalKwh += usedKwh;
-              remaining -= usedAmount;
-              blockBreakdown.push({ block: block.name, rate: parseFloat(block.rate), kWh: round2(usedKwh), amount: round2(usedAmount) });
-            }
-            totalKwh = round2(totalKwh);
-          }
-
-          var ecbLevyAmount = round2(totalKwh * parseFloat(config.ecbLevy || 0));
-          var nefLevyAmount = round2(totalKwh * parseFloat(config.nefLevy || 0));
-          var laSurchargeAmount = round2(totalKwh * parseFloat(config.laSurcharge || 0));
-
+        function doCalc(touPeriod) {
+          var calc = tariffResolver.computeBreakdown(totalAmount, config, groupType, tariff.blocks, touPeriod, customerArrears);
+          if (calc.error) return res.status(400).json({ error: calc.error });
           res.json({
             success: true,
             data: {
               totalAmount: totalAmount,
-              tariffGroup: tariffName,
+              tariffGroup: tariff.group.name,
               tariffType: groupType,
+              tariffEffectiveDate: tariff.group.effectiveDate || null,
               currentPeriod: touPeriod || null,
               breakdown: {
-                vatAmount: vatAmount,
-                vatRate: parseFloat(config.vatRate),
-                fixedCharge: fixedCharge,
-                relLevy: relLevy,
-                arrearsDeducted: arrearsDeducted,
-                ecbLevy: ecbLevyAmount,
+                vatAmount: calc.vatAmount,
+                vatRate: calc.vatRate,
+                fixedCharge: calc.fixedCharge,
+                relLevy: calc.relLevy,
+                arrearsDeducted: calc.arrearsDeducted,
+                ecbLevy: calc.ecbLevyAmount,
                 ecbLevyRate: parseFloat(config.ecbLevy || 0),
-                nefLevy: nefLevyAmount,
+                nefLevy: calc.nefLevyAmount,
                 nefLevyRate: parseFloat(config.nefLevy || 0),
-                laSurcharge: laSurchargeAmount,
+                laSurcharge: calc.laSurchargeAmount,
                 laSurchargeRate: parseFloat(config.laSurcharge || 0),
-                energyAmount: energyAmount,
-                totalKwh: totalKwh,
-                blocks: blockBreakdown
+                energyAmount: calc.energyAmount,
+                totalKwh: calc.totalKwh,
+                blocks: calc.blockBreakdown
               }
             }
           });
         }
 
         if (groupType === 'TOU') {
-          getCurrentTOUPeriod(groupId, function(err, period) {
-            doCalc(rawBlocks, period);
-          });
+          getCurrentTOUPeriod(tariff.group.id, function(e, period) { doCalc(period || 'standard'); });
         } else {
-          doCalc(rawBlocks, null);
+          doCalc(null);
         }
-      }
+      });
     });
   });
 });
@@ -3502,10 +3506,10 @@ router.post('/net-metering-credit/:drn', authenticateToken, requireAdmin, functi
       var creditAmount = round2(exportKwh * feedInRate);
 
       lookupCustomer(drn, function(custErr, customer) {
-        var tariffName = (customer && customer.tariffGroup) || 'Residential Prepaid';
-
-        db.query('SELECT * FROM TariffGroups WHERE name = ?', [tariffName], function(tgErr, tgRows) {
-          var tariffGroup = (tgRows && tgRows[0]) || null;
+        tariffResolver.resolveMeterTariff(db, drn, function(tErr, tariff) {
+          if (tErr) return res.status(500).json({ error: tErr.message });
+          if (!tariff.ok) return res.status(409).json({ error: tariff.message, code: tariff.code, details: tariff.details });
+          var tariffGroup = tariff.group;
 
           function withImportRate(importRate) {
             importRate = parseFloat(importRate) || 0;
@@ -3519,7 +3523,7 @@ router.post('/net-metering-credit/:drn', authenticateToken, requireAdmin, functi
 
             generateSTSTokenForMeter(drn, creditedKwh, function(tokenErr, tokenResult) {
               if (tokenErr) {
-                return res.status(502).json({ error: tokenErr.message, hsmStatus: hsmService.getHSMStatus() });
+                return res.status(tokenErr.status || 502).json({ error: tokenErr.message, code: tokenErr.code, details: tokenErr.details, hsmStatus: hsmService.getHSMStatus() });
               }
               var token = tokenResult.token;
               var ts = Date.now().toString(36).toUpperCase();
@@ -3577,15 +3581,9 @@ router.post('/net-metering-credit/:drn', authenticateToken, requireAdmin, functi
           } else if (tariffGroup && tariffGroup.type === 'Flat') {
             withImportRate(tariffGroup.flatRate);
           } else {
-            // Block or unresolved tariff — fall back to the prepaid rate
-            // table's Standard slot (index 2), same fallback /generate-bill uses.
-            db.query('SELECT tariff_rates FROM MeterTariffRates WHERE DRN = ?', [drn], function(_e2, rateRows) {
-              var rate = 2.80;
-              if (rateRows && rateRows[0] && rateRows[0].tariff_rates) {
-                try { rate = JSON.parse(rateRows[0].tariff_rates)[2] || 2.80; } catch (e3) { /* keep default */ }
-              }
-              withImportRate(rate);
-            });
+            // Block tariff: the marginal (highest) block is what the export
+            // displaces. No default rate — the blocks were validated above.
+            withImportRate(Math.max.apply(null, tariff.blocks.map(function(b) { return parseFloat(b.rate); })));
           }
         });
       });
@@ -4083,7 +4081,7 @@ router.get('/thrift-status', authenticateToken, function(req, res) {
 });
 
 // POST /vending/thrift-connect — Connect to PrismToken Thrift API
-router.post('/thrift-connect', authenticateToken, function(req, res) {
+router.post('/thrift-connect', authenticateToken, requireAdmin, function(req, res) {
   var b = req.body;
   // Apply config from request body
   if (b.host !== undefined && b.host) thriftHsm.thriftConfig.host = b.host;
@@ -4105,7 +4103,7 @@ router.post('/thrift-connect', authenticateToken, function(req, res) {
 });
 
 // POST /vending/thrift-disconnect — Disconnect from PrismToken
-router.post('/thrift-disconnect', authenticateToken, function(req, res) {
+router.post('/thrift-disconnect', authenticateToken, requireAdmin, function(req, res) {
   thriftHsm.disconnect();
   logPrismVendOperation('thrift-disconnect', null, null, { connected: false }, 'success', null, null, getOperatorName(req), getOperatorId(req), null);
   logAudit('Thrift HSM disconnected', 'SYSTEM', 'Direct Thrift connection closed', getOperatorName(req), getOperatorId(req), req.ip);
@@ -4127,7 +4125,7 @@ router.post('/thrift-ping', authenticateToken, function(req, res) {
 });
 
 // POST /vending/thrift-signin — Sign in to PrismToken to get accessToken
-router.post('/thrift-signin', authenticateToken, function(req, res) {
+router.post('/thrift-signin', authenticateToken, requireAdmin, function(req, res) {
   var b = req.body;
   // Allow overriding credentials from request
   if (b.username !== undefined) thriftHsm.thriftConfig.username = b.username;
@@ -4161,20 +4159,11 @@ router.get('/thrift-hsm-info', authenticateToken, function(req, res) {
 });
 
 // POST /vending/thrift-issue-credit — Issue credit token directly via Thrift
-router.post('/thrift-issue-credit', authenticateToken, function(req, res) {
+router.post('/thrift-issue-credit', authenticateToken, requireAdmin, function(req, res) {
   var b = req.body;
-  var meterParams = {
-    drn: b.drn || b.meterPAN || '',
-    ea: b.ea || 7,
-    tct: b.tct || 2,
-    sgc: b.sgc || 999907,
-    krn: b.krn || 2,
-    ti: b.ti || 1,
-    ken: b.ken || 255
-  };
+  var meterId = String(b.drn || b.meterPAN || '');
   var subclass = parseInt(b.subclass) || 0;
   var transferAmount = parseFloat(b.transferAmount || b.amount || 0);
-  var meterId = meterParams.drn;
 
   if (!meterId) {
     return res.status(400).json({ success: false, error: 'DRN (drn or meterPAN) is required' });
@@ -4183,6 +4172,27 @@ router.post('/thrift-issue-credit', authenticateToken, function(req, res) {
     return res.status(400).json({ success: false, error: 'transferAmount must be > 0' });
   }
 
+  // SGC/KRN/TI come from the verified MeterSecurityParams record. They used
+  // to come from the request body with 999907/2/1 defaults, so a caller that
+  // left them out got a token for the factory supply group.
+  stsGuard.verifyMeter(db, meterId, function(gErr, check) {
+    if (gErr) return res.status(500).json({ success: false, error: gErr.message });
+    if (!check.ok) {
+      stsRefusal(meterId, check);
+      return res.status(409).json({ success: false, error: check.message, code: check.code, details: check.details });
+    }
+    var sp = check.params;
+    var asked = { sgc: b.sgc, krn: b.krn, ti: b.ti };
+    var differs = Object.keys(asked).filter(function(k) { return asked[k] !== undefined && asked[k] !== null && asked[k] !== '' && String(asked[k]) !== String(sp[k]); });
+    if (differs.length) {
+      return res.status(409).json({ success: false, code: 'STS_CONFIG_MISMATCH',
+        error: 'Requested ' + differs.join('/') + ' differ from the verified STS parameters of this meter', details: { verified: sp } });
+    }
+    var meterParams = { drn: meterId, ea: parseInt(sp.ea, 10) || 7, tct: b.tct || 2, sgc: sp.sgc, krn: sp.krn, ti: sp.ti, ken: sp.ken === null ? 255 : sp.ken };
+    issueThriftCredit(meterParams);
+  });
+
+  function issueThriftCredit(meterParams) {
   var startTime = Date.now();
   thriftHsm.issueCreditToken(meterParams, subclass, transferAmount, function(err, result) {
     var durationMs = Date.now() - startTime;
@@ -4195,18 +4205,19 @@ router.post('/thrift-issue-credit', authenticateToken, function(req, res) {
       'Amount: ' + transferAmount + ', Tokens: ' + result.numTokens, getOperatorName(req), getOperatorId(req), req.ip);
     res.json({ success: true, data: result });
   });
+  }
 });
 
 // POST /vending/thrift-issue-engineering — Issue engineering token directly via Thrift
-router.post('/thrift-issue-engineering', authenticateToken, function(req, res) {
+router.post('/thrift-issue-engineering', authenticateToken, requireAdmin, function(req, res) {
   var b = req.body;
   var meterParams = {
     drn: b.drn || b.meterPAN || '',
     ea: b.ea || 7,
     tct: b.tct || 2,
-    sgc: b.sgc || 999907,
-    krn: b.krn || 2,
-    ti: b.ti || 1,
+    sgc: b.sgc,
+    krn: b.krn,
+    ti: b.ti,
     ken: b.ken || 255
   };
   var subclass = parseInt(b.subclass);
@@ -4218,6 +4229,13 @@ router.post('/thrift-issue-engineering', authenticateToken, function(req, res) {
   }
   if (isNaN(subclass)) {
     return res.status(400).json({ success: false, error: 'Engineering subclass is required (0/1/5/6/7)' });
+  }
+
+  // The meter's CURRENT sgc/krn/ti must be stated; defaulting them to
+  // 999907/2/1 produced tokens the meter rejects (or, worse, accepts
+  // against the wrong supply group).
+  if (!/^\d{6}$/.test(String(meterParams.sgc || '')) || !(parseInt(meterParams.krn) >= 1) || meterParams.ti === undefined || meterParams.ti === null || meterParams.ti === '') {
+    return res.status(400).json({ success: false, error: 'The current sgc (6 digits), krn and ti of the meter are required' });
   }
 
   var startTime = Date.now();
@@ -4235,15 +4253,15 @@ router.post('/thrift-issue-engineering', authenticateToken, function(req, res) {
 });
 
 // POST /vending/thrift-issue-keychange — Issue key change tokens directly via Thrift
-router.post('/thrift-issue-keychange', authenticateToken, function(req, res) {
+router.post('/thrift-issue-keychange', authenticateToken, requireAdmin, function(req, res) {
   var b = req.body;
   var meterParams = {
     drn: b.drn || b.meterPAN || '',
     ea: b.ea || 7,
     tct: b.tct || 2,
-    sgc: b.sgc || 999907,
-    krn: b.krn || 2,
-    ti: b.ti || 1,
+    sgc: b.sgc,
+    krn: b.krn,
+    ti: b.ti,
     ken: b.ken || 255
   };
   var newConfig = {
@@ -4260,6 +4278,13 @@ router.post('/thrift-issue-keychange', authenticateToken, function(req, res) {
     return res.status(400).json({ success: false, error: 'toSgc, toKrn, and toTi are required' });
   }
 
+  // The meter's CURRENT sgc/krn/ti must be stated; defaulting them to
+  // 999907/2/1 produced tokens the meter rejects (or, worse, accepts
+  // against the wrong supply group).
+  if (!/^\d{6}$/.test(String(meterParams.sgc || '')) || !(parseInt(meterParams.krn) >= 1) || meterParams.ti === undefined || meterParams.ti === null || meterParams.ti === '') {
+    return res.status(400).json({ success: false, error: 'The current sgc (6 digits), krn and ti of the meter are required' });
+  }
+
   var startTime = Date.now();
   thriftHsm.issueKeyChangeTokens(meterParams, newConfig, function(err, result) {
     var durationMs = Date.now() - startTime;
@@ -4270,6 +4295,7 @@ router.post('/thrift-issue-keychange', authenticateToken, function(req, res) {
     logPrismVendOperation('thrift-keychange', meterId, { sgc: meterParams.sgc, toSgc: newConfig.toSgc, toKrn: newConfig.toKrn }, result, 'success', result.messageId, null, getOperatorName(req), getOperatorId(req), durationMs);
     logAudit('Thrift key change tokens issued for ' + meterId, 'CREATE',
       'SGC: ' + meterParams.sgc + ' -> ' + newConfig.toSgc, getOperatorName(req), getOperatorId(req), req.ip);
+    recordKeyChangeIssued(meterId, newConfig.toSgc, newConfig.toKrn, newConfig.toTi, b.toKeyType, getOperatorName(req));
     res.json({ success: true, data: result });
   });
 });
@@ -4309,7 +4335,7 @@ router.post('/thrift-verify', authenticateToken, function(req, res) {
 });
 
 // PUT /vending/thrift-config — Update Thrift connection config without connecting
-router.put('/thrift-config', authenticateToken, function(req, res) {
+router.put('/thrift-config', authenticateToken, requireAdmin, function(req, res) {
   var b = req.body;
   if (b.host !== undefined) thriftHsm.thriftConfig.host = b.host || null;
   if (b.port !== undefined) thriftHsm.thriftConfig.port = parseInt(b.port) || 9443;
