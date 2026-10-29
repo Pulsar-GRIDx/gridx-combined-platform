@@ -228,6 +228,16 @@ router.get('/geyser/status/:drn', authenticateToken, async (req, res) => {
     // Get config
     const config = await ensureConfig(drn);
 
+    // Today's accumulated ON duration, computed server-side from the
+    // authoritative MeterHeaterStateTable transition log — never derived
+    // from a possibly-stale Android screen timestamp.
+    let duration = { onMinutesToday: 0, currentlyOn: false, onSince: null };
+    try {
+      duration = await mqttHandler.computeGeyserDurationToday(drn);
+    } catch (e) {
+      console.error('[GeyserControl] duration computation error:', e.message);
+    }
+
     res.json({
       success: true,
       drn,
@@ -235,6 +245,8 @@ router.get('/geyser/status/:drn', authenticateToken, async (req, res) => {
       geyser_control: loadState ? loadState.geyser_control : null,
       mains_state: loadState ? loadState.mains_state : null,
       last_report: loadState ? loadState.date_time : null,
+      on_minutes_today: duration.onMinutesToday,
+      currently_on_since: duration.onSince,
       config: {
         mode: config.mode,
         timer_hours: config.timer_hours,

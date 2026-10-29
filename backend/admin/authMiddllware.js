@@ -1,6 +1,7 @@
 var dotenv = require('dotenv');
 var jwt = require('jsonwebtoken');
 var validator = require('validator');
+var meterOwnership = require('../middleware/meterOwnership');
 
 dotenv.config();
 
@@ -23,6 +24,14 @@ function authenticateToken(req, res, next) {
       } else {
         return res.status(403).json({ error: 'Forbidden — invalid token' });
       }
+    }
+
+    // Server-side meter isolation: a customer token may only reference its
+    // own DRN, and meter tokens are not accepted here. See
+    // middleware/meterOwnership.js.
+    var refusal = meterOwnership.checkOwnership(req, decoded);
+    if (refusal) {
+      return res.status(refusal.status).json({ error: refusal.error });
     }
 
     // Attach decoded payload to request

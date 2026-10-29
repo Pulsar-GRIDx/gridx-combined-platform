@@ -74,6 +74,7 @@ let otaRoutes;
 try { otaRoutes = require('./routes/otaRoutes'); } catch (e) { /* optional */ }
 const groupControlRoutes = require('./routes/groupControlRoutes');
 const geyserControlRoutes = require('./routes/geyserControlRoutes');
+const userNotificationRoutes = require('./routes/userNotificationRoutes');
 const vendingRoutes = require('./vending/vendingRoutes');
 const integrationRoutes = require('./vending/integrationRoutes');
 const customerAuthRoutes = require('./routes/customerAuthRoutes');
@@ -169,6 +170,7 @@ apiRouter.use('/', meterDataRoutes);
 apiRouter.use('/', mqttRoutes);
 apiRouter.use('/', groupControlRoutes);
 apiRouter.use('/', geyserControlRoutes);
+apiRouter.use('/', userNotificationRoutes);
 apiRouter.use('/vending', vendingRoutes);
 apiRouter.use('/', tamperRoutes);
 // apiRouter.use('/', vsmRoutes); // VSM removed
