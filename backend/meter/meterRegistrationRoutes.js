@@ -3,11 +3,26 @@ const router = express.Router();
 const meterRegistrationController = require('./meterRegistrationController');
 
 /**
- * @route POST /api/meter/register
- * @description Register a new meter without authentication
- * @access Public
+ * @route POST /meter-registration/register
+ * @description Register (commission) a meter. Staff only: this creates the
+ *   meter record that customer accounts and the meter's own identity are
+ *   anchored to, so it cannot be public. The Maintenance app sends the
+ *   technician's /signin token. METER_REGISTRATION_ALLOW_ANONYMOUS=true
+ *   restores the old public behaviour (rollout only).
+ * @access Staff (admin token: ADMIN, TECHNICIAN, ...)
  */
-router.post('/register', meterRegistrationController.registerMeter);
+var auth = require('../admin/authMiddllware');
+var tokens = require('../middleware/tokens');
+function requireStaff(req, res, next) {
+  if (process.env.METER_REGISTRATION_ALLOW_ANONYMOUS === 'true' && !req.headers.authorization) return next();
+  auth.authenticateToken(req, res, function() {
+    if (tokens.kind(req.user) !== 'admin') {
+      return res.status(403).json({ error: 'Meter registration requires a technician or administrator account' });
+    }
+    next();
+  });
+}
+router.post('/register', requireStaff, meterRegistrationController.registerMeter);
 
 /**
  * @route GET /api/meter/locations

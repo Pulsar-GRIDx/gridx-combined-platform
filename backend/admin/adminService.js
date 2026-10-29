@@ -299,7 +299,13 @@ exports.getUserProfile = function(UserID) {
 
 exports.getAllUsers = function() {
   return new Promise(function(resolve, reject) {
-    connection.query('SELECT UserID, FirstName, LastName, Email, DRN, isVerified, login_count, lastLoginTime, ip_address FROM SystemUsers', function(err, results) {
+    // DRN is the legacy signup meter; meterDrns/meterCount are the meters
+    // the account can actually use (CustomerMeters).
+    connection.query(
+      "SELECT su.UserID, su.FirstName, su.LastName, su.Email, su.DRN, su.isVerified, su.login_count, su.lastLoginTime, su.ip_address, " +
+      "(SELECT GROUP_CONCAT(cm.DRN ORDER BY cm.created_at) FROM CustomerMeters cm WHERE cm.UserID = su.UserID AND cm.status = 'active') AS meterDrns, " +
+      "(SELECT COUNT(*) FROM CustomerMeters cm WHERE cm.UserID = su.UserID AND cm.status = 'active') AS meterCount " +
+      "FROM SystemUsers su", function(err, results) {
       if (err) reject(err); else resolve(results);
     });
   });

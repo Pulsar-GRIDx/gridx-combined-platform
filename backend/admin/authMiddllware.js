@@ -1,6 +1,7 @@
 var dotenv = require('dotenv');
 var jwt = require('jsonwebtoken');
 var validator = require('validator');
+var meterOwnership = require('../middleware/meterOwnership');
 
 dotenv.config();
 
@@ -25,10 +26,21 @@ function authenticateToken(req, res, next) {
       }
     }
 
-    // Attach decoded payload to request
-    req.user = decoded;
-    req.tokenPayload = decoded;
-    next();
+    // Server-side meter isolation: a customer token may only use allow-listed
+    // routes for meters linked to its account, and meter tokens are not
+    // accepted here. See middleware/meterOwnership.js.
+    meterOwnership.checkOwnership(req, decoded).then(function(refusal) {
+      if (refusal) {
+        return res.status(refusal.status).json({ error: refusal.error, code: refusal.code });
+      }
+      // Attach decoded payload to request
+      req.user = decoded;
+      req.tokenPayload = decoded;
+      next();
+    }, function(authzErr) {
+      console.error('[Auth] Authorisation check failed:', authzErr.message);
+      res.status(503).json({ error: 'Authorisation service unavailable' });
+    });
   });
 }
 

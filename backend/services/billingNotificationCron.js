@@ -29,7 +29,7 @@ const transporter = nodemailer.createTransport({
   secure: true,
   auth: {
     user: process.env.EMAIL_USER || process.env.EMAIL || 'info@gridx-meters.com',
-    pass: process.env.EMAIL_PASSWORD || process.env.EMAIL_KEY || 'W9h8B_Ykd!UgWgM',
+    pass: process.env.EMAIL_PASSWORD || process.env.EMAIL_KEY,
   },
 });
 
@@ -65,7 +65,9 @@ async function getEmailRecipients() {
       FROM 
         MeterBillingConfiguration bc
       JOIN 
-        SystemUsers su ON bc.DRN = su.DRN
+        CustomerMeters cm ON cm.DRN = bc.DRN AND cm.status = 'active'
+      JOIN 
+        SystemUsers su ON su.UserID = cm.UserID
       WHERE 
         FIND_IN_SET('Email', bc.notification_types) > 0
         AND (
