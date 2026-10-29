@@ -168,10 +168,9 @@ Calibration.getLastCalibrationUpdate= (DRN, result) => {
 };
 
 Calibration.getLastUpdate= (DRN, result) => {
-  const query = "SELECT * FROM tariff ORDER BY ID DESC LIMIT 1";
+  const query = "SELECT * FROM tariff WHERE ID = (SELECT MAX(ID) FROM tariff WHERE DRN = ?)";
 
-
-  connection.query(query,
+  connection.query(query, [DRN],
     (err, res) => {
       if (err) {
         result(err, null);

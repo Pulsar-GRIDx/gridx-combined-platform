@@ -17,6 +17,7 @@
 const mqtt = require('mqtt');
 const http = require('http');
 const db = require('../config/db');
+const userNotifications = require('./userNotificationService');
 
 let mqttClient = null;
 
@@ -70,6 +71,81 @@ function serverRecordPowerDirection(drn, active_power) {
   pd.lastPower = active_power;
   if (active_power >= 0) pd.importing++;
   else pd.exporting++;
+}
+
+// ==================== Load-change ("high power") notification ====================
+// In-memory per-DRN episode tracker, same convention as powerDirectionState
+// above — no new state authority, just a notification trigger layered on top
+// of the power telemetry that was already being ingested into MeteringPower.
+//
+// A single instantaneous power jump (e.g. 12W -> 15W, or even a brief
+// 200W -> 2500W blip) must NOT notify — only a load that stays elevated
+// above a rolling baseline for a sustained period, and only once per
+// cooldown window, so an ongoing high-load episode doesn't spam repeated
+// notifications on every telemetry message (these arrive every few seconds).
+const loadEventState = {};
+
+// Last-known geyser state per DRN, checked synchronously (no DB round trip)
+// before deciding whether a relay event is a genuine transition. This meter
+// sends periodic "Hardware state update" heartbeats carrying the same state
+// every few seconds, not just real transitions — a SELECT-then-compare
+// against MeterLoadControl's latest row races against that same event's own
+// concurrent INSERT (and its heartbeat partner's), so it was misfiring as a
+// "transition" on nearly every heartbeat. Node is single-threaded and this
+// check has no await between read and write, so it can't race with itself.
+const lastKnownGeyserState = {};
+const loadConfigCache = {}; // DRN -> { relative_multiple, absolute_floor_w, sustained_minutes, cooldown_minutes, fetchedAt }
+const LOAD_CONFIG_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_LOAD_CONFIG = { relative_multiple: 3.0, absolute_floor_w: 300, sustained_minutes: 5, cooldown_minutes: 60 };
+
+async function getLoadConfig(drn) {
+  const cached = loadConfigCache[drn];
+  if (cached && (Date.now() - cached.fetchedAt) < LOAD_CONFIG_TTL_MS) return cached;
+  const row = await new Promise((resolve) => {
+    db.query('SELECT relative_multiple, absolute_floor_w, sustained_minutes, cooldown_minutes FROM MeterLoadEventConfig WHERE DRN = ?', [drn],
+      (err, rows) => resolve(!err && rows && rows.length ? rows[0] : null));
+  });
+  const cfg = { ...DEFAULT_LOAD_CONFIG, ...(row || {}), fetchedAt: Date.now() };
+  loadConfigCache[drn] = cfg;
+  return cfg;
+}
+
+async function checkLoadChangeEvent(drn, activePowerW) {
+  const power = Math.abs(activePowerW);
+  const cfg = await getLoadConfig(drn);
+  let s = loadEventState[drn];
+  if (!s) {
+    s = loadEventState[drn] = { baseline: power, elevatedSince: null, lastNotifiedAt: 0 };
+    return;
+  }
+
+  const isElevated = power > s.baseline * cfg.relative_multiple && (power - s.baseline) > cfg.absolute_floor_w;
+
+  if (isElevated) {
+    if (!s.elevatedSince) s.elevatedSince = Date.now();
+    const sustainedMs = Date.now() - s.elevatedSince;
+    const cooldownMs = Date.now() - s.lastNotifiedAt;
+    if (sustainedMs >= cfg.sustained_minutes * 60000 && cooldownMs >= cfg.cooldown_minutes * 60000) {
+      s.lastNotifiedAt = Date.now();
+      try {
+        await userNotifications.notifyMeterOwners(drn, {
+          category: 'high_power_load',
+          title: 'High Load Detected',
+          body: `A significant increase in power utilization was detected on meter ${drn} (~${Math.round(power)} W, sustained for over ${cfg.sustained_minutes} min).`,
+          sourceEventId: `load_event:${drn}:${s.elevatedSince}`,
+          meta: { drn, powerW: Math.round(power), baselineW: Math.round(s.baseline) },
+        });
+      } catch (e) {
+        console.error('[MQTT] Load-change notification error:', e.message);
+      }
+    }
+    // Do not let the baseline chase an active episode.
+  } else {
+    s.elevatedSince = null;
+    // Slow exponential moving average so the "normal" baseline adapts to
+    // genuine long-term usage changes without reacting to any single reading.
+    s.baseline = s.baseline * 0.98 + power * 0.02;
+  }
 }
 
 function serverHourlyTrack(drn, import_wh, export_wh) {
@@ -289,6 +365,12 @@ function handleOtaRequest(drn, buf) {
   const action = msg.action;
 
   if (action === 'chunk') {
+    // Restoring the team's own live-but-uncommitted change here (present on
+    // the server, absent from this local git checkout) so deploying this
+    // file does not silently revert it: gridx-ota-portal now owns serving
+    // OTA chunks, so this service must not also answer gx/+/ota/req chunk
+    // requests (both answering caused every chunk to be delivered twice).
+    return;
     const offset = msg.offset || 0;
     const requestedSize = msg.size || 1024;
 
@@ -1000,6 +1082,7 @@ function handlePowerBin(drn, buf) {
   if (buf.length < 37) return console.error('[MQTT] Power packet too short:', buf.length);
   const active_power = buf.readFloatLE(9);
   serverRecordPowerDirection(drn, active_power);
+  checkLoadChangeEvent(drn, active_power).catch(e => console.error('[MQTT] Load-change check error:', e.message));
   db.query('INSERT INTO MeteringPower SET ?', {
     DRN: drn,
     current:        buf.readFloatLE(1),
@@ -1273,31 +1356,208 @@ function handleRelayLogBin(drn, buf) {
        (drn, relay_index, entry_type, state, control, reason_code, reason_text, trigger_type, meter_timestamp)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?))`,
     [drn, relay_index, entry_type, state, control, reason, rt.value, trigger, timestamp],
-    (err) => { if (err) console.error('[MQTT] Relay event insert error:', err.message); }
-  );
+    (err, relayResult) => {
+      if (err) console.error('[MQTT] Relay event insert error:', err.message);
 
-  // Update MeterLoadControl for immediate state visibility
-  // relay_index: 0 = mains, 1 = geyser
-  db.query(
-    'SELECT geyser_state, geyser_control, mains_state, mains_control FROM MeterLoadControl WHERE DRN = ? ORDER BY date_time DESC LIMIT 1',
-    [drn],
-    (err, rows) => {
-      const prev = (!err && rows && rows.length > 0) ? rows[0] : { geyser_state: 0, geyser_control: 0, mains_state: 0, mains_control: 0 };
-      const isMains = relay_index === 0;
-      const isGeyser = relay_index === 1;
-      db.query('INSERT INTO MeterLoadControl SET ?', {
-        DRN: drn,
-        geyser_state:   isGeyser ? state : prev.geyser_state,
-        geyser_control: isGeyser ? control : prev.geyser_control,
-        mains_state:    isMains ? state : prev.mains_state,
-        mains_control:  isMains ? control : prev.mains_control,
-      }, (err2) => {
-        if (err2) console.error('[MQTT] Relay LoadControl insert error:', err2.message);
-        else console.log(`[MQTT] Relay log updated MeterLoadControl for ${drn}`);
-      });
+      // Update MeterLoadControl for immediate state visibility
+      // relay_index: 0 = mains, 1 = geyser
+      db.query(
+        'SELECT geyser_state, geyser_control, mains_state, mains_control FROM MeterLoadControl WHERE DRN = ? ORDER BY date_time DESC LIMIT 1',
+        [drn],
+        (err2, rows) => {
+          const prev = (!err2 && rows && rows.length > 0) ? rows[0] : { geyser_state: 0, geyser_control: 0, mains_state: 0, mains_control: 0 };
+          const isMains = relay_index === 0;
+          const isGeyser = relay_index === 1;
+          // A genuine transition, not the meter re-affirming the same state
+          // in a periodic heartbeat ("Hardware state update" fires every few
+          // seconds regardless of whether anything changed) — only a real
+          // transition should notify. Checked synchronously against an
+          // in-memory last-known value, not a DB SELECT: this meter's
+          // heartbeat pairs (mains + geyser) arrive close enough together
+          // that a SELECT-then-INSERT round trip races against the pair's
+          // own concurrent writes and was misfiring as "transitioned" on
+          // nearly every heartbeat.
+          const geyserTransitioned = isGeyser && lastKnownGeyserState[drn] !== state;
+          if (isGeyser) lastKnownGeyserState[drn] = state;
+
+          db.query('INSERT INTO MeterLoadControl SET ?', {
+            DRN: drn,
+            geyser_state:   isGeyser ? state : prev.geyser_state,
+            geyser_control: isGeyser ? control : prev.geyser_control,
+            mains_state:    isMains ? state : prev.mains_state,
+            mains_control:  isMains ? control : prev.mains_control,
+          }, (err3) => {
+            if (err3) console.error('[MQTT] Relay LoadControl insert error:', err3.message);
+            else console.log(`[MQTT] Relay log updated MeterLoadControl for ${drn}`);
+          });
+
+          if (geyserTransitioned && !err && relayResult) {
+            notifyGeyserStateChange(drn, state, relayResult.insertId).catch(e =>
+              console.error('[MQTT] Geyser notification error:', e.message));
+          }
+        }
+      );
     }
   );
 }
+
+/**
+ * Fire a "Geyser Turned On/Off" notification for every user associated with
+ * this meter. sourceEventId is keyed off the row id of whichever authoritative
+ * table recorded the transition (MeterHeaterStateTable for an ACK-confirmed
+ * app command, meter_relay_events for an autonomous schedule/timer change),
+ * so the same physical transition reported twice (e.g. an ACK plus its own
+ * relay-log echo) still produces at most one notification per source table
+ * per user via the UserNotifications unique key — not a single global lock,
+ * but in practice the two paths log distinct row ids for the same moment,
+ * which is an acceptable, documented trade-off rather than a missed case:
+ * both paths represent a real, independently-confirmed state report.
+ */
+/**
+ * Fire the sender ("Credit Sent") and recipient ("Credit Received")
+ * notifications for a credit transfer. Called only once, from the single
+ * point in the state machine where a transfer reaches its terminal
+ * 'completed' status (both the destination's credit_accept ACK and the
+ * source's own credit_deduct ACK have already succeeded) — never on
+ * submission, and never on an intermediate status, so a transfer that later
+ * fails after the destination accepted (a real, if narrow, possibility in
+ * this two-phase protocol) does not falsely notify either side.
+ */
+async function notifyCreditTransferCompleted(transfer) {
+  const kwh = transfer.watt_hours / 1000;
+  const kwhStr = Number.isInteger(kwh) ? String(kwh) : kwh.toFixed(2);
+
+  await userNotifications.notifyMeterOwners(transfer.source_drn, {
+    category: 'credit_sent',
+    title: 'Credit Sent',
+    body: `You sent ${kwhStr} kWh to meter ${transfer.target_drn}.`,
+    sourceEventId: `credit_transfer:${transfer.id}:sent`,
+    meta: { transferId: transfer.id, direction: 'sent', kwh, counterpartyDrn: transfer.target_drn },
+  });
+
+  await userNotifications.notifyMeterOwners(transfer.target_drn, {
+    category: 'credit_received',
+    title: 'Credit Received',
+    body: `You received ${kwhStr} kWh from meter ${transfer.source_drn}.`,
+    sourceEventId: `credit_transfer:${transfer.id}:received`,
+    meta: { transferId: transfer.id, direction: 'received', kwh, counterpartyDrn: transfer.source_drn },
+  });
+}
+
+async function notifyGeyserStateChange(drn, state, eventRowId) {
+  const isOn = state === 1;
+  await userNotifications.notifyMeterOwners(drn, {
+    category: 'geyser_state',
+    title: isOn ? 'Geyser Turned On' : 'Geyser Turned Off',
+    body: isOn ? 'Your geyser has been turned on.' : 'Your geyser has been turned off.',
+    sourceEventId: `geyser_state:${drn}:${eventRowId}`,
+    meta: { drn, state },
+  });
+}
+
+// ==================== Geyser long-running duration check ====================
+// Periodic (not event-driven) — "has been on for N hours" is a function of
+// elapsed time, not a discrete telemetry event, so it has to be polled.
+// Authoritative source: MeterHeaterStateTable transition timestamps (the
+// same table the Android "last turned on/off" display already reads), never
+// a client-side timer — this must be correct even if no app was ever open
+// while the geyser was running.
+const GEYSER_DURATION_THRESHOLDS_MIN = [120, 240, 360]; // 2h, 4h, 6h
+const GEYSER_DURATION_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+
+/**
+ * Today's accumulated geyser ON duration for one meter, computed purely from
+ * MeterHeaterStateTable transitions (authoritative) — exported so the
+ * customer-facing /geyser/status endpoint can surface the same figure the
+ * Android app shows, rather than the client trying to derive it from a
+ * single "last changed at" timestamp plus its own possibly-stale clock.
+ */
+async function computeGeyserDurationToday(drn) {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const transitions = await new Promise((resolve) => {
+    db.query(
+      'SELECT state, date_time FROM MeterHeaterStateTable WHERE DRN = ? AND date_time >= ? ORDER BY date_time ASC',
+      [drn, todayStart],
+      (err, r) => resolve(!err && r ? r : [])
+    );
+  });
+
+  const now = Date.now();
+  let onMinutes = 0;
+  let currentlyOn = false;
+  let onSince = null;
+  for (let i = 0; i < transitions.length; i++) {
+    if (transitions[i].state === 1) {
+      const start = new Date(transitions[i].date_time).getTime();
+      const end = (i + 1 < transitions.length) ? new Date(transitions[i + 1].date_time).getTime() : now;
+      onMinutes += (end - start) / 60000;
+      if (i + 1 === transitions.length) {
+        currentlyOn = true;
+        onSince = transitions[i].date_time;
+      }
+    }
+  }
+  return { onMinutesToday: Math.round(onMinutes), currentlyOn, onSince };
+}
+
+async function checkGeyserRunningDurations() {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const rows = await new Promise((resolve) => {
+    db.query(
+      'SELECT DRN, state, date_time FROM MeterHeaterStateTable WHERE date_time >= ? ORDER BY DRN, date_time ASC',
+      [todayStart],
+      (err, r) => resolve(!err && r ? r : [])
+    );
+  });
+
+  const byDrn = {};
+  for (const row of rows) {
+    (byDrn[row.DRN] = byDrn[row.DRN] || []).push(row);
+  }
+
+  const now = Date.now();
+  const todayStr = todayStart.toISOString().split('T')[0];
+
+  for (const drn of Object.keys(byDrn)) {
+    const transitions = byDrn[drn];
+    let onMinutes = 0;
+    let currentlyOn = false;
+    for (let i = 0; i < transitions.length; i++) {
+      if (transitions[i].state === 1) {
+        const start = new Date(transitions[i].date_time).getTime();
+        const end = (i + 1 < transitions.length) ? new Date(transitions[i + 1].date_time).getTime() : now;
+        onMinutes += (end - start) / 60000;
+        if (i + 1 === transitions.length) currentlyOn = true;
+      }
+    }
+    if (!currentlyOn) continue; // only warn about an *ongoing* long run, not a historical total
+
+    for (const threshold of GEYSER_DURATION_THRESHOLDS_MIN) {
+      if (onMinutes >= threshold) {
+        const hours = threshold / 60;
+        try {
+          await userNotifications.notifyMeterOwners(drn, {
+            category: 'geyser_running_long',
+            title: 'Geyser Running',
+            body: `Your geyser has been on for ${hours} hour${hours === 1 ? '' : 's'} today.`,
+            sourceEventId: `geyser_duration:${drn}:${todayStr}:${threshold}`,
+            meta: { drn, onMinutesToday: Math.round(onMinutes), thresholdMinutes: threshold },
+          });
+        } catch (e) {
+          console.error('[MQTT] Geyser duration notification error:', e.message);
+        }
+      }
+    }
+  }
+}
+
+setInterval(() => {
+  checkGeyserRunningDurations().catch(e => console.error('[MQTT] Geyser duration check error:', e.message));
+}, GEYSER_DURATION_CHECK_INTERVAL_MS);
 
 // ==================== JSON Handlers (new MQTT topics) ====================
 
@@ -1308,13 +1568,22 @@ function handleAckJson(drn, data) {
   // ESP32 sends type: "gc" or "gs", detail: "enabled"/"disabled" or "on"/"off"
   if ((data.type === 'gc' || data.type === 'gs' || data.type === 'geyser_control') && data.status === 'ok') {
     const geyserState = (data.detail === 'on' || data.detail === 'enabled') ? 1 : 0;
-    // Get last known mains values to build a complete record
+    // Get last known state to build a complete record and to tell a genuine
+    // transition apart from the meter reaffirming a state it was already in
+    // (e.g. the app sends "on" while it's already on) — only a real
+    // transition should notify.
     db.query(
-      'SELECT mains_state, mains_control FROM MeterLoadControl WHERE DRN = ? ORDER BY date_time DESC LIMIT 1',
+      'SELECT geyser_state, mains_state, mains_control FROM MeterLoadControl WHERE DRN = ? ORDER BY date_time DESC LIMIT 1',
       [drn],
       (err, rows) => {
         const mainsState = (!err && rows && rows.length > 0) ? rows[0].mains_state : 0;
         const mainsControl = (!err && rows && rows.length > 0) ? rows[0].mains_control : 0;
+        // Same synchronous in-memory check as the relay-log path (see
+        // lastKnownGeyserState above) rather than the DB read this used to
+        // race against — an ACK arriving close to a heartbeat relay-log
+        // event for the same state could otherwise double-fire.
+        const geyserTransitioned = lastKnownGeyserState[drn] !== geyserState;
+        lastKnownGeyserState[drn] = geyserState;
         db.query('INSERT INTO MeterLoadControl SET ?', {
           DRN: drn,
           geyser_state: geyserState,
@@ -1340,8 +1609,12 @@ function handleAckJson(drn, data) {
       state: geyserState,
       processed: '1',
       reason: data.detail === 'on' ? 'MQTT geyser ON confirmed' : 'MQTT geyser OFF confirmed',
-    }, (err) => {
-      if (err) console.error('[MQTT] ACK HeaterState insert error:', err.message);
+    }, (err, result) => {
+      if (err) return console.error('[MQTT] ACK HeaterState insert error:', err.message);
+      if (geyserTransitioned) {
+        notifyGeyserStateChange(drn, geyserState, result.insertId).catch(e =>
+          console.error('[MQTT] Geyser notification error:', e.message));
+      }
     });
 
     // Mark pending heater control commands as processed
@@ -1472,9 +1745,25 @@ function handleAckJson(drn, data) {
       db.query(
         'UPDATE CreditTransfers SET status = ? WHERE source_drn = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
         ['completed', drn, 'completing'],
-        (err) => {
-          if (err) console.error('[MQTT] CreditTransfer complete update error:', err.message);
-          else console.log(`[MQTT] Credit transfer from ${drn} marked COMPLETED`);
+        (err, result) => {
+          if (err) return console.error('[MQTT] CreditTransfer complete update error:', err.message);
+          console.log(`[MQTT] Credit transfer from ${drn} marked COMPLETED`);
+          // affectedRows === 0 means a duplicate/replayed ACK arrived after
+          // the transfer was already completed — the state machine itself
+          // is the idempotency guard here, so skip re-notifying.
+          if (result.affectedRows !== 1) return;
+          db.query(
+            'SELECT id, source_drn, target_drn, watt_hours FROM CreditTransfers WHERE source_drn = ? AND status = ? ORDER BY created_at DESC LIMIT 1',
+            [drn, 'completed'],
+            (err2, rows) => {
+              if (err2 || !rows || !rows.length) {
+                if (err2) console.error('[MQTT] CreditTransfer post-complete lookup error:', err2.message);
+                return;
+              }
+              notifyCreditTransferCompleted(rows[0]).catch(e =>
+                console.error('[MQTT] Credit transfer notification error:', e.message));
+            }
+          );
         }
       );
     } else {
@@ -1905,6 +2194,7 @@ function handleJsonMessage(drn, type, data) {
         reactive_power: data[3], apparent_power: data[4], temperature: data[5],
         frequency: data[6], power_factor: data[7], record_time: data[8], source: 1,
       }, (err) => { if (err) console.error('[MQTT] Power insert error:', err.message); });
+      checkLoadChangeEvent(drn, data[2]).catch(e => console.error('[MQTT] Load-change check error:', e.message));
       break;
     }
     case 'energy': {
@@ -1972,4 +2262,4 @@ function getClient() {
   return mqttClient;
 }
 
-module.exports = { init, publishCommand, getClient, startMqttOta, getFirmwareInfo };
+module.exports = { init, publishCommand, getClient, startMqttOta, getFirmwareInfo, computeGeyserDurationToday };

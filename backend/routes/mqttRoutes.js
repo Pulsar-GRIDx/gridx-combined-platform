@@ -39,6 +39,25 @@ db.query(`CREATE TABLE IF NOT EXISTS MeterNetMeteringConfig (
   updated_at DATETIME
 )`, (err) => { if (err) console.warn('MeterNetMeteringConfig table init:', err.message); });
 
+// Track how much exported energy has already been credited, so the export
+// credit endpoint (vendingRoutes.js POST /net-metering-credit/:drn) only
+// credits energy exported since the last run, not the whole cumulative total.
+function addColumnIfNotExists(table, column, definition) {
+  const checkSql = "SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?";
+  db.query(checkSql, [table, column], (err, results) => {
+    if (err) { console.warn(`[NetMeteringConfig] Check column error: ${err.message}`); return; }
+    if (results[0].cnt === 0) {
+      db.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`, (err2) => {
+        if (err2 && err2.message.indexOf('Duplicate column') === -1) {
+          console.warn(`[NetMeteringConfig] Add column error: ${err2.message}`);
+        }
+      });
+    }
+  });
+}
+addColumnIfNotExists('MeterNetMeteringConfig', 'last_credited_at', 'DATETIME DEFAULT NULL');
+addColumnIfNotExists('MeterNetMeteringConfig', 'total_credited_export_wh', 'INT UNSIGNED DEFAULT 0');
+
 // ═══════════════════════════════════════════════════════════════════════
 // GENERIC COMMAND
 // ═══════════════════════════════════════════════════════════════════════
@@ -360,39 +379,106 @@ router.post('/mqtt/load-control/:drn', authenticateToken, (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
+ * Look up a meter's vending eligibility + supply group code, authoritative
+ * from MeterSecurityParams (the same table STS token generation relies on).
+ * A meter with no row here has never been registered for vending and cannot
+ * send or receive credit, regardless of whether it exists in MeterProfileReal.
+ */
+async function getMeterVendingInfo(drn) {
+  const row = await queryOne(
+    'SELECT sgc, isActive FROM MeterSecurityParams WHERE meterNumber = ?',
+    [drn]
+  );
+  if (!row || !row.sgc || !row.isActive) return { eligible: false, sgc: null };
+  return { eligible: true, sgc: row.sgc };
+}
+
+/**
  * POST /mqtt/credit-transfer/:drn
  * Transfer units from one meter to another
  * Body: { "target_meter": "1234", "watt_hours": 1000 }
  * The source meter (drn) generates an offline token for the target meter
  */
-router.post('/mqtt/credit-transfer/:drn', authenticateToken, (req, res) => {
+router.post('/mqtt/credit-transfer/:drn', authenticateToken, async (req, res) => {
   try {
     const drn = req.params.drn;
     const { target_meter, watt_hours } = req.body;
 
+    // A CUSTOMER token may only move credit out of the meter it was issued
+    // for — the client hides/disables this field, but that's UI only, so the
+    // server must be the one that actually enforces it. Admin/operator
+    // tokens (no CUSTOMER role) keep the existing ability to act on any
+    // meter, since the admin portal uses this same endpoint on behalf of
+    // support cases.
+    // Deliberately 422, not 401/403: the Android app's OkHttp interceptor
+    // treats any 401/403 on this client as a dead session and retries then
+    // force-logs-out (see MeterRetrofitClient) — this is a valid, correctly
+    // authenticated request being refused for a business reason, not an
+    // auth failure, so it must not trip that logic.
+    if (req.user && req.user.role === 'CUSTOMER' && req.user.DRN !== drn) {
+      return res.status(422).json({ error: 'You may only transfer credit from your own associated meter' });
+    }
+
     if (!target_meter || target_meter.length < 4) {
       return res.status(400).json({ error: 'target_meter is required (min 4 digits)' });
     }
-
     if (!watt_hours || watt_hours <= 0 || watt_hours > 15000) {
       return res.status(400).json({ error: 'watt_hours must be between 1 and 15000 (max 15 kWh)' });
     }
-
     if (drn === target_meter) {
       return res.status(400).json({ error: 'Cannot transfer to the same meter' });
     }
-
     const whInt = parseInt(watt_hours);
+    const requestedKwh = whInt / 1000;
 
-    // Validate target meter exists in the system
-    db.query('SELECT DRN FROM MeterProfileReal WHERE DRN = ?', [target_meter], (err, rows) => {
-      if (err) {
-        console.error('[CreditTransfer] Target meter lookup error:', err.message);
-        return res.status(500).json({ error: 'Failed to validate target meter' });
-      }
-      if (!rows || rows.length === 0) {
-        return res.status(404).json({ error: `Target meter ${target_meter} not found in the system` });
-      }
+    // Source must itself be a registered, active vending-eligible meter
+    const source = await getMeterVendingInfo(drn);
+    if (!source.eligible) {
+      return res.status(400).json({ error: `Source meter ${drn} is not registered or not eligible to send credit` });
+    }
+
+    // Target must exist, be a registered/active electric meter eligible to
+    // receive credit, and — the hard rule — share the source's supply group.
+    // Supply group is compared using the authoritative DB value only; the
+    // client never supplies or influences it.
+    const targetExists = await queryOne('SELECT DRN FROM MeterProfileReal WHERE DRN = ?', [target_meter]);
+    if (!targetExists) {
+      return res.status(404).json({ error: `Target meter ${target_meter} not found in the system` });
+    }
+    const target = await getMeterVendingInfo(target_meter);
+    if (!target.eligible) {
+      return res.status(400).json({ error: `Target meter ${target_meter} is not eligible to receive credit (not registered for vending)` });
+    }
+    if (target.sgc !== source.sgc) {
+      return res.status(400).json({ error: 'Source and target meters are in different supply groups and cannot exchange credit' });
+    }
+
+    // Revalidate available credit immediately before executing — the
+    // Android-displayed balance can be stale, so re-read the latest
+    // authoritative reading right before committing to the transfer.
+    const lastReading = await queryOne(
+      'SELECT units FROM MeterCumulativeEnergyUsage WHERE ID = (SELECT MAX(ID) FROM MeterCumulativeEnergyUsage WHERE DRN = ?)',
+      [drn]
+    );
+    const availableKwh = lastReading ? parseFloat(lastReading.units) : 0;
+    if (requestedKwh > availableKwh) {
+      return res.status(400).json({ error: `Insufficient credit: ${availableKwh.toFixed(2)} kWh available, ${requestedKwh} kWh requested` });
+    }
+
+    // Idempotency: block a second transfer out of the same source meter
+    // while one is still in flight, so a double/rapid SEND (or a retry after
+    // a network interruption) cannot fire two real transfers. A transfer
+    // older than 10 minutes is treated as abandoned rather than locking the
+    // meter out forever (the app itself gives up polling after 60s).
+    const inFlight = await queryOne(
+      `SELECT id FROM CreditTransfers
+       WHERE source_drn = ? AND status IN ('pending','token_generated','forwarded','completing')
+       AND created_at > (NOW() - INTERVAL 10 MINUTE)`,
+      [drn]
+    );
+    if (inFlight) {
+      return res.status(409).json({ error: 'A credit transfer from this meter is already in progress', transfer_id: inFlight.id });
+    }
 
     // Create a transfer record in the database
     db.query('INSERT INTO CreditTransfers SET ?', {
@@ -422,9 +508,50 @@ router.post('/mqtt/credit-transfer/:drn', authenticateToken, (req, res) => {
         target_meter,
         watt_hours: whInt,
       });
-    }); // end INSERT
-    }); // end target meter validation
+    });
   } catch (err) {
+    console.error('[CreditTransfer] Unexpected error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /mqtt/credit-transfer/:drn/validate-target/:target
+ * Live, read-only check used by the Android UI while the user is typing a
+ * destination meter — mirrors the authoritative checks the POST endpoint
+ * enforces, so the UI can show an accurate status before the user commits.
+ * This is a UX convenience only; the POST endpoint re-checks everything
+ * itself and is the actual security boundary.
+ */
+router.get('/mqtt/credit-transfer/:drn/validate-target/:target', authenticateToken, async (req, res) => {
+  try {
+    const { drn, target } = req.params;
+
+    if (drn === target) {
+      return res.json({ exists: true, eligible: false, sameSupplyGroup: false, reason: 'Cannot transfer to the same meter' });
+    }
+
+    const targetExists = await queryOne('SELECT DRN FROM MeterProfileReal WHERE DRN = ?', [target]);
+    if (!targetExists) {
+      return res.json({ exists: false, eligible: false, sameSupplyGroup: false, reason: 'Meter not found in the system' });
+    }
+
+    const source = await getMeterVendingInfo(drn);
+    const dest = await getMeterVendingInfo(target);
+
+    if (!dest.eligible) {
+      return res.json({ exists: true, eligible: false, sameSupplyGroup: false, reason: 'Not registered for vending' });
+    }
+
+    const sameSupplyGroup = source.eligible && dest.sgc === source.sgc;
+    res.json({
+      exists: true,
+      eligible: true,
+      sameSupplyGroup,
+      reason: sameSupplyGroup ? null : 'Different supply group',
+    });
+  } catch (err) {
+    console.error('[CreditTransfer] validate-target error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1094,6 +1221,43 @@ router.get('/mqtt/tou-config/:drn', authenticateToken, async (req, res) => {
 // Net Energy — System-wide endpoints (must be before :drn routes)
 // ═══════════════════════════════════════════════════════════════════════
 
+// Fleet-representative retail/feed-in rates for the admin Net Metering
+// dashboard, which previously used hardcoded N$2.45/N$1.60 constants for
+// every revenue figure. Not a per-meter tariff calculation (that's the
+// authoritative /tariff-info/:drn and /net-metering-config/:drn endpoints) —
+// this exists only so fleet-wide aggregate views have a real, backend-sourced
+// number instead of a fabricated one. retailRate comes from the default/
+// residential TariffGroups row; feedInRate is the average configured
+// feed_in_rate across meters actually set up for net metering.
+router.get('/mqtt/net-energy/tariff-rates', authenticateToken, async (req, res) => {
+  try {
+    let defaultGroup = await queryOne(
+      "SELECT * FROM TariffGroups WHERE name = 'Residential Prepaid' LIMIT 1"
+    ).catch(() => null);
+    if (!defaultGroup) {
+      defaultGroup = await queryOne(
+        "SELECT * FROM TariffGroups WHERE type = 'Flat' LIMIT 1"
+      ).catch(() => null);
+    }
+    const feedInAgg = await queryOne(
+      'SELECT AVG(feed_in_rate) as avgRate, COUNT(*) as cnt FROM MeterNetMeteringConfig WHERE nm_mode > 0 AND feed_in_rate > 0'
+    ).catch(() => null);
+
+    const hasRetail = defaultGroup && defaultGroup.flatRate != null;
+    const hasFeedIn = feedInAgg && Number(feedInAgg.cnt) > 0;
+
+    res.json({
+      success: true,
+      data: {
+        retailRate: hasRetail ? parseFloat(defaultGroup.flatRate) : null,
+        retailSource: hasRetail ? ('TariffGroups: ' + defaultGroup.name) : null,
+        feedInRate: hasFeedIn ? parseFloat(feedInAgg.avgRate) : null,
+        feedInSource: hasFeedIn ? ('Average of ' + feedInAgg.cnt + ' configured net-metering meter(s)') : null,
+      }
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => {
   try {
     const totals = await queryOne(
@@ -1104,20 +1268,43 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
        FROM MeterNetEnergyDaily`
     );
 
+    // Selected date for the hourly breakdown — was hardcoded to CURDATE(),
+    // which made it impossible for the frontend's date picker to ever show
+    // a historical day's hourly chart. Validate strictly (YYYY-MM-DD) before
+    // it reaches SQL; anything else silently falls back to today rather than
+    // erroring, since this only affects which day's chart is drawn.
+    const requestedDate = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : null;
+
+    // Uses MySQL's own CURDATE() when no date is given, rather than computing
+    // "today" in Node — the app server's process timezone isn't guaranteed to
+    // match the DB's, and every other "today" bucket in this table (written by
+    // handleNetEnergyBin) is stamped with CURDATE() too, so this stays consistent
+    // with however that's configured rather than introducing a second notion of "today".
     const hourly = await queryAll(
       `SELECT hour,
         SUM(max_import_wh - min_import_wh) as \`import\`,
         SUM(max_export_wh - min_export_wh) as \`export\`
        FROM MeterNetEnergyHourly
-       WHERE date = CURDATE()
-       GROUP BY hour ORDER BY hour`
+       WHERE date = ${requestedDate ? '?' : 'CURDATE()'}
+       GROUP BY hour ORDER BY hour`,
+      requestedDate ? [requestedDate] : []
     );
+
+    // MySQL date bounds for the calendar picker, so it never lets a user
+    // request a day with no data at all.
+    // DATE_FORMAT in SQL, not a JS Date + toISOString() round-trip — the
+    // latter shifts across a UTC boundary for any timezone ahead of UTC
+    // (Namibia is UTC+2), turning a local midnight into the previous
+    // calendar day once .toISOString() re-renders it.
+    const dateBounds = await queryOne(
+      "SELECT DATE_FORMAT(MIN(date), '%Y-%m-%d') as earliestDate, DATE_FORMAT(MAX(date), '%Y-%m-%d') as latestDate FROM MeterNetEnergyDaily"
+    ).catch(() => null);
 
     const period = req.query.period || 'daily';
     let daily;
     if (period === 'weekly') {
       daily = await queryAll(
-        `SELECT MIN(date) as date,
+        `SELECT DATE_FORMAT(MIN(date), '%Y-%m-%d') as date,
           CONCAT('W', WEEK(date)) as label,
           SUM(max_import_wh - min_import_wh) as \`import\`,
           SUM(max_export_wh - min_export_wh) as \`export\`
@@ -1127,7 +1314,7 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
       );
     } else if (period === 'monthly') {
       daily = await queryAll(
-        `SELECT MIN(date) as date,
+        `SELECT DATE_FORMAT(MIN(date), '%Y-%m-%d') as date,
           DATE_FORMAT(MIN(date), '%b %Y') as label,
           SUM(max_import_wh - min_import_wh) as \`import\`,
           SUM(max_export_wh - min_export_wh) as \`export\`
@@ -1137,7 +1324,7 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
       );
     } else if (period === 'yearly') {
       daily = await queryAll(
-        `SELECT MIN(date) as date,
+        `SELECT DATE_FORMAT(MIN(date), '%Y-%m-%d') as date,
           YEAR(date) as label,
           SUM(max_import_wh - min_import_wh) as \`import\`,
           SUM(max_export_wh - min_export_wh) as \`export\`
@@ -1146,7 +1333,7 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
       );
     } else {
       daily = await queryAll(
-        `SELECT date, DATE_FORMAT(date, '%b %d') as label,
+        `SELECT DATE_FORMAT(date, '%Y-%m-%d') as date, DATE_FORMAT(date, '%b %d') as label,
           SUM(max_import_wh - min_import_wh) as \`import\`,
           SUM(max_export_wh - min_export_wh) as \`export\`
          FROM MeterNetEnergyDaily
@@ -1178,6 +1365,9 @@ router.get('/mqtt/net-energy/dashboard', authenticateToken, async (req, res) => 
         daily: daily,
         peak_export_hour: peakExport.hour,
         peak_import_hour: peakImport.hour,
+        hourly_date: requestedDate,
+        earliest_date: dateBounds?.earliestDate || null,
+        latest_date: dateBounds?.latestDate || null,
       }
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1220,6 +1410,82 @@ router.get('/mqtt/net-energy/active-meters', authenticateToken, async (req, res)
            FROM MeteringPower GROUP BY DRN
          ) p2 ON p1.DRN = p2.DRN AND p1.date_time = p2.max_time
        ) p ON ne.DRN = p.DRN
+       ORDER BY ne.created_at DESC`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Grid Flow Map — per-meter GPS + substation GPS + live direction, joined in
+// one query so the map doesn't need N+1 requests. Reuses the exact same
+// power_direction/status derivation as /active-meters (verified authoritative
+// against the ATmega's signed real-time power reading, not inferred) — do not
+// let this drift from that logic. GPS for both the meter and its parent
+// substation/transformer already live on the same MeterLocationInfoTable row
+// (populated at commissioning time, see meterService.js insertIntoMeterRealInfo),
+// so no separate join is needed to place the connection line's two endpoints.
+// Per-meter tariff rate/period is deliberately NOT included here — resolving
+// TOU periods for every meter in one bulk query would be expensive and this
+// data is already served correctly by GET /vending/tariff-info/:drn; the
+// frontend fetches that lazily only when a marker popup is actually opened.
+router.get('/mqtt/net-energy/map-data', authenticateToken, async (req, res) => {
+  try {
+    const rows = await queryAll(
+      `SELECT
+        ne.DRN,
+        COALESCE(CONCAT(mpr.Name, ' ', mpr.Surname), ne.DRN) as customer_name,
+        mpr.City as location,
+        ml.Lat as meter_lat,
+        ml.Longitude as meter_lng,
+        ml.plat as substation_lat,
+        ml.plng as substation_lng,
+        ti.Name as substation_name,
+        ne.import_energy_wh as total_import,
+        ne.export_energy_wh as total_export,
+        ne.created_at as last_reading,
+        p.active_power as live_power,
+        COALESCE(today.today_import_wh, 0) as today_import_wh,
+        COALESCE(today.today_export_wh, 0) as today_export_wh,
+        COALESCE(month.month_import_wh, 0) as month_import_wh,
+        COALESCE(month.month_export_wh, 0) as month_export_wh,
+        CASE WHEN p.active_power IS NOT NULL AND p.active_power < 0 THEN 'EXPORT'
+             WHEN p.active_power IS NOT NULL AND p.active_power > 0 THEN 'IMPORT'
+             ELSE 'IDLE' END as power_direction,
+        CASE WHEN ne.created_at >= NOW() - INTERVAL 10 MINUTE THEN 'Online'
+             ELSE 'Offline' END as status
+       FROM (
+         SELECT n1.*
+         FROM MeterNetEnergy n1
+         INNER JOIN (
+           SELECT DRN, MAX(created_at) as max_time
+           FROM MeterNetEnergy GROUP BY DRN
+         ) n2 ON n1.DRN = n2.DRN AND n1.created_at = n2.max_time
+       ) ne
+       LEFT JOIN MeterProfileReal mpr ON ne.DRN = mpr.DRN
+       LEFT JOIN MeterLocationInfoTable ml ON ne.DRN = ml.DRN
+       LEFT JOIN TransformerInformation ti ON mpr.TransformerDRN = ti.DRN
+       LEFT JOIN (
+         SELECT p1.*
+         FROM MeteringPower p1
+         INNER JOIN (
+           SELECT DRN, MAX(date_time) as max_time
+           FROM MeteringPower GROUP BY DRN
+         ) p2 ON p1.DRN = p2.DRN AND p1.date_time = p2.max_time
+       ) p ON ne.DRN = p.DRN
+       LEFT JOIN (
+         SELECT DRN,
+           (max_import_wh - min_import_wh) as today_import_wh,
+           (max_export_wh - min_export_wh) as today_export_wh
+         FROM MeterNetEnergyDaily WHERE date = CURDATE()
+       ) today ON ne.DRN = today.DRN
+       LEFT JOIN (
+         SELECT DRN,
+           SUM(max_import_wh - min_import_wh) as month_import_wh,
+           SUM(max_export_wh - min_export_wh) as month_export_wh
+         FROM MeterNetEnergyDaily
+         WHERE date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+         GROUP BY DRN
+       ) month ON ne.DRN = month.DRN
        ORDER BY ne.created_at DESC`
     );
     res.json({ success: true, data: rows });

@@ -26,10 +26,12 @@ prepaidBillingConfigModel.create = (newConfigValues, result) => {
 
 prepaidBillingConfigModel.getAll = (DRN, result) => {
   let query = "SELECT * FROM PrepaidBillingConfigurations";
+  const params = [];
   if (DRN) {
-    query += ` WHERE DRN = ${DRN}`;
+    query += " WHERE DRN = ?";
+    params.push(DRN);
   }
-  connection.query(query, (err, res) => {
+  connection.query(query, params, (err, res) => {
     if (err) {
       result(null, err);
       return;
@@ -93,6 +95,25 @@ prepaidBillingConfigModel.deleteById = (id, result) => {
       result(null, res);
     }
   );
+};
+
+// Referenced by PrepaidBillingRoutes.js's /getLastUpdate/:id but was never
+// defined here, so that route threw "meter.getLastUpdate is not a function"
+// on every call.
+prepaidBillingConfigModel.getLastUpdate = (DRN, result) => {
+  const query =
+    "SELECT * FROM PrepaidBillingConfigurations WHERE DRN = ? ORDER BY id DESC LIMIT 1";
+  connection.query(query, [DRN], (err, res) => {
+    if (err) {
+      result(err, null);
+      return;
+    }
+    if (res.length) {
+      result(null, res[0]);
+      return;
+    }
+    result({ kind: "not_found" }, null);
+  });
 };
 
 module.exports = prepaidBillingConfigModel;

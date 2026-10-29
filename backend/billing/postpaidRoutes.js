@@ -91,6 +91,23 @@ ensureTables().catch(err => logger.error('Table creation error:', err));
 async function computeRevenueForRange(startDate, endDate) {
   const groups = await query('SELECT * FROM TariffGroups');
   const allBlocks = await query('SELECT * FROM TariffBlocks ORDER BY tariffGroupId, sortOrder');
+  // Same table the customer-facing /tariff-info and /token-preview routes
+  // (vendingRoutes.js) read the current TOU period from — this used to be a
+  // separate hardcoded peak/off-peak hour table here, which could silently
+  // disagree with the configured schedule after an admin changed it.
+  const touSchedule = await query('SELECT * FROM TariffTOUSchedule').catch(function() { return []; });
+  var touScheduleMap = {};
+  touSchedule.forEach(function(s) {
+    if (!touScheduleMap[s.tariffGroupId]) touScheduleMap[s.tariffGroupId] = [];
+    touScheduleMap[s.tariffGroupId].push(s);
+  });
+  function periodForHour(tariffGroupId, dow, hour) {
+    var schedule = touScheduleMap[tariffGroupId] || [];
+    var slot = schedule.find(function(s) {
+      return s.dayOfWeek === dow && s.startHour <= hour && s.endHour > hour;
+    });
+    return slot ? slot.period : 'standard';
+  }
 
   const meters = await query(`
     SELECT mp.DRN, COALESCE(vc.tariffGroup, 'Default') as tariffGroup,
@@ -173,12 +190,11 @@ async function computeRevenueForRange(startDate, endDate) {
           'GROUP BY HOUR(date_time)',
           [meter.DRN, day.day]
         );
+        var dayOfWeek = new Date(day.day).getDay();
         for (var hi = 0; hi < hourlyData.length; hi++) {
           var hour = Number(hourlyData[hi].hr);
           var hKwh = Number(hourlyData[hi].kwh);
-          var period = 'standard';
-          if (hour >= 22 || hour < 6) period = 'off-peak';
-          else if ((hour >= 8 && hour < 11) || (hour >= 18 && hour < 22)) period = 'peak';
+          var period = periodForHour(tg.id, dayOfWeek, hour);
           var rateBlock = blocks.find(function(b) { return b.period === period; });
           var hRate = rateBlock ? Number(rateBlock.rate) : 2.45;
           revenue += hKwh * hRate;

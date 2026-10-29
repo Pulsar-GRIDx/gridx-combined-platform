@@ -3454,6 +3454,146 @@ router.post('/token-preview', authenticateToken, function(req, res) {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// NET METERING — EXPORT / FEED-IN CREDIT
+// ═══════════════════════════════════════════════════════════════════════════
+
+// POST /net-metering-credit/:drn — admin-triggered only (no automatic schedule
+// exists). Sums exported energy since this meter's last credit run from
+// MeterDailyEnergyActual (meter-computed per-day deltas — safe across ATmega
+// restarts, unlike the raw cumulative net-energy counters), converts it to a
+// currency amount via feed_in_rate, then converts THAT amount to kWh at the
+// meter's current import rate (monetary equivalence) and mints a real STS
+// credit token via the same generateSTSTokenForMeter/HSM path a normal
+// purchase uses. Records the credit as a 'Free Token' VendingTransactions row
+// (no ENUM value exists for a non-cash credit; refNo is prefixed FIC- to stay
+// distinguishable in reports) and advances last_credited_at so the same
+// exported energy is never credited twice.
+router.post('/net-metering-credit/:drn', authenticateToken, requireAdmin, function(req, res) {
+  var drn = req.params.drn;
+
+  db.query('SELECT * FROM MeterNetMeteringConfig WHERE DRN = ?', [drn], function(err, nmcRows) {
+    if (err) return res.status(500).json({ error: err.message });
+    var nmc = (nmcRows && nmcRows[0]) || null;
+    if (!nmc || !nmc.nm_mode) {
+      return res.status(400).json({ error: 'Meter is not configured for net metering' });
+    }
+    var feedInRate = parseFloat(nmc.feed_in_rate) || 0;
+    if (feedInRate <= 0) {
+      return res.status(400).json({ error: 'feed_in_rate is not set for this meter' });
+    }
+
+    var sql = 'SELECT COALESCE(SUM(export_wh), 0) as totalExportWh FROM MeterDailyEnergyActual WHERE DRN = ?';
+    var params = [drn];
+    if (nmc.last_credited_at) {
+      sql += ' AND created_at > ?';
+      params.push(nmc.last_credited_at);
+    }
+
+    db.query(sql, params, function(expErr, expRows) {
+      if (expErr) return res.status(500).json({ error: expErr.message });
+      var exportKwh = Number(expRows[0].totalExportWh) / 1000;
+      if (exportKwh <= 0) {
+        return res.status(400).json({
+          error: 'No new exported energy to credit since the last credit run',
+          lastCreditedAt: nmc.last_credited_at || null
+        });
+      }
+
+      var creditAmount = round2(exportKwh * feedInRate);
+
+      lookupCustomer(drn, function(custErr, customer) {
+        var tariffName = (customer && customer.tariffGroup) || 'Residential Prepaid';
+
+        db.query('SELECT * FROM TariffGroups WHERE name = ?', [tariffName], function(tgErr, tgRows) {
+          var tariffGroup = (tgRows && tgRows[0]) || null;
+
+          function withImportRate(importRate) {
+            importRate = parseFloat(importRate) || 0;
+            if (importRate <= 0) {
+              return res.status(400).json({ error: "Could not resolve a current import rate for this meter's tariff" });
+            }
+
+            // Monetary equivalence: the credit buys the same import energy
+            // its export was worth in currency, not a 1:1 kWh swap.
+            var creditedKwh = round2(creditAmount / importRate);
+
+            generateSTSTokenForMeter(drn, creditedKwh, function(tokenErr, tokenResult) {
+              if (tokenErr) {
+                return res.status(502).json({ error: tokenErr.message, hsmStatus: hsmService.getHSMStatus() });
+              }
+              var token = tokenResult.token;
+              var ts = Date.now().toString(36).toUpperCase();
+              var rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+              var refNo = 'FIC-' + ts + '-' + rand;
+              var now = new Date();
+
+              db.query(
+                'INSERT INTO VendingTransactions (refNo, customerName, customerId, meterNo, amount, kWh, token, operator, operatorId, type, status, energyAmount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [refNo, customer ? customer.name : null, (customer && customer.id) || null, drn, creditAmount, creditedKwh, token, getOperatorName(req), getOperatorId(req), 'Free Token', 'Completed', creditAmount],
+                function(insErr) {
+                  if (insErr) console.error('[NetMetering] Failed to record credit transaction:', insErr.message);
+
+                  db.query(
+                    'UPDATE MeterNetMeteringConfig SET last_credited_at = ?, total_credited_export_wh = total_credited_export_wh + ? WHERE DRN = ?',
+                    [now, Math.round(exportKwh * 1000), drn],
+                    function(updErr) {
+                      if (updErr) console.error('[NetMetering] Failed to update last_credited_at:', updErr.message);
+
+                      logAudit(
+                        'Export credit issued: ' + exportKwh.toFixed(3) + ' kWh exported -> N$' + creditAmount.toFixed(2) + ' -> ' + creditedKwh + ' kWh credited to meter ' + drn,
+                        'NET_METERING_CREDIT',
+                        'Ref: ' + refNo + ', Token: ' + token + ', feedInRate: ' + feedInRate + ', importRateUsed: ' + importRate,
+                        getOperatorName(req), getOperatorId(req), req.ip
+                      );
+
+                      res.json({
+                        success: true,
+                        data: {
+                          drn: drn,
+                          refNo: refNo,
+                          token: token,
+                          tokenFormatted: hsmService.formatTokenForDisplay(token),
+                          exportedKwh: round2(exportKwh),
+                          feedInRate: feedInRate,
+                          creditAmount: creditAmount,
+                          importRateUsed: importRate,
+                          creditedKwh: creditedKwh,
+                          periodStart: nmc.last_credited_at || null,
+                          periodEnd: now.toISOString()
+                        }
+                      });
+                    }
+                  );
+                }
+              );
+            });
+          }
+
+          if (tariffGroup && tariffGroup.type === 'TOU') {
+            getCurrentTOUPeriod(tariffGroup.id, function(_e, period) {
+              var rate = period === 'peak' ? tariffGroup.peakRate : (period === 'off-peak' ? tariffGroup.offPeakRate : tariffGroup.standardRate);
+              withImportRate(rate);
+            });
+          } else if (tariffGroup && tariffGroup.type === 'Flat') {
+            withImportRate(tariffGroup.flatRate);
+          } else {
+            // Block or unresolved tariff — fall back to the prepaid rate
+            // table's Standard slot (index 2), same fallback /generate-bill uses.
+            db.query('SELECT tariff_rates FROM MeterTariffRates WHERE DRN = ?', [drn], function(_e2, rateRows) {
+              var rate = 2.80;
+              if (rateRows && rateRows[0] && rateRows[0].tariff_rates) {
+                try { rate = JSON.parse(rateRows[0].tariff_rates)[2] || 2.80; } catch (e3) { /* keep default */ }
+              }
+              withImportRate(rate);
+            });
+          }
+        });
+      });
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ARREARS
 // ═══════════════════════════════════════════════════════════════════════════
 

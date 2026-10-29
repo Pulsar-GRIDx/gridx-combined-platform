@@ -46,16 +46,20 @@ router.get("/getLastUpdate/:id", auth, function (req, res) {
   });
 });
 
-router.get("/getLastTariff", auth, function (req, res) {
-  meter.getLastUpdate( (err, data) => {
+// Was called with no DRN at all, so the underlying query (before its fix in
+// meterTarrifModel.js) returned whichever meter's tariff was updated last,
+// system-wide, to any caller with a valid token. Now requires and passes the
+// DRN, same as the equivalent /getLastUpdate/:id route below.
+router.get("/getLastTariff/:id", auth, function (req, res) {
+  meter.getLastUpdate(req.params.id, (err, data) => {
     if (err) {
       if (err.kind === "not_found") {
         res.status(404).send({
-          message: `Not found meter with DRN .`,
+          message: `Not found meter with DRN ${req.params.id}.`,
         });
       } else {
         res.status(500).send({
-          message: "Error retrieving meter with DRN " ,
+          message: "Error retrieving meter with DRN " + req.params.id,
         });
       }
     } else res.send(data);

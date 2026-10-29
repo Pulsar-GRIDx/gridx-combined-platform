@@ -3,6 +3,7 @@ import { Outlet, useNavigate } from "react-router-dom";
 import { Box, Typography } from "@mui/material";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
+import { TasksProvider } from "../context/TasksContext";
 
 const Layout = () => {
   const navigate = useNavigate();
@@ -31,15 +32,17 @@ const Layout = () => {
 
   return (
     <Box>
-      <div className="app">
-        <Sidebar />
-        <main className="content">
-          <Topbar />
-          <Box sx={{ m: "0px 0px 0px 0px" }}>
-            <Outlet />
-          </Box>
-        </main>
-      </div>
+      <TasksProvider>
+        <div className="app">
+          <Sidebar />
+          <main className="content">
+            <Topbar />
+            <Box sx={{ m: "0px 0px 0px 0px" }}>
+              <Outlet />
+            </Box>
+          </main>
+        </div>
+      </TasksProvider>
     </Box>
   );
 };
