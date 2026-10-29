@@ -136,6 +136,40 @@ d('vending: STS parameter guard, free tokens and tariffs (integration)', () => {
       expect(st.body.data.backend).toMatchObject({ sgc: '999907', keyType: 'DITK' });
     });
 
+    test('DITK change: refused without a target, then issues the pair and blocks vending until re-read', async () => {
+      const hsm = jest.spyOn(bridge, 'issueDitkChangeTokens').mockImplementation((mc, cb) => cb(null, { messageId: 'd1', tokens: [
+        { tokenDec: '11111111111111111111', description: 'Set1stSectionDecoderKey', newConfig: { toSgc: 999907, toKrn: 2, toTi: 1, toVkKcv: 'ABC123' } },
+        { tokenDec: '22222222222222222222', description: 'Set2ndSectionDecoderKey' }] }));
+      expect((await post('/cb/vending/thrift-issue-ditk-change', admin(), { drn: TARGET, sgc: '999907', krn: 2, ti: 1 })).status).toBe(400);
+      expect((await post('/cb/vending/thrift-issue-ditk-change', tech(), { drn: TARGET, sgc: '999907', krn: 2, ti: 1, toKeyType: 'DUTK' })).status).toBe(403);
+      const r = await post('/cb/vending/thrift-issue-ditk-change', admin(), { drn: TARGET, sgc: '999907', krn: 2, ti: 1, toKeyType: 'DUTK' });
+      expect(r.status).toBe(200);
+      expect(r.body.data.tokens.map((t) => t.order)).toEqual([1, 2]);
+      expect(r.body.data.target).toMatchObject({ sgc: '999907', krn: 2, ti: 1, keyType: 'DUTK', vkKcv: 'ABC123' });
+      expect(hsm.mock.calls[0][0]).toMatchObject({ drn: TARGET, sgc: 999907, krn: 2, ti: 1, ea: 7 });
+      await new Promise((res) => setTimeout(res, 200));
+      const row = (await q('SELECT keyType, meterReportedAt FROM MeterSecurityParams WHERE meterNumber = ?', [TARGET]))[0];
+      expect(row).toEqual({ keyType: 2, meterReportedAt: null });
+      // The meter has not been read since: no second DITK change, no credit.
+      expect((await post('/cb/vending/thrift-issue-ditk-change', admin(), { drn: TARGET, sgc: '999907', krn: 2, ti: 1, toKeyType: 'DUTK' })).body.code).toBe('STS_METER_NOT_ON_DITK');
+      expect((await post('/cb/vending/free-token', admin(), { meterNo: TARGET, kWh: 30 })).body.code).toBe('STS_METER_STATE_UNVERIFIED');
+      // Re-read shows DUTK under 999907: the factory-default SGC still needs confirming.
+      const rep = await post('/cb/vending/sts-params/' + TARGET + '/meter-report', admin(), { sgc: '999907', krn: 2, ti: 1, keyType: 'DUTK' });
+      expect(rep.body.data.status).toBe('STS_SGC_DEFAULT_UNCONFIRMED');
+      // Put the target back in its DITK state for the remaining tests.
+      await q('UPDATE MeterSecurityParams SET keyType = 0 WHERE meterNumber = ?', [TARGET]);
+      await post('/cb/vending/sts-params/' + TARGET + '/meter-report', admin(), { sgc: '999907', krn: 2, ti: 1, keyType: 'DITK' });
+    });
+
+    test('DITK change: an HSM pair for another target is refused', async () => {
+      jest.spyOn(bridge, 'issueDitkChangeTokens').mockImplementation((mc, cb) => cb(null, { tokens: [
+        { tokenDec: '11111111111111111111', newConfig: { toSgc: 123456, toKrn: 2, toTi: 1 } }, { tokenDec: '22222222222222222222' }] }));
+      const r = await post('/cb/vending/thrift-issue-ditk-change', admin(), { drn: TARGET, sgc: '999907', krn: 2, ti: 1, toKeyType: 'DUTK' });
+      expect(r.status).toBe(502);
+      expect(r.body.code).toBe('STS_TOKEN_PARAMS_MISMATCH');
+      expect((await q('SELECT keyType FROM MeterSecurityParams WHERE meterNumber = ?', [TARGET]))[0].keyType).toBe(0);
+    });
+
     test('a technician cannot issue tokens or record key state', async () => {
       expect((await post('/cb/vending/free-token', tech(), { meterNo: TARGET, kWh: 30 })).status).toBe(403);
       expect((await post('/cb/vending/thrift-issue-credit', tech(), { drn: TARGET, transferAmount: 300 })).status).toBe(403);
