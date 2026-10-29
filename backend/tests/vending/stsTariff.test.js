@@ -64,6 +64,15 @@ describe('STS guard: credit is only issued under verified parameters', () => {
     expect(stsGuard.checkStsParams(target).code).toBe('STS_METER_NOT_COMMISSIONED');
   });
 
+  test('a DDTK on a manufacturer default SGC is never vendable, even when confirmed', () => {
+    for (const sgc of ['999901', '999904', '999907']) {
+      const ddtk = row({ sgc, keyRevisionNumber: 2, keyType: 1, meterReportedSgc: sgc, meterReportedKrn: 2, meterReportedKeyType: 1, sgcConfirmedAt: new Date() });
+      expect(stsGuard.checkStsParams(ddtk).code).toBe('STS_TRANSIT_KEY');
+    }
+    // A DDTK on a non-default SGC is not this case.
+    expect(stsGuard.checkStsParams(row({ keyType: 1, meterReportedKeyType: 1 })).ok).toBe(true);
+  });
+
   test('a factory-default SGC needs an explicit admin confirmation', () => {
     const def = row({ sgc: '999907', meterReportedSgc: '999907' });
     expect(stsGuard.checkStsParams(def).code).toBe('STS_SGC_DEFAULT_UNCONFIRMED');

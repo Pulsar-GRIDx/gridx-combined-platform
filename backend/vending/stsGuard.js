@@ -23,6 +23,9 @@ var KEY_TYPES = { 0: 'DITK', 1: 'DDTK', 2: 'DUTK', 3: 'DCTK' };
 // production supply group; an admin must confirm the SGC explicitly.
 var FACTORY_DEFAULT_SGCS = ['999907', '999901'];
 
+// STS600-15-6 manufacturer default SGCs.
+var MANUFACTURER_DEFAULT_SGCS = ['999901', '999904', '999907'];
+
 var SGC_RE = /^\d{6}$/;
 
 function int(v) {
@@ -83,6 +86,17 @@ function checkStsParams(row) {
   if (reported.keyType === 0) {
     return fail('STS_METER_NOT_COMMISSIONED',
       'The meter is still on its initialisation key (DITK). Key-change it into the production supply group before vending.');
+  }
+
+  // A DDTK on a manufacturer default SGC (999901/999904/999907) is derived
+  // from the vending key and SGC without the meter's DRN, so a credit token
+  // for one such meter is valid on every meter sharing that SGC and KRN. It
+  // is the transit state a manufacturing HSM leaves a meter in; the utility's
+  // vending HSM key-changes it onto its own SGC (DUTK) before any credit.
+  if (reported.keyType === 1 && MANUFACTURER_DEFAULT_SGCS.indexOf(sgc) !== -1) {
+    return fail('STS_TRANSIT_KEY',
+      'The meter holds a default key (DDTK) on manufacturer default SGC ' + sgc + '. Credit on it is not meter-unique; ' +
+      "the utility's vending HSM must key-change it onto the utility SGC (DUTK) before vending.");
   }
 
   if (FACTORY_DEFAULT_SGCS.indexOf(sgc) !== -1 && !row.sgcConfirmedAt) {
