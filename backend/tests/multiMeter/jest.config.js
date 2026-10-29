@@ -5,7 +5,7 @@
 module.exports = {
   rootDir: '../..',
   testEnvironment: 'node',
-  testMatch: ['<rootDir>/tests/multiMeter/**/*.test.js'],
+  testMatch: ['<rootDir>/tests/multiMeter/**/*.test.js', '<rootDir>/tests/vending/**/*.test.js'],
   transform: {},
   moduleNameMapper: { 'thriftHsmService$': '<rootDir>/tests/multiMeter/stubs/thriftHsmService.js' },
 };

@@ -17,6 +17,7 @@ var db = require('../config/db');
 var authMw = require('../admin/authMiddllware');
 var authenticateToken = authMw.authenticateToken;
 var hsmService = require('./hsmService');
+var stsGuard = require('./stsGuard');
 
 // ─── AUTO-MIGRATE: Integration tables ──────────────────────────────────────
 
@@ -743,24 +744,26 @@ function doExternalVend(meterNo, totalAmount, partner, idempotencyKey, req, res)
             });
           }
 
-          // Generate token via HSM if security params exist, otherwise fallback
-          if (secParams) {
+          // Only a real STS token from the HSM completes a sale. This used to
+          // fall back to a random 20-digit number, recorded as Completed,
+          // whenever the HSM failed or the meter had no STS parameters.
+          function refuse(status, code, message) {
+            var refusal = { success: false, error: { code: code, message: message } };
+            logApiResponse(req, res, status, refusal);
+            res.status(status).json(refusal);
+          }
+          stsGuard.verifyMeter(db, meterNo, function(gErr, check) {
+            if (gErr) return refuse(500, 'INTERNAL_ERROR', 'Could not read STS parameters');
+            if (!check.ok) return refuse(409, check.code, check.message);
             hsmService.generateSTSToken(secParams, kWh, function(hsmErr, result) {
               if (hsmErr) {
                 console.error('[HSM] External vend token generation failed:', hsmErr.message);
-                var fallbackToken = '';
-                for (var ft = 0; ft < 20; ft++) fallbackToken += Math.floor(Math.random() * 10);
-                completeVend(fallbackToken, { stsGenerated: false, hsmMode: 'fallback', hsmError: hsmErr.message });
-              } else {
-                db.query('UPDATE MeterSecurityParams SET lastTokenTID = ? WHERE meterNumber = ?', [result.tokenIdentifier, meterNo], function() {});
-                completeVend(result.token20Digit, { stsGenerated: true, hsmMode: hsmService.hsmConfig.mode, tokenIdentifier: result.tokenIdentifier, prnRecord: result.PRNRecord });
+                return refuse(502, 'HSM_UNAVAILABLE', 'The STS token service is unavailable; no sale was recorded');
               }
+              db.query('UPDATE MeterSecurityParams SET lastTokenTID = ? WHERE meterNumber = ?', [result.tokenIdentifier, meterNo], function() {});
+              completeVend(result.token20Digit, { stsGenerated: true, hsmMode: hsmService.hsmConfig.mode, tokenIdentifier: result.tokenIdentifier, prnRecord: result.PRNRecord });
             });
-          } else {
-            var randomToken = '';
-            for (var rt = 0; rt < 20; rt++) randomToken += Math.floor(Math.random() * 10);
-            completeVend(randomToken, { stsGenerated: false, hsmMode: 'fallback' });
-          }
+          });
         });
       });
     });
@@ -1014,93 +1017,17 @@ function doIso8583Vend(meterNo, amount, partner, stan, rrn, terminalId, merchant
     return res.json(sbxResp);
   }
 
-  // Production — uses real DB tables
-  db.query('SELECT * FROM TariffConfig LIMIT 1', function(err, configRows) {
-    if (err) {
-      return res.status(500).json({ mti: '0210', de39: '96', message: 'System error' });
-    }
-    var config = (configRows && configRows[0]) || { vatRate: 15, fixedCharge: 8.50, relLevy: 2.40 };
-
-    db.query('SELECT * FROM VendingCustomers WHERE meterNo = ?', [meterNo], function(custErr, custRows) {
-      if (custErr || !custRows || custRows.length === 0) {
-        var notFoundResp = {
-          mti: '0210', de2: meterNo, de4: String(Math.round(amount * 100)),
-          de7: new Date().toISOString().replace(/[-:T]/g, '').substring(0, 14),
-          de11: stan, de37: rrn, de39: '14', de42: merchantId,
-          message: 'Invalid meter number'
-        };
-        logApiResponse(req, res, 404, notFoundResp);
-        return res.status(404).json(notFoundResp);
-      }
-
-      var customer = custRows[0];
-      var vatRate = parseFloat(config.vatRate) || 15;
-      var vat = round2(amount * vatRate / (100 + vatRate));
-      var fixedCharge = round2(parseFloat(config.fixedCharge) || 8.50);
-      var relLevy = round2(parseFloat(config.relLevy) || 2.40);
-      var energyCost = round2(amount - vat - fixedCharge - relLevy);
-      var rate = 1.68;
-      var kWh = round2(energyCost / rate);
-
-      // Generate token
-      var token = '';
-      for (var i = 0; i < 20; i++) token += Math.floor(Math.random() * 10);
-      var ts = Date.now().toString(36).toUpperCase();
-      var rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-      var refNo = 'TXN-' + ts + '-' + rand;
-
-      // Insert transaction
-      db.query(
-        'INSERT INTO VendingTransactions (refNo, idempotencyKey, meterNo, customerName, amount, vatAmount, fixedCharge, relLevy, arrearsDeducted, energyAmount, kWh, token, vendorName, operator, status, channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, "Completed", "ISO8583")',
-        [refNo, 'ISO-' + stan + '-' + rrn, meterNo, customer.name,
-         amount, vat, fixedCharge, relLevy, energyCost, kWh,
-         token, partner.name, 'ISO8583:' + partner.name],
-        function(txnErr, txnResult) {
-          if (txnErr) {
-            return res.status(500).json({ mti: '0210', de39: '96', message: 'Processing error' });
-          }
-
-          // Update partner stats
-          db.query('UPDATE ApiPartners SET totalTransactions = totalTransactions + 1, totalRevenue = totalRevenue + ?, lastActivityAt = NOW() WHERE partnerId = ?',
-            [amount, partner.partnerId]);
-
-          // ISO 8583 response
-          var isoResp = {
-            mti: '0210',
-            de2: meterNo,
-            de3: '003000',
-            de4: String(Math.round(amount * 100)),
-            de7: new Date().toISOString().replace(/[-:T]/g, '').substring(0, 14),
-            de11: stan,
-            de12: new Date().toTimeString().substring(0, 8).replace(/:/g, ''),
-            de13: new Date().toISOString().substring(5, 10).replace(/-/g, ''),
-            de32: partner.partnerId,
-            de37: rrn,
-            de38: token.substring(0, 6),
-            de39: '00',
-            de41: terminalId,
-            de42: merchantId,
-            de48: JSON.stringify({
-              token: token,
-              kWh: kWh,
-              customerName: customer.name,
-              refNo: refNo,
-              breakdown: { vat: vat, fixedCharge: fixedCharge, relLevy: relLevy, energyCost: energyCost }
-            }),
-            de49: '516',
-            de62: refNo
-          };
-
-          logApiResponse(req, res, 200, isoResp);
-          logAudit('ISO8583 vend: ' + refNo, 'ISO8583_VEND',
-            'Partner: ' + partner.name + ', Meter: ' + meterNo + ', Amount: N$' + amount + ', STAN: ' + stan,
-            'ISO8583:' + partner.name, null, req.ip);
-
-          res.json(isoResp);
-        }
-      );
-    });
-  });
+  // Production ISO 8583 vending is not wired to the STS HSM: it used to
+  // record a random 20-digit number as a Completed sale at a fixed 1.68/kWh.
+  // Decline (DE39 91, issuer or switch inoperative) until it is.
+  var declined = {
+    mti: '0210', de2: meterNo, de4: String(Math.round(amount * 100)),
+    de7: new Date().toISOString().replace(/[-:T]/g, '').substring(0, 14),
+    de11: stan, de37: rrn, de39: '91', de42: merchantId,
+    message: 'Vending unavailable: ISO 8583 channel is not connected to the STS token service'
+  };
+  logApiResponse(req, res, 503, declined);
+  return res.status(503).json(declined);
 }
 
 

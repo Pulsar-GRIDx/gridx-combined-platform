@@ -732,7 +732,8 @@ function buildMeterConfig(params) {
     tct: parseInt(params.tct) || 2,
     sgc: parseInt(params.sgc) || 999907,
     krn: parseInt(params.krn) || 2,
-    ti: parseInt(params.ti) || 1,
+    // TI 0 is a valid tariff index; `|| 1` made it impossible to issue.
+    ti: isNaN(parseInt(params.ti)) ? 1 : parseInt(params.ti),
     ken: parseInt(params.ken) || 255
   });
   return config;
