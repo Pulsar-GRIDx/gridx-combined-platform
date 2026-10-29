@@ -1572,18 +1572,20 @@ function handleAckJson(drn, data) {
     // transition apart from the meter reaffirming a state it was already in
     // (e.g. the app sends "on" while it's already on) — only a real
     // transition should notify.
+    // Same synchronous in-memory check as the relay-log path (see
+    // lastKnownGeyserState above) rather than the DB read this used to
+    // race against — an ACK arriving close to a heartbeat relay-log event
+    // for the same state could otherwise double-fire. Computed here, not in
+    // the query callback below, because the MeterHeaterStateTable callback
+    // further down also needs it.
+    const geyserTransitioned = lastKnownGeyserState[drn] !== geyserState;
+    lastKnownGeyserState[drn] = geyserState;
     db.query(
       'SELECT geyser_state, mains_state, mains_control FROM MeterLoadControl WHERE DRN = ? ORDER BY date_time DESC LIMIT 1',
       [drn],
       (err, rows) => {
         const mainsState = (!err && rows && rows.length > 0) ? rows[0].mains_state : 0;
         const mainsControl = (!err && rows && rows.length > 0) ? rows[0].mains_control : 0;
-        // Same synchronous in-memory check as the relay-log path (see
-        // lastKnownGeyserState above) rather than the DB read this used to
-        // race against — an ACK arriving close to a heartbeat relay-log
-        // event for the same state could otherwise double-fire.
-        const geyserTransitioned = lastKnownGeyserState[drn] !== geyserState;
-        lastKnownGeyserState[drn] = geyserState;
         db.query('INSERT INTO MeterLoadControl SET ?', {
           DRN: drn,
           geyser_state: geyserState,
