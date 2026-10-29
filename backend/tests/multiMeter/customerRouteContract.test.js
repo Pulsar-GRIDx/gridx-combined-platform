@@ -4,7 +4,7 @@
  * gets a 403 CUSTOMER_ROUTE_FORBIDDEN in production.
  *
  * Reads the Retrofit interfaces from the sibling app checkout
- * (GRIDx_Meter_android_app); skipped when it is not present.
+ * (GRIDx_Meter_android_app), or GRIDX_METER_APP_API_DIR; skipped when absent.
  */
 const fs = require('fs');
 const path = require('path');
@@ -12,7 +12,8 @@ const path = require('path');
 process.env.SECRET_KEY = process.env.SECRET_KEY || 'contract-test';
 const { matchCustomerRoute } = require('../../middleware/meterOwnership');
 
-const API_DIR = path.resolve(__dirname, '../../../../GRIDx_Meter_android_app/app/src/main/java/com/example/gridxmeter/ApiIntegration');
+const API_DIR = process.env.GRIDX_METER_APP_API_DIR ||
+  path.resolve(__dirname, '../../../../GRIDx_Meter_android_app/app/src/main/java/com/example/gridxmeter/ApiIntegration');
 const d = fs.existsSync(API_DIR) ? describe : describe.skip;
 
 // Reached without a customer token (served before authenticateToken runs).
@@ -41,7 +42,8 @@ function sample(p) {
 }
 
 d('customer app <-> customer allow-list contract', () => {
-  const eps = endpoints();
+  // describe.skip still runs this body, so only read the app when present.
+  const eps = fs.existsSync(API_DIR) ? endpoints() : [];
 
   test('the app interfaces were found', () => {
     expect(eps.length).toBeGreaterThan(40);
