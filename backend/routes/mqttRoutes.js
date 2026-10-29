@@ -404,9 +404,10 @@ router.post('/mqtt/credit-transfer/:drn', authenticateToken, async (req, res) =>
     const drn = req.params.drn;
     const { target_meter, watt_hours } = req.body;
 
-    // A CUSTOMER token may only move credit out of the meter it was issued
-    // for — the client hides/disables this field, but that's UI only, so the
-    // server must be the one that actually enforces it. Admin/operator
+    // A CUSTOMER token may only move credit out of a meter linked to its
+    // account (CustomerMeters). authenticateToken already refuses any other
+    // :drn; this is defence in depth, since the client only hides the field
+    // and the server must be the one that enforces it. Admin/operator
     // tokens (no CUSTOMER role) keep the existing ability to act on any
     // meter, since the admin portal uses this same endpoint on behalf of
     // support cases.
@@ -415,7 +416,7 @@ router.post('/mqtt/credit-transfer/:drn', authenticateToken, async (req, res) =>
     // force-logs-out (see MeterRetrofitClient) — this is a valid, correctly
     // authenticated request being refused for a business reason, not an
     // auth failure, so it must not trip that logic.
-    if (req.user && req.user.role === 'CUSTOMER' && req.user.DRN !== drn) {
+    if (req.user && req.user.role === 'CUSTOMER' && (req.authorizedDrns || []).indexOf(String(drn)) === -1) {
       return res.status(422).json({ error: 'You may only transfer credit from your own associated meter' });
     }
 

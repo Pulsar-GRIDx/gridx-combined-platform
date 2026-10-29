@@ -73,7 +73,9 @@ router.get('/weekly/currentAndLastWeekEnergyTotal', authenticateToken, (req, res
 });
 // Pre-warm weekly cache on startup
 setTimeout(() => {
-  const mockRes = { json: (body) => { _weeklyCache = { data: body, ts: Date.now() }; } };
+  // status/send let the controller's error path run without throwing (an
+  // unhandled rejection here would take the process down at startup).
+  const mockRes = { json: (body) => { _weeklyCache = { data: body, ts: Date.now() }; }, status: () => mockRes, send: () => {} };
   energyController.getWeeklyEnergyForCurrentAndLastWeek({}, mockRes, () => {});
 }, 3000);
 

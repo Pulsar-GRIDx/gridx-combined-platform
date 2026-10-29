@@ -81,6 +81,7 @@ const customerAuthRoutes = require('./routes/customerAuthRoutes');
 const tamperRoutes = require('./routes/tamperRoutes');
 // const vsmRoutes = require('./routes/vsmRoutes'); // VSM removed — production HSM configured in hsmService
 const meterValidationRoutes = require('./routes/meterValidationRoutes');
+const customerMeterRoutes = require('./routes/customerMeterRoutes');
 const energyAnalyticsRoutes = require('./routes/energyAnalyticsRoutes');
 const authorizedNumbersRoutes = require('./meter/authorizedNumbersRoutes');
 const { confirmValidation } = require('./customer/meterValidationController');
@@ -123,6 +124,16 @@ const hwRegistrationLimiter = rateLimit({
   message: { error: 'TOO_MANY_REQUESTS', message: 'Too many registration attempts. Try again in 15 minutes.' },
 });
 
+// Multi-meter accounts (CustomerMeters). Idempotent; creates the tables and
+// backfills existing SystemUsers.DRN links. Customer authorisation fails
+// closed until it has run. Set RUN_MIGRATIONS_ON_START=false to run it by
+// hand instead (node migrations/20261029_customer_meters.js).
+if (process.env.RUN_MIGRATIONS_ON_START !== 'false') {
+  require('./migrations/20261029_customer_meters').migrate(require('./config/db'))
+    .then(function(r) { console.log('[migrate:customer_meters] ok', JSON.stringify({ created: r.created, backfilled: r.backfilled, foreignKeys: r.foreignKeys, skippedForeignKeys: r.skippedForeignKeys, unmatchedLegacyUsers: r.unmatchedLegacyUsers.length })); })
+    .catch(function(e) { console.error('[migrate:customer_meters] FAILED:', e.message); });
+}
+
 // Initialize MQTT handler (subscribes to meter telemetry topics)
 const mqttHandler = require('./services/mqttHandler');
 mqttHandler.init();
@@ -150,6 +161,10 @@ apiRouter.use('/api/v1/meter-health', meterHealthRoutes);
 // Customer auth routes (public — before admin auth middleware)
 apiRouter.use('/customer', customerAuthRoutes);
 apiRouter.use('/customer', meterValidationRoutes);
+// Signed-in customer: profile, meter list, link/unlink meters, logout
+apiRouter.use('/customer', customerMeterRoutes.customer);
+// Admin: customer <-> meter associations
+apiRouter.use('/admin', customerMeterRoutes.admin);
 apiRouter.use('/meterAuthorizedNumbers', authorizedNumbersRoutes);
 
 // Authenticated routes
@@ -292,6 +307,7 @@ app.use('/api/billing', billingNotificationRoutes);
 app.use('/meter-registration', meterRegistrationRoutes);
 app.use('/customer', customerAuthRoutes);
 app.use('/customer', meterValidationRoutes);
+app.use('/customer', customerMeterRoutes.customer);
 
 // Relay events API (receives relay logs from maintenance app)
 app.use('/api/v1/relay-events', relayEventsRoutes);

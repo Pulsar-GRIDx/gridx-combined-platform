@@ -26,18 +26,21 @@ function authenticateToken(req, res, next) {
       }
     }
 
-    // Server-side meter isolation: a customer token may only reference its
-    // own DRN, and meter tokens are not accepted here. See
-    // middleware/meterOwnership.js.
-    var refusal = meterOwnership.checkOwnership(req, decoded);
-    if (refusal) {
-      return res.status(refusal.status).json({ error: refusal.error });
-    }
-
-    // Attach decoded payload to request
-    req.user = decoded;
-    req.tokenPayload = decoded;
-    next();
+    // Server-side meter isolation: a customer token may only use allow-listed
+    // routes for meters linked to its account, and meter tokens are not
+    // accepted here. See middleware/meterOwnership.js.
+    meterOwnership.checkOwnership(req, decoded).then(function(refusal) {
+      if (refusal) {
+        return res.status(refusal.status).json({ error: refusal.error, code: refusal.code });
+      }
+      // Attach decoded payload to request
+      req.user = decoded;
+      req.tokenPayload = decoded;
+      next();
+    }, function(authzErr) {
+      console.error('[Auth] Authorisation check failed:', authzErr.message);
+      res.status(503).json({ error: 'Authorisation service unavailable' });
+    });
   });
 }
 

@@ -695,6 +695,17 @@ router.get('/hourly-energy/:drn', authenticateToken, async (req, res) => {
   }
 });
 
+// The meter a history request is about. Customers: the meter the ownership
+// policy already authorised (?drn= or the token's primary meter), set as
+// req.meterDrn by authenticateToken. Admins: ?drn= or the token's DRN.
+// Meter tokens are not accepted. Returns false to refuse.
+function resolveHistoryDrn(req, decoded) {
+  var kind = require('../middleware/tokens').kind(decoded);
+  if (kind === 'customer') return req.meterDrn || false;
+  if (kind === 'admin') return req.query.drn || req.query.DRN || decoded.DRN || null;
+  return false;
+}
+
 // GET /hourlyEnergyByDRN — get hourly energy for the authenticated meter (used by Android app)
 // Accepts DRN from JWT token (customer auth: DRN field, hardware auth: meterDRN/drn field)
 router.get('/hourlyEnergyByDRN', (req, res) => {
@@ -707,10 +718,11 @@ router.get('/hourlyEnergyByDRN', (req, res) => {
   let drn;
   try {
     const decoded = jwt.verify(token, secret);
-    drn = decoded.DRN || decoded.meterDRN || decoded.drn;
+    drn = resolveHistoryDrn(req, decoded);
   } catch (e) {
     return res.status(401).json({ error: 'Invalid token' });
   }
+  if (drn === false) return res.status(403).json({ error: 'Forbidden', code: 'WRONG_TOKEN_KIND' });
   if (!drn) return res.status(400).json({ error: 'No DRN in token' });
 
   // First try MeterHourlyEnergy (MQTT energy_usage data from meter)
@@ -766,10 +778,11 @@ router.get('/weeklyTotalEnergyByDRN', (req, res) => {
   let drn;
   try {
     const decoded = jwt.verify(token, secret);
-    drn = decoded.DRN || decoded.meterDRN || decoded.drn;
+    drn = resolveHistoryDrn(req, decoded);
   } catch (e) {
     return res.status(401).json({ error: 'Invalid token' });
   }
+  if (drn === false) return res.status(403).json({ error: 'Forbidden', code: 'WRONG_TOKEN_KIND' });
   if (!drn) return res.status(400).json({ error: 'No DRN in token' });
 
   // Get daily average power for current week and last week
@@ -827,10 +840,11 @@ router.get('/monthlyEnergyByDRN', (req, res) => {
   let drn;
   try {
     const decoded = jwt.verify(token, secret);
-    drn = decoded.DRN || decoded.meterDRN || decoded.drn;
+    drn = resolveHistoryDrn(req, decoded);
   } catch (e) {
     return res.status(401).json({ error: 'Invalid token' });
   }
+  if (drn === false) return res.status(403).json({ error: 'Forbidden', code: 'WRONG_TOKEN_KIND' });
   if (!drn) return res.status(400).json({ error: 'No DRN in token' });
 
   const currentYear = new Date().getFullYear();

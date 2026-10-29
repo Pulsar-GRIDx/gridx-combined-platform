@@ -9,7 +9,9 @@ const router = express.Router();
 
 
 // Define a POST route to add random sample data
-router.post('/addRandomSampleData', async (req, res) => {
+// Admin only (hwAuth refuses customer and meter tokens on this path): it
+// writes fabricated telemetry.
+router.post('/addRandomSampleData', auth, async (req, res) => {
   // Define an array of DRNs for which you want to add random sample data
   const drns = [
     '0260152877924',

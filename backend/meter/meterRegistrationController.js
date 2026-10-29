@@ -1,6 +1,18 @@
 const meterRegistrationService = require('./meterRegistrationService');
 const db = require('../config/db');
 
+// A technician registering a meter is standing at it, so the meter may pin
+// its identity key during the next 24h (hardware/meterTokenRoutes.js).
+// Registration still succeeds if this fails.
+async function openPinWindowFor(req, drn) {
+  if (!req.user || !/^\d{13}$/.test(String(drn || ''))) return;
+  try {
+    await require('../hardware/meterTokenRoutes').openPinWindow(String(drn), 24, 'technician:' + (req.user.Admin_ID || '?'));
+  } catch (e) {
+    console.error('[MeterRegistration] could not open key-pinning window for', drn, e.message);
+  }
+}
+
 /**
  * Controller for meter registration
  */
@@ -62,6 +74,7 @@ exports.registerMeter = async (req, res) => {
 
     // Register the meter
     const result = await meterRegistrationService.registerMeter(location, meterProfile);
+    await openPinWindowFor(req, meterProfile.drn);
 
     res.status(201).json(result);
   } catch (error) {
@@ -69,9 +82,14 @@ exports.registerMeter = async (req, res) => {
 
     // Handle duplicate entry errors
     if (error.code === 'ER_DUP_ENTRY') {
+      // The technician is at a meter that is already on record: let it pin
+      // its key now if it has none (meters commissioned before 2026-10).
+      await openPinWindowFor(req, req.body.meterProfile.drn);
       return res.status(409).json({
         error: 'Meter already registered',
         details: 'A meter with this DRN or meter number already exists',
+        drn: req.body.meterProfile.drn,
+        status: 'already_registered',
       });
     }
 

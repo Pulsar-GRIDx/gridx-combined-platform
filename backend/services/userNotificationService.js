@@ -49,9 +49,9 @@ function createNotification({ userId, category, title, body, relatedDrn, sourceE
   });
 }
 
-/** Every SystemUsers row associated with a DRN (a meter can have up to 5 users). */
+/** Every account with an active link to a meter (CustomerMeters; up to 5). */
 async function getUsersForDrn(drn) {
-  return queryAll('SELECT UserID FROM SystemUsers WHERE DRN = ?', [drn]);
+  return queryAll("SELECT UserID FROM CustomerMeters WHERE DRN = ? AND status = 'active'", [drn]);
 }
 
 /** Fan a notification out to every user currently associated with a meter. */

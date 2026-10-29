@@ -29,7 +29,7 @@ const transporter = nodemailer.createTransport({
   secure: true,
   auth: {
     user: process.env.EMAIL || 'info@gridx-meters.com',
-    pass: process.env.EMAIL_KEY || 'W9h8B_Ykd!UgWgM',
+    pass: process.env.EMAIL_KEY,
   },
   tls: {
     rejectUnauthorized: false,
@@ -487,7 +487,9 @@ router.post('/test-notification', authenticateToken, async (req, res) => {
       FROM 
         MeterBillingConfiguration bc
       JOIN 
-        SystemUsers su ON bc.DRN = su.DRN
+        CustomerMeters cm ON cm.DRN = bc.DRN AND cm.status = 'active'
+      JOIN 
+        SystemUsers su ON su.UserID = cm.UserID
       WHERE 
         bc.DRN = ?
     `;

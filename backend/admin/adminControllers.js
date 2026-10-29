@@ -14,7 +14,7 @@ var pinStore = {};
 // Configure nodemailer transporter
 // Uses env vars if set, otherwise defaults to GoDaddy SMTP for gridx-meters.com
 var SMTP_EMAIL = process.env.EMAIL || 'info@gridx-meters.com';
-var SMTP_KEY = process.env.EMAIL_KEY || 'W9h8B_Ykd!UgWgM';
+var SMTP_KEY = process.env.EMAIL_KEY;
 var SMTP_HOST = process.env.EMAIL_HOST || 'smtpout.secureserver.net';
 var SMTP_PORT = process.env.EMAIL_PORT || 465;
 

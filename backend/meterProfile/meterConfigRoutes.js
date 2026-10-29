@@ -133,7 +133,11 @@ router.get("/meter-profiles", (req, res) => {
       INNER JOIN (SELECT DRN, MAX(id) as max_id FROM MeterCommissionReport WHERE report_type = "commissioning" OR report_type = "full_system" GROUP BY DRN) latest ON t.id = latest.max_id
     ) mcr ON mpr.DRN = mcr.DRN
     LEFT JOIN meters m ON mpr.DRN = m.DRN COLLATE utf8mb4_0900_ai_ci
-    LEFT JOIN SystemUsers su ON mpr.DRN = su.DRN
+    LEFT JOIN (
+      SELECT cm.DRN, MIN(cm.UserID) AS UserID, MIN(u.FirstName) AS FirstName
+      FROM CustomerMeters cm JOIN SystemUsers u ON u.UserID = cm.UserID
+      WHERE cm.status = 'active' GROUP BY cm.DRN
+    ) su ON mpr.DRN = su.DRN
     ORDER BY mpr.DRN
   `;
 

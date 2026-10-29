@@ -1,6 +1,8 @@
 var connection = require('../config/db');
 var bcrypt = require('bcryptjs');
-var jwt = require('jsonwebtoken');
+var tokens = require('../middleware/tokens');
+var customerMeters = require('../services/customerMeterService');
+var meterValidation = require('./meterValidationController');
 var geoip = require('geoip-lite');
 var authorizedNumbersService = require('../meter/authorizedNumbersService');
 
@@ -71,20 +73,22 @@ function getGeoString(ip) {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CUSTOMER SIGNUP
+//
+// The account is created and linked to the meter in one transaction-like
+// sequence, and only after the meter itself confirmed the signup: the app
+// must present the token of a meter-button validation (see
+// customer/meterValidationController.js) that the meter confirmed. Knowing a
+// DRN is not enough to attach yourself to someone's meter.
 // ═══════════════════════════════════════════════════════════════════════════
 
-exports.signup = async function(Email, Password, FirstName, LastName, DRN, Phone) {
+var INVALID_CREDENTIALS = 'Invalid email or password';
+
+exports.signup = async function(Email, Password, FirstName, LastName, DRN, Phone, validationToken) {
   if (!Email || !Password || !DRN) {
     throw new Error('Email, Password, and Meter Number (DRN) are required');
   }
 
-  // Validate DRN exists in MeterProfileReal
-  var meterExists = await new Promise(function(resolve, reject) {
-    connection.query('SELECT DRN FROM MeterProfileReal WHERE DRN = ?', [DRN], function(err, results) {
-      if (err) return reject(err);
-      resolve(results && results.length > 0);
-    });
-  });
+  var meterExists = await customerMeters.meterExists(DRN);
   if (!meterExists) {
     var meterErr = new Error('Meter number not found. Please check your meter number and try again.');
     meterErr.status = 404;
@@ -101,7 +105,6 @@ exports.signup = async function(Email, Password, FirstName, LastName, DRN, Phone
     }
   }
 
-  // Check if email already registered
   var emailExists = await new Promise(function(resolve, reject) {
     connection.query('SELECT UserID FROM SystemUsers WHERE Email = ?', [Email], function(err, results) {
       if (err) return reject(err);
@@ -114,23 +117,25 @@ exports.signup = async function(Email, Password, FirstName, LastName, DRN, Phone
     throw dupErr;
   }
 
-  // Check if DRN has reached max users (5 per meter)
-  var drnUserCount = await new Promise(function(resolve, reject) {
-    connection.query('SELECT COUNT(*) as cnt FROM SystemUsers WHERE DRN = ?', [DRN], function(err, results) {
-      if (err) return reject(err);
-      resolve(results[0].cnt);
-    });
-  });
-  if (drnUserCount >= 5) {
-    var drnErr = new Error('This meter has reached the maximum of 5 registered users. Please contact your administrator.');
+  var activeUsers = (await customerMeters.membersOfMeter(DRN)).length;
+  if (activeUsers >= customerMeters.MAX_USERS_PER_METER) {
+    var drnErr = new Error('This meter has reached the maximum of ' + customerMeters.MAX_USERS_PER_METER + ' registered users. Please contact your administrator.');
     drnErr.status = 409;
     throw drnErr;
   }
 
-  // Hash password
+  // Consume the meter-button proof last, so a validation error above does
+  // not burn it.
+  var proven = await meterValidation.consumeValidation(validationToken, DRN, 'registration', null);
+  if (!proven) {
+    var proofErr = new Error('Press the validation button on your meter to confirm this registration, then try again.');
+    proofErr.status = 403;
+    proofErr.code = 'METER_VALIDATION_REQUIRED';
+    throw proofErr;
+  }
+
   var hashedPassword = await bcrypt.hash(Password, 12);
 
-  // Insert user
   var result = await new Promise(function(resolve, reject) {
     connection.query(
       'INSERT INTO SystemUsers (Email, Password, FirstName, LastName, DRN, isVerified) VALUES (?, ?, ?, ?, ?, ?)',
@@ -142,28 +147,39 @@ exports.signup = async function(Email, Password, FirstName, LastName, DRN, Phone
     );
   });
 
-  // Generate token for auto-login after registration
-  var token = jwt.sign(
-    { UserID: result.insertId, Email: Email, DRN: DRN, role: 'CUSTOMER' },
-    process.env.SECRET_KEY,
-    { expiresIn: '24h' }
-  );
+  await customerMeters.link(result.insertId, DRN, { via: 'signup_meter_button', actor: 'self' });
+  var meters = await customerMeters.listForUser(result.insertId);
 
+  var user = { UserID: result.insertId, Email: Email };
   return {
-    token: token,
+    token: tokens.signCustomer(user, DRN, 0),
     user: {
       UserID: result.insertId,
       Email: Email,
       FirstName: FirstName || '',
       LastName: LastName || '',
       DRN: DRN
-    }
+    },
+    meterCount: meters.length,
+    meters: meters
   };
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CUSTOMER SIGN IN — with email + meter number + password
+// CUSTOMER SIGN IN — email + password (+ optional meter number)
+//
+// An unknown email and a wrong password get the same 401 and message, so the
+// endpoint does not reveal which emails have accounts.
 // ═══════════════════════════════════════════════════════════════════════════
+
+function invalidCredentials() {
+  var e = new Error(INVALID_CREDENTIALS);
+  e.status = 401;
+  return e;
+}
+
+// Spent on unknown emails so they take as long as a real password check.
+var DUMMY_HASH = bcrypt.hashSync('timing-equaliser-not-a-password', 12);
 
 exports.signIn = async function(Email, DRN, Password, ipAddress, userAgent) {
   if (!Email || !Password) {
@@ -172,26 +188,16 @@ exports.signIn = async function(Email, DRN, Password, ipAddress, userAgent) {
 
   var geoStr = getGeoString(ipAddress);
 
-  // Find user by email
   var user = await new Promise(function(resolve, reject) {
     connection.query('SELECT * FROM SystemUsers WHERE Email = ?', [Email], function(err, results) {
       if (err) return reject(err);
-      if (!results || results.length === 0) {
-        var notFoundError = new Error('Email not found. Please register first.');
-        notFoundError.status = 404;
-        reject(notFoundError);
-      } else {
-        resolve(results[0]);
-      }
+      resolve(results && results[0]);
     });
   });
-
-  // If DRN provided, verify it matches
-  if (DRN && user.DRN !== DRN) {
-    logPlatformAudit('Customer login - DRN mismatch for: ' + Email, 'LOGIN_FAILED', 'DRN provided: ' + DRN + ', expected: ' + user.DRN, Email, user.UserID, ipAddress, geoStr, userAgent);
-    var drnErr = new Error('Email and meter number do not match.');
-    drnErr.status = 401;
-    throw drnErr;
+  if (!user) {
+    await bcrypt.compare(Password, DUMMY_HASH);
+    logPlatformAudit('Customer login - unknown email: ' + Email, 'LOGIN_FAILED', 'Unknown email', Email, null, ipAddress, geoStr, userAgent);
+    throw invalidCredentials();
   }
 
   // Check if account is locked
@@ -203,7 +209,6 @@ exports.signIn = async function(Email, DRN, Password, ipAddress, userAgent) {
     throw lockErr;
   }
 
-  // Verify password
   var isMatch = await bcrypt.compare(Password, user.Password);
   if (!isMatch) {
     var newFailCount = (user.failed_login_count || 0) + 1;
@@ -218,12 +223,20 @@ exports.signIn = async function(Email, DRN, Password, ipAddress, userAgent) {
       function() {}
     );
     logPlatformAudit('Customer failed login (' + newFailCount + '/' + MAX_FAILED_ATTEMPTS + '): ' + Email, 'LOGIN_FAILED', 'Incorrect password', Email, user.UserID, ipAddress, geoStr, userAgent);
-    var mismatchError = new Error('Incorrect password. ' + (MAX_FAILED_ATTEMPTS - newFailCount) + ' attempts remaining before lockout.');
-    mismatchError.status = 401;
-    throw mismatchError;
+    throw invalidCredentials();
   }
 
-  // Successful login
+  var meters = await customerMeters.listForUser(user.UserID);
+  var drns = meters.map(function(m) { return m.drn; });
+
+  // Older app builds send the meter number with the login. It must be one
+  // of the account's meters; it then becomes the token's primary meter.
+  if (DRN && drns.indexOf(String(DRN)) === -1) {
+    logPlatformAudit('Customer login - meter not linked for: ' + Email, 'LOGIN_FAILED', 'DRN provided: ' + DRN, Email, user.UserID, ipAddress, geoStr, userAgent);
+    throw invalidCredentials();
+  }
+  var primary = DRN ? String(DRN) : (drns.indexOf(String(user.DRN)) !== -1 ? String(user.DRN) : (drns[0] || null));
+
   var loginTimestamp = new Date();
   await new Promise(function(resolve, reject) {
     connection.query(
@@ -233,27 +246,38 @@ exports.signIn = async function(Email, DRN, Password, ipAddress, userAgent) {
     );
   });
 
-  logPlatformAudit('Customer login: ' + Email, 'LOGIN', 'DRN: ' + user.DRN + ', IP: ' + (ipAddress || 'N/A'), Email, user.UserID, ipAddress, geoStr, userAgent);
-
-  // Generate JWT
-  var token = jwt.sign(
-    { UserID: user.UserID, Email: user.Email, DRN: user.DRN, role: 'CUSTOMER' },
-    process.env.SECRET_KEY,
-    { expiresIn: '24h' }
-  );
+  logPlatformAudit('Customer login: ' + Email, 'LOGIN', 'Meters: ' + (drns.join(',') || 'none') + ', IP: ' + (ipAddress || 'N/A'), Email, user.UserID, ipAddress, geoStr, userAgent);
 
   return {
-    token: token,
+    token: tokens.signCustomer(user, primary, user.token_version || 0),
     message: 'Sign in successful',
     user: {
       UserID: user.UserID,
       Email: user.Email,
       FirstName: user.FirstName,
       LastName: user.LastName,
-      DRN: user.DRN,
+      DRN: primary,
       lastLoginTime: loginTimestamp
-    }
+    },
+    meterCount: meters.length,
+    meters: meters
   };
+};
+
+// Profile + meters for the signed-in account.
+exports.getProfile = async function(UserID) {
+  var rows = await new Promise(function(resolve, reject) {
+    connection.query('SELECT UserID, Email, FirstName, LastName FROM SystemUsers WHERE UserID = ?', [UserID], function(err, r) {
+      if (err) reject(err); else resolve(r);
+    });
+  });
+  if (!rows || !rows.length) {
+    var e = new Error('Account not found');
+    e.status = 404;
+    throw e;
+  }
+  var meters = await customerMeters.listForUser(UserID);
+  return { user: rows[0], meterCount: meters.length, meters: meters };
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -273,7 +297,7 @@ exports.resetPasswordByEmail = function(Email, Password) {
     bcrypt.hash(Password, 12, function(err, hashedPassword) {
       if (err) return reject(err);
       connection.query(
-        'UPDATE SystemUsers SET Password = ?, failed_login_count = 0, locked_until = NULL WHERE Email = ?',
+        'UPDATE SystemUsers SET Password = ?, failed_login_count = 0, locked_until = NULL, token_version = token_version + 1 WHERE Email = ?',
         [hashedPassword, Email],
         function(err2) { if (err2) reject(err2); else resolve(); }
       );
