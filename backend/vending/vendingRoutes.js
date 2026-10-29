@@ -4300,6 +4300,66 @@ router.post('/thrift-issue-keychange', authenticateToken, requireAdmin, function
   });
 });
 
+// POST /vending/thrift-issue-ditk-change — commission a meter that is still on
+// its initialisation key: the HSM derives the key change token pair that moves
+// it from the DITK into the stated supply group / key revision / tariff index.
+//   body { drn, sgc, krn, ti, toKeyType ('DUTK' or 0-3) }
+// Only for a meter whose recorded key state (read from the meter) is DITK.
+router.post('/thrift-issue-ditk-change', authenticateToken, requireAdmin, function(req, res) {
+  var b = req.body || {};
+  var meterId = String(b.drn || '');
+  var sgc = String(b.sgc || '');
+  var krn = parseInt(b.krn, 10);
+  var ti = parseInt(b.ti, 10);
+  var kt = b.toKeyType;
+  if (typeof kt === 'string' && !/^\d+$/.test(kt)) {
+    kt = Object.keys(stsGuard.KEY_TYPES).filter(function(k) { return stsGuard.KEY_TYPES[k] === kt.toUpperCase(); })[0];
+  }
+  kt = parseInt(kt, 10);
+  if (!/^\d{13}$/.test(meterId)) return res.status(400).json({ success: false, error: 'drn (13 digits) is required' });
+  if (!/^\d{6}$/.test(sgc) || !(krn >= 1 && krn <= 9) || !(ti >= 0 && ti <= 99)) {
+    return res.status(400).json({ success: false, error: 'target sgc (6 digits), krn (1-9) and ti (0-99) are required' });
+  }
+  if (!(kt in stsGuard.KEY_TYPES) || kt === 0) return res.status(400).json({ success: false, error: 'toKeyType must be DDTK, DUTK or DCTK' });
+
+  db.query('SELECT * FROM MeterSecurityParams WHERE meterNumber = ?', [meterId], function(err, rows) {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    var row = rows && rows[0];
+    if (!row) return res.status(409).json({ success: false, code: 'STS_PARAMS_MISSING', error: 'Meter has no STS security parameters' });
+    if (!row.meterReportedAt || Number(row.meterReportedKeyType) !== 0) {
+      return res.status(409).json({ success: false, code: 'STS_METER_NOT_ON_DITK',
+        error: 'The recorded key state of this meter is not DITK; read the meter and record it first' });
+    }
+    var mc = { drn: meterId, ea: 7, tct: 2, sgc: parseInt(sgc, 10), krn: krn, ti: ti, ken: 255 };
+    var startTime = Date.now();
+    thriftHsm.issueDitkChangeTokens(mc, function(hErr, result) {
+      var durationMs = Date.now() - startTime;
+      var logReq = { from: 'DITK', toSgc: sgc, toKrn: krn, toTi: ti };
+      if (hErr) {
+        logPrismVendOperation('thrift-ditk-change', meterId, logReq, null, 'error', null, hErr.message, getOperatorName(req), getOperatorId(req), durationMs);
+        return res.status(502).json({ success: false, code: 'HSM_UNAVAILABLE', error: hErr.message });
+      }
+      var toks = (result && result.tokens) || [];
+      var nc = (toks[0] && toks[0].newConfig) || {};
+      var bad = toks.length !== 2 || toks.some(function(t) { return !/^\d{20}$/.test(String(t.tokenDec || '')); }) ||
+        String(nc.toSgc) !== String(parseInt(sgc, 10)) || Number(nc.toKrn) !== krn || Number(nc.toTi) !== ti;
+      if (bad) {
+        logPrismVendOperation('thrift-ditk-change', meterId, logReq, { numTokens: toks.length, newConfig: nc }, 'error', null, 'unexpected HSM result', getOperatorName(req), getOperatorId(req), durationMs);
+        return res.status(502).json({ success: false, code: 'STS_TOKEN_PARAMS_MISMATCH', error: 'The HSM did not return the expected two tokens for the requested target', details: { numTokens: toks.length, newConfig: nc } });
+      }
+      logPrismVendOperation('thrift-ditk-change', meterId, logReq, { numTokens: 2, newConfig: nc }, 'success', result.messageId, null, getOperatorName(req), getOperatorId(req), durationMs);
+      logAudit('DITK change tokens issued for ' + meterId + ' -> SGC ' + sgc + ' KRN ' + krn + ' TI ' + ti, 'CREATE',
+        'KCV ' + (nc.toVkKcv || '?') + ', key type ' + stsGuard.KEY_TYPES[kt], getOperatorName(req), getOperatorId(req), req.ip);
+      recordKeyChangeIssued(meterId, sgc, krn, ti, kt, getOperatorName(req));
+      res.json({ success: true, data: {
+        drn: meterId,
+        tokens: toks.map(function(t, i) { return { order: i + 1, tokenDec: t.tokenDec, description: t.description || '' }; }),
+        target: { sgc: sgc, krn: krn, ti: ti, keyType: stsGuard.KEY_TYPES[kt], vkKcv: nc.toVkKcv || null }
+      } });
+    });
+  });
+});
+
 // POST /vending/thrift-verify — Verify a token via Thrift
 router.post('/thrift-verify', authenticateToken, function(req, res) {
   var b = req.body;
