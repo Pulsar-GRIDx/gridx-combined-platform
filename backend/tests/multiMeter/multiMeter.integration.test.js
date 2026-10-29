@@ -126,6 +126,7 @@ d('multi-meter accounts and meter isolation (integration, isolated test DB)', ()
     }
     // Readings that identify their meter.
     await rawQuery(root, 'INSERT INTO MeteringPower (DRN, active_power) VALUES (?, 111), (?, 222), (?, 333)', [A, B, C]);
+    await rawQuery(root, "INSERT INTO MeterLastSeen (DRN, last_seen, last_topic, message_count) VALUES (?, '2026-10-29 07:47:24', 'power', 5)", [A]);
     await rawQuery(root, 'INSERT INTO MeterHourlyEnergy (DRN, hourly_data, total) VALUES (?, \'[1]\', 1000), (?, \'[2]\', 2000), (?, \'[3]\', 3000)', [A, B, C]);
     // A pre-existing single-meter account (signed up before this change).
     const bcrypt = require('bcryptjs');
@@ -228,6 +229,10 @@ d('multi-meter accounts and meter isolation (integration, isolated test DB)', ()
       expect(me.body.meterCount).toBe(2);
       expect(me.body.meters.map(m => m.drn).sort()).toEqual([A, B].sort());
       expect(me.body.user.Email).toBe('u@example.test');
+      // lastSeen comes from MeterLastSeen (A has a row, B has none).
+      const byDrn = Object.fromEntries(me.body.meters.map(m => [m.drn, m]));
+      expect(new Date(byDrn[A].lastSeen).toISOString()).toMatch(/^2026-10-29T0\d:47:24/);
+      expect(byDrn[B].lastSeen).toBeNull();
       const list = await get('/cb/customer/meters', U);
       expect(list.body.meterCount).toBe(2);
     });

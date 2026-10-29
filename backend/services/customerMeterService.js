@@ -68,13 +68,14 @@ async function listForUser(userId) {
   var rows = await q(
     'SELECT cm.DRN, cm.role, cm.nickname, cm.verified_via, cm.created_at AS linked_at, ' +
     '       mpr.Name, mpr.Surname, mpr.City, mpr.StreetName, mpr.HouseNumber, ' +
-    '       (SELECT MAX(mp.date_time) FROM MeterPower mp WHERE mp.DRN = cm.DRN) AS last_seen ' +
+    // MeterLastSeen is kept current by the MQTT handler on every message.
+    '       (SELECT MAX(ls.last_seen) FROM MeterLastSeen ls WHERE ls.DRN = cm.DRN) AS last_seen ' +
     'FROM CustomerMeters cm JOIN MeterProfileReal mpr ON mpr.DRN = cm.DRN ' +
     "WHERE cm.UserID = ? AND cm.status = 'active' ORDER BY cm.created_at ASC, cm.id ASC",
     [userId]
   ).catch(function(err) {
-    // MeterPower is a telemetry table that may be absent in a fresh schema;
-    // the list must still work without last_seen.
+    // MeterLastSeen may be absent in a fresh schema; the list must still
+    // work without last_seen.
     if (err.code !== 'ER_NO_SUCH_TABLE') throw err;
     return q(
       'SELECT cm.DRN, cm.role, cm.nickname, cm.verified_via, cm.created_at AS linked_at, ' +

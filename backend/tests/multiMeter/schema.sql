@@ -66,3 +66,7 @@ CREATE TABLE MeterLocationInfoTable (
   DRN VARCHAR(20), Longitude DOUBLE, Lat DOUBLE, pLng DOUBLE, pLat DOUBLE, PowerSupply VARCHAR(30),
   Type VARCHAR(30), Suburb VARCHAR(60), LocationName VARCHAR(60), Status INT
 ) ENGINE=InnoDB;
+
+CREATE TABLE MeterLastSeen (
+  DRN VARCHAR(20) NOT NULL PRIMARY KEY, last_seen DATETIME, last_topic VARCHAR(40), message_count INT DEFAULT 0
+) ENGINE=InnoDB;
